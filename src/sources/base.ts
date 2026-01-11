@@ -26,7 +26,7 @@ export interface SpellData {
   name: string;
   id: string;
   source: string;
-  mana?: string;
+  mana?: number;
   castTime?: string;
   recastTime?: string;
   duration?: string;
@@ -34,8 +34,8 @@ export interface SpellData {
   target?: string;
   resist?: string;
   skill?: string;
-  classes?: string;
-  effect?: string;
+  classes?: Record<string, number>; // class name -> level
+  effects?: string[];
   expansion?: string;
   raw?: string;
 }
@@ -45,16 +45,20 @@ export interface ItemData {
   id: string;
   source: string;
   slot?: string;
-  ac?: string;
-  damage?: string;
-  delay?: string;
-  stats?: string;
-  effect?: string;
-  classes?: string;
-  races?: string;
-  weight?: string;
-  dropsFrom?: string;
+  ac?: number;
+  damage?: number;
+  delay?: number;
+  ratio?: number;
+  stats?: Record<string, number>; // stat name -> value
+  heroicStats?: Record<string, number>;
+  effects?: string[];
+  classes?: string[];
+  races?: string[];
+  weight?: number;
+  dropsFrom?: string[];
   expansion?: string;
+  required?: number; // required level
+  recommended?: number; // recommended level
   raw?: string;
 }
 
@@ -96,18 +100,205 @@ export interface TradeskillData {
 }
 
 export const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'User-Agent': 'EverQuest-MCP/1.0 (https://github.com/ArtSabintsev/everquest-mcp)',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.5',
   'Connection': 'keep-alive',
-  'Upgrade-Insecure-Requests': '1',
 };
 
-const FETCH_TIMEOUT_MS = 10000; // 10 second timeout
+// ============ CACHING ============
+
+interface CacheEntry {
+  data: string;
+  timestamp: number;
+}
+
+const cache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_CACHE_SIZE = 500; // Max entries
+
+function getCached(url: string): string | null {
+  const entry = cache.get(url);
+  if (!entry) return null;
+
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    cache.delete(url);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(url: string, data: string): void {
+  // Evict oldest entries if cache is full
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const oldest = [...cache.entries()]
+      .sort((a, b) => a[1].timestamp - b[1].timestamp)
+      .slice(0, 50); // Remove 50 oldest
+    for (const [key] of oldest) {
+      cache.delete(key);
+    }
+  }
+  cache.set(url, { data, timestamp: Date.now() });
+}
+
+export function clearCache(): void {
+  cache.clear();
+}
+
+export function getCacheStats(): { size: number; maxSize: number; ttlMinutes: number } {
+  return { size: cache.size, maxSize: MAX_CACHE_SIZE, ttlMinutes: CACHE_TTL_MS / 60000 };
+}
+
+// ============ RATE LIMITING ============
+
+interface RateLimitState {
+  tokens: number;
+  lastRefill: number;
+}
+
+const rateLimits = new Map<string, RateLimitState>();
+const RATE_LIMIT_TOKENS = 10; // requests per window
+const RATE_LIMIT_REFILL_MS = 1000; // refill window (1 second)
+
+function getDomain(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return 'unknown';
+  }
+}
+
+async function waitForRateLimit(url: string): Promise<void> {
+  const domain = getDomain(url);
+  let state = rateLimits.get(domain);
+
+  if (!state) {
+    state = { tokens: RATE_LIMIT_TOKENS, lastRefill: Date.now() };
+    rateLimits.set(domain, state);
+  }
+
+  // Refill tokens based on time passed
+  const now = Date.now();
+  const timePassed = now - state.lastRefill;
+  const tokensToAdd = Math.floor(timePassed / RATE_LIMIT_REFILL_MS) * RATE_LIMIT_TOKENS;
+
+  if (tokensToAdd > 0) {
+    state.tokens = Math.min(RATE_LIMIT_TOKENS, state.tokens + tokensToAdd);
+    state.lastRefill = now;
+  }
+
+  // Wait if no tokens available
+  if (state.tokens <= 0) {
+    const waitTime = RATE_LIMIT_REFILL_MS - (now - state.lastRefill);
+    if (waitTime > 0) {
+      await sleep(waitTime);
+      state.tokens = RATE_LIMIT_TOKENS;
+      state.lastRefill = Date.now();
+    }
+  }
+
+  state.tokens--;
+}
+
+// ============ FUZZY MATCHING ============
+
+// Simple Levenshtein distance for typo tolerance
+export function levenshtein(a: string, b: string): number {
+  const matrix: number[][] = [];
+
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+
+  return matrix[b.length][a.length];
+}
+
+// Normalize search terms (handle common EQ typos/variations)
+export function normalizeQuery(query: string): string {
+  return query
+    .toLowerCase()
+    .trim()
+    // Common zone name variations
+    .replace(/karnors?/gi, "karnor's")
+    .replace(/pok\b/gi, 'plane of knowledge')
+    .replace(/\bpof\b/gi, 'plane of fear')
+    .replace(/\bpoh\b/gi, 'plane of hate')
+    .replace(/\bpom\b/gi, 'plane of mischief')
+    .replace(/\bpoj\b/gi, 'plane of justice')
+    .replace(/\bpov\b/gi, 'plane of valor')
+    .replace(/\bpoi\b/gi, 'plane of innovation')
+    .replace(/\bpon\b/gi, 'plane of nightmare')
+    .replace(/\bpod\b/gi, 'plane of disease')
+    .replace(/\bsol\s?a\b/gi, "solusek's eye")
+    .replace(/\bsol\s?b\b/gi, 'nagafen')
+    .replace(/\bguk\b/gi, 'guk')
+    .replace(/\blguk\b/gi, 'lower guk')
+    .replace(/\buguk\b/gi, 'upper guk')
+    .replace(/\bha\b/gi, 'heroic adventure')
+    .replace(/\bhas\b/gi, 'heroic adventures')
+    // Apostrophe handling
+    .replace(/'/g, "'")
+    .replace(/`/g, "'");
+}
+
+// Check if result matches query with fuzzy tolerance
+export function fuzzyMatch(query: string, text: string, threshold = 0.3): boolean {
+  const normalizedQuery = normalizeQuery(query);
+  const normalizedText = text.toLowerCase();
+
+  // Exact substring match
+  if (normalizedText.includes(normalizedQuery)) return true;
+
+  // Check each word
+  const queryWords = normalizedQuery.split(/\s+/);
+  const textWords = normalizedText.split(/\s+/);
+
+  for (const qWord of queryWords) {
+    let matched = false;
+    for (const tWord of textWords) {
+      // Direct match
+      if (tWord.includes(qWord) || qWord.includes(tWord)) {
+        matched = true;
+        break;
+      }
+      // Fuzzy match for longer words
+      if (qWord.length >= 4 && tWord.length >= 4) {
+        const distance = levenshtein(qWord, tWord);
+        const maxLen = Math.max(qWord.length, tWord.length);
+        if (distance / maxLen <= threshold) {
+          matched = true;
+          break;
+        }
+      }
+    }
+    if (!matched) return false;
+  }
+  return true;
+}
+
+// ============ FETCH UTILITIES ============
+
+const FETCH_TIMEOUT_MS = 10000;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
 
-// Check if error is retryable (network issues, 5xx errors)
 function isRetryable(error: unknown, status?: number): boolean {
   if (status && status >= 500) return true;
   if (error instanceof Error) {
@@ -121,7 +312,18 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function fetchPage(url: string): Promise<string> {
+export async function fetchPage(url: string, skipCache = false): Promise<string> {
+  // Check cache first
+  if (!skipCache) {
+    const cached = getCached(url);
+    if (cached) {
+      return cached;
+    }
+  }
+
+  // Rate limit
+  await waitForRateLimit(url);
+
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -139,12 +341,15 @@ export async function fetchPage(url: string): Promise<string> {
         const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
         if (isRetryable(error, response.status) && attempt < MAX_RETRIES) {
           console.error(`[Fetch] Attempt ${attempt + 1} failed for ${url}: ${error.message}, retrying...`);
-          await sleep(RETRY_DELAY_MS * (attempt + 1)); // Exponential backoff
+          await sleep(RETRY_DELAY_MS * (attempt + 1));
           continue;
         }
         throw error;
       }
-      return response.text();
+
+      const text = await response.text();
+      setCache(url, text);
+      return text;
     } catch (error) {
       clearTimeout(timeoutId);
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -182,6 +387,20 @@ export function extractText(html: string, startMarker: string, endMarker: string
   const endIdx = html.indexOf(endMarker, startIdx + startMarker.length);
   if (endIdx === -1) return html.slice(startIdx + startMarker.length);
   return html.slice(startIdx + startMarker.length, endIdx);
+}
+
+// Parse number from string, handling commas and K/M suffixes
+export function parseNumber(str: string | undefined): number | undefined {
+  if (!str) return undefined;
+  const cleaned = str.replace(/,/g, '').trim();
+  if (cleaned.endsWith('k') || cleaned.endsWith('K')) {
+    return parseFloat(cleaned) * 1000;
+  }
+  if (cleaned.endsWith('m') || cleaned.endsWith('M')) {
+    return parseFloat(cleaned) * 1000000;
+  }
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? undefined : num;
 }
 
 // Base class for data sources

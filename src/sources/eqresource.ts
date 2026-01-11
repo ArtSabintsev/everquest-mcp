@@ -132,22 +132,42 @@ export class EQResourceSource extends EQDataSource {
 
       const data: SpellData = { name, id, source: this.name };
 
-      // Parse spell details from the page
-      const fields: [keyof SpellData, RegExp][] = [
-        ['mana', /Mana:\s*(\d+)/i],
+      // Parse mana as number
+      const manaMatch = html.match(/Mana:\s*(\d+)/i);
+      if (manaMatch) {
+        data.mana = parseInt(manaMatch[1], 10);
+      }
+
+      // Parse string fields
+      const stringFields: [keyof Pick<SpellData, 'castTime' | 'recastTime' | 'duration' | 'range' | 'target' | 'resist'>, RegExp][] = [
         ['castTime', /Cast(?:ing)?\s*Time:\s*([\d.]+)/i],
         ['recastTime', /Recast\s*Time:\s*([\d.]+)/i],
         ['duration', /Duration:\s*([^\n<]+)/i],
         ['range', /Range:\s*(\d+)/i],
         ['target', /Target(?:\s*Type)?:\s*([^\n<]+)/i],
         ['resist', /Resist(?:\s*Type)?:\s*([^\n<]+)/i],
-        ['classes', /Classes?:\s*([^\n<]+)/i],
       ];
 
-      for (const [field, regex] of fields) {
+      for (const [field, regex] of stringFields) {
         const match = html.match(regex);
         if (match) {
           data[field] = match[1].trim();
+        }
+      }
+
+      // Parse classes separately (it's a Record<string, number> in SpellData)
+      const classesMatch = html.match(/Classes?:\s*([^\n<]+)/i);
+      if (classesMatch) {
+        const classText = classesMatch[1].trim();
+        const classes: Record<string, number> = {};
+        // Try to parse class(level) format, otherwise just note the class names
+        const classPattern = /(\w+)\s*\((\d+)\)/g;
+        let cm;
+        while ((cm = classPattern.exec(classText)) !== null) {
+          classes[cm[1]] = parseInt(cm[2], 10);
+        }
+        if (Object.keys(classes).length > 0) {
+          data.classes = classes;
         }
       }
 

@@ -1,14 +1,47 @@
 {
   "name": "everquest-mcp",
   "version": "1.0.0",
-  "description": "MCP server for EverQuest 1 content data",
+  "description": "MCP server for EverQuest game data - search spells, items, NPCs, zones, quests across multiple databases",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "everquest-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsc && node dist/index.js",
-    "test": "tsc && node dist/tests/tools.test.js"
+    "test": "tsc && node dist/tests/tools.test.js",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "everquest",
+    "eq",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "ai",
+    "gaming",
+    "mmo",
+    "allakhazam"
+  ],
+  "author": "Arthur Sabintsev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ArtSabintsev/everquest-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ArtSabintsev/everquest-mcp/issues"
+  },
+  "homepage": "https://github.com/ArtSabintsev/everquest-mcp#readme",
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

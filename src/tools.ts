@@ -4,24 +4,29 @@ import {
   ItemData,
   NpcData,
   ZoneData,
-  QuestData,
   sources,
   searchAll,
   searchQuests,
   searchTradeskills,
+  searchRaidLoot,
+  searchUI,
   allakhazam,
   almars,
   eqresource,
   fanra,
   eqtraders,
-  zliz,
+  lucy,
+  raidloot,
+  eqinterface,
+  getCacheStats,
+  clearCache,
 } from './sources/index.js';
 
 export const tools = [
   // === MULTI-SOURCE SEARCH ===
   {
     name: 'search_all',
-    description: 'Search ALL EverQuest databases simultaneously (Allakhazam, Almar\'s Guides, EQResource, Fanra Wiki, EQ Traders, Zliz). Returns combined results from all sources.',
+    description: 'Search ALL EverQuest databases simultaneously (Allakhazam, Almar\'s Guides, EQResource, Fanra Wiki, EQ Traders, Zliz, Lucy, RaidLoot, EQInterface). Returns combined results from all sources.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -248,6 +253,48 @@ export const tools = [
     }
   },
   {
+    name: 'search_lucy',
+    description: 'Search Lucy for classic EQ spell and item data (historical database).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query (spell or item name)'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'search_raidloot',
+    description: 'Search RaidLoot for raid drop tables and loot by expansion.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query (e.g., "anguish", "ToV raid", "CoV loot")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'search_ui',
+    description: 'Search EQInterface for UI mods, maps, parsers, and tools.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query (e.g., "maps", "gina", "ui", "parser")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
     name: 'list_sources',
     description: 'List all available EverQuest data sources and their specialties.',
     inputSchema: {
@@ -265,13 +312,6 @@ function formatSearchResults(results: SearchResult[], query: string): string {
     return `No results found for "${query}"`;
   }
 
-  const grouped: Record<string, SearchResult[]> = {};
-  for (const r of results) {
-    const key = `${r.type}-${r.source}`;
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(r);
-  }
-
   const lines = [`## Search Results for "${query}"`, ''];
 
   const typeLabels: Record<string, string> = {
@@ -285,7 +325,7 @@ function formatSearchResults(results: SearchResult[], query: string): string {
     unknown: 'Other',
   };
 
-  // Group by source first
+  // Group by source
   const bySource: Record<string, SearchResult[]> = {};
   for (const r of results) {
     if (!bySource[r.source]) bySource[r.source] = [];
@@ -308,30 +348,31 @@ function formatSearchResults(results: SearchResult[], query: string): string {
 function formatSpell(spell: SpellData): string {
   const lines = [`# ${spell.name}`, `*Source: ${spell.source}*`, ''];
 
-  if (spell.effect) {
-    lines.push(`*${spell.effect}*`, '');
-  }
-
-  const fields = [
-    ['Mana', spell.mana],
-    ['Cast Time', spell.castTime ? `${spell.castTime}s` : undefined],
-    ['Recast Time', spell.recastTime ? `${spell.recastTime}s` : undefined],
-    ['Duration', spell.duration],
-    ['Range', spell.range],
-    ['Target', spell.target],
-    ['Resist', spell.resist],
-    ['Skill', spell.skill],
-    ['Classes', spell.classes],
-  ];
-
-  for (const [label, value] of fields) {
-    if (value) {
-      lines.push(`**${label}:** ${value}`);
+  // Show effects first if available
+  if (spell.effects && spell.effects.length > 0) {
+    lines.push('## Effects');
+    for (const effect of spell.effects) {
+      lines.push(`- ${effect}`);
     }
+    lines.push('');
   }
 
-  if (spell.raw && lines.length < 5) {
-    lines.push('', '---', spell.raw);
+  // Basic info
+  if (spell.mana) lines.push(`**Mana:** ${spell.mana}`);
+  if (spell.castTime) lines.push(`**Cast Time:** ${spell.castTime}`);
+  if (spell.recastTime) lines.push(`**Recast Time:** ${spell.recastTime}`);
+  if (spell.duration) lines.push(`**Duration:** ${spell.duration}`);
+  if (spell.range) lines.push(`**Range:** ${spell.range}`);
+  if (spell.target) lines.push(`**Target:** ${spell.target}`);
+  if (spell.resist) lines.push(`**Resist:** ${spell.resist}`);
+  if (spell.skill) lines.push(`**Skill:** ${spell.skill}`);
+
+  // Classes with levels
+  if (spell.classes && typeof spell.classes === 'object') {
+    const classEntries = Object.entries(spell.classes)
+      .map(([cls, level]) => `${cls}(${level})`)
+      .join(' ');
+    lines.push(`**Classes:** ${classEntries}`);
   }
 
   return lines.join('\n');
@@ -340,27 +381,55 @@ function formatSpell(spell: SpellData): string {
 function formatItem(item: ItemData): string {
   const lines = [`# ${item.name}`, `*Source: ${item.source}*`, ''];
 
-  const fields = [
-    ['Slot', item.slot],
-    ['AC', item.ac],
-    ['Damage', item.damage],
-    ['Delay', item.delay],
-    ['Stats', item.stats],
-    ['Effect', item.effect],
-    ['Weight', item.weight],
-    ['Classes', item.classes],
-    ['Races', item.races],
-    ['Drops From', item.dropsFrom],
-  ];
-
-  for (const [label, value] of fields) {
-    if (value) {
-      lines.push(`**${label}:** ${value}`);
-    }
+  // Slot and combat stats
+  if (item.slot) lines.push(`**Slot:** ${item.slot}`);
+  if (item.ac) lines.push(`**AC:** ${item.ac}`);
+  if (item.damage && item.delay) {
+    lines.push(`**DMG/Delay:** ${item.damage}/${item.delay} (Ratio: ${item.ratio?.toFixed(2) || 'N/A'})`);
   }
 
-  if (item.raw && lines.length < 5) {
-    lines.push('', '---', item.raw);
+  // Stats
+  if (item.stats && Object.keys(item.stats).length > 0) {
+    const statStr = Object.entries(item.stats)
+      .map(([stat, val]) => `${stat}: ${val >= 0 ? '+' : ''}${val}`)
+      .join(' | ');
+    lines.push(`**Stats:** ${statStr}`);
+  }
+
+  // Heroic stats
+  if (item.heroicStats && Object.keys(item.heroicStats).length > 0) {
+    const heroicStr = Object.entries(item.heroicStats)
+      .map(([stat, val]) => `H${stat}: +${val}`)
+      .join(' | ');
+    lines.push(`**Heroic:** ${heroicStr}`);
+  }
+
+  // Effects
+  if (item.effects && item.effects.length > 0) {
+    lines.push(`**Effects:** ${item.effects.join(', ')}`);
+  }
+
+  // Level requirements
+  if (item.required) lines.push(`**Required Level:** ${item.required}`);
+  if (item.recommended) lines.push(`**Recommended Level:** ${item.recommended}`);
+
+  // Weight
+  if (item.weight) lines.push(`**Weight:** ${item.weight}`);
+
+  // Classes and races
+  if (item.classes && item.classes.length > 0) {
+    lines.push(`**Classes:** ${item.classes.join(', ')}`);
+  }
+  if (item.races && item.races.length > 0) {
+    lines.push(`**Races:** ${item.races.join(', ')}`);
+  }
+
+  // Drops from
+  if (item.dropsFrom && item.dropsFrom.length > 0) {
+    lines.push('', '## Drops From');
+    for (const npc of item.dropsFrom) {
+      lines.push(`- ${npc}`);
+    }
   }
 
   return lines.join('\n');
@@ -369,20 +438,12 @@ function formatItem(item: ItemData): string {
 function formatNpc(npc: NpcData): string {
   const lines = [`# ${npc.name}`, `*Source: ${npc.source}*`, ''];
 
-  const fields = [
-    ['Level', npc.level],
-    ['Zone', npc.zone],
-    ['Race', npc.race],
-    ['Class', npc.class],
-    ['Faction', npc.faction],
-    ['Location', npc.location],
-  ];
-
-  for (const [label, value] of fields) {
-    if (value) {
-      lines.push(`**${label}:** ${value}`);
-    }
-  }
+  if (npc.level) lines.push(`**Level:** ${npc.level}`);
+  if (npc.zone) lines.push(`**Zone:** ${npc.zone}`);
+  if (npc.race) lines.push(`**Race:** ${npc.race}`);
+  if (npc.class) lines.push(`**Class:** ${npc.class}`);
+  if (npc.faction) lines.push(`**Faction:** ${npc.faction}`);
+  if (npc.location) lines.push(`**Location:** ${npc.location}`);
 
   if (npc.loot && npc.loot.length > 0) {
     lines.push('', '## Loot');
@@ -391,27 +452,15 @@ function formatNpc(npc: NpcData): string {
     }
   }
 
-  if (npc.raw && lines.length < 5) {
-    lines.push('', '---', npc.raw);
-  }
-
   return lines.join('\n');
 }
 
 function formatZone(zone: ZoneData): string {
   const lines = [`# ${zone.name}`, `*Source: ${zone.source}*`, ''];
 
-  const fields = [
-    ['Level Range', zone.levelRange],
-    ['Continent', zone.continent],
-    ['Expansion', zone.expansion],
-  ];
-
-  for (const [label, value] of fields) {
-    if (value) {
-      lines.push(`**${label}:** ${value}`);
-    }
-  }
+  if (zone.levelRange) lines.push(`**Level Range:** ${zone.levelRange}`);
+  if (zone.continent) lines.push(`**Continent:** ${zone.continent}`);
+  if (zone.expansion) lines.push(`**Expansion:** ${zone.expansion}`);
 
   if (zone.connectedZones && zone.connectedZones.length > 0) {
     lines.push('', '## Connected Zones');
@@ -430,10 +479,6 @@ function formatZone(zone: ZoneData): string {
     }
   }
 
-  if (zone.raw && lines.length < 5) {
-    lines.push('', '---', zone.raw);
-  }
-
   return lines.join('\n');
 }
 
@@ -447,6 +492,9 @@ function formatSources(): string {
     { name: "Fanra's Wiki", specialty: 'General game information and mechanics', url: 'https://everquest.fanra.info' },
     { name: 'EQ Traders', specialty: 'Tradeskill recipes and guides', url: 'https://www.eqtraders.com' },
     { name: "Zliz's Compendium", specialty: 'Comprehensive EQ database and tools', url: 'https://www.zlizeq.com' },
+    { name: 'Lucy', specialty: 'Classic EQ spell and item data (historical)', url: 'https://lucy.allakhazam.com' },
+    { name: 'RaidLoot', specialty: 'Raid loot tables by expansion', url: 'https://raidloot.com/EQ' },
+    { name: 'EQInterface', specialty: 'UI mods, maps, parsers, and tools', url: 'https://www.eqinterface.com' },
   ];
 
   for (const src of sourceInfo) {
@@ -456,7 +504,11 @@ function formatSources(): string {
     lines.push('');
   }
 
+  // Cache stats
+  const stats = getCacheStats();
   lines.push('---');
+  lines.push(`*Cache: ${stats.size}/${stats.maxSize} entries, ${stats.ttlMinutes} min TTL*`);
+  lines.push('');
   lines.push('Use `search_all` to search all sources at once, or use source-specific tools for targeted searches.');
 
   return lines.join('\n');
@@ -623,6 +675,30 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const query = (args.query as string).trim();
         const results = await eqtraders.search(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'search_lucy': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await lucy.search(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'search_raidloot': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchRaidLoot(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'search_ui': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchUI(query);
         return formatSearchResults(results, query);
       }
 

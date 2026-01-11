@@ -1,5 +1,6 @@
-// Basic tests for eq-mcp tools
+// Basic tests for everquest-mcp tools
 import { handleToolCall, tools } from '../tools.js';
+import { normalizeQuery, levenshtein, fuzzyMatch, getCacheStats, clearCache } from '../sources/base.js';
 
 // Test validation functions
 async function testValidation() {
@@ -70,6 +71,9 @@ function testToolDefinitions() {
     'search_eqresource',
     'search_fanra',
     'search_eqtraders',
+    'search_lucy',
+    'search_raidloot',
+    'search_ui',
     'list_sources',
   ];
 
@@ -95,18 +99,74 @@ async function testListSources() {
   console.assert(result.includes("Fanra's Wiki"), "Should list Fanra's Wiki");
   console.assert(result.includes('EQ Traders'), 'Should list EQ Traders');
   console.assert(result.includes("Zliz's Compendium"), "Should list Zliz's Compendium");
+  console.assert(result.includes('Lucy'), 'Should list Lucy');
+  console.assert(result.includes('RaidLoot'), 'Should list RaidLoot');
+  console.assert(result.includes('EQInterface'), 'Should list EQInterface');
+  console.assert(result.includes('Cache'), 'Should show cache stats');
 
   console.log('list_sources tests passed!');
 }
 
+// Test fuzzy matching functions
+function testFuzzyMatching() {
+  console.log('Testing fuzzy matching...');
+
+  // Test normalizeQuery
+  console.assert(
+    normalizeQuery('PoK') === 'plane of knowledge',
+    'Should expand PoK abbreviation'
+  );
+  console.assert(
+    normalizeQuery('sol a') === "solusek's eye",
+    'Should expand sol a abbreviation'
+  );
+  console.assert(
+    normalizeQuery('  TEST  ') === 'test',
+    'Should trim and lowercase'
+  );
+
+  // Test levenshtein distance
+  console.assert(levenshtein('', '') === 0, 'Empty strings should have distance 0');
+  console.assert(levenshtein('abc', 'abc') === 0, 'Same strings should have distance 0');
+  console.assert(levenshtein('abc', 'abd') === 1, 'One char diff should be 1');
+  console.assert(levenshtein('kitten', 'sitting') === 3, 'kitten->sitting should be 3');
+
+  // Test fuzzyMatch
+  console.assert(fuzzyMatch('test', 'test'), 'Exact match should pass');
+  console.assert(fuzzyMatch('test', 'testing'), 'Substring should pass');
+  console.assert(fuzzyMatch('tset', 'test', 0.5), 'Typo with loose threshold should pass');
+  console.assert(!fuzzyMatch('xyz', 'abc'), 'Unrelated strings should fail');
+
+  console.log('Fuzzy matching tests passed!');
+}
+
+// Test cache functions
+function testCacheFunctions() {
+  console.log('Testing cache functions...');
+
+  const stats = getCacheStats();
+  console.assert(typeof stats.size === 'number', 'Cache size should be a number');
+  console.assert(typeof stats.maxSize === 'number', 'Cache maxSize should be a number');
+  console.assert(stats.maxSize === 500, 'Cache maxSize should be 500');
+
+  // Clear cache and verify
+  clearCache();
+  const afterClear = getCacheStats();
+  console.assert(afterClear.size === 0, 'Cache should be empty after clear');
+
+  console.log('Cache function tests passed!');
+}
+
 // Run all tests
 async function runTests() {
-  console.log('=== Running eq-mcp tests ===\n');
+  console.log('=== Running everquest-mcp tests ===\n');
 
   try {
     testToolDefinitions();
     await testValidation();
     await testListSources();
+    testFuzzyMatching();
+    testCacheFunctions();
 
     console.log('\n=== All tests passed! ===');
     process.exit(0);

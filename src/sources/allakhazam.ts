@@ -9,6 +9,8 @@ import {
   fetchPage,
   stripHtml,
   extractText,
+  parseNumber,
+  normalizeQuery,
 } from './base.js';
 
 const BASE_URL = 'https://everquest.allakhazam.com';
@@ -23,6 +25,7 @@ export class AllakhazamSource extends EQDataSource {
     pattern: RegExp,
     type: SearchResult['type']
   ): Promise<SearchResult[]> {
+    const normalizedQuery = normalizeQuery(query);
     const url = `${BASE_URL}${listUrl}${encodeURIComponent(query)}`;
     const html = await fetchPage(url);
     const results: SearchResult[] = [];
@@ -115,8 +118,14 @@ export class AllakhazamSource extends EQDataSource {
 
     const data: SpellData = { name, id, source: this.name };
 
-    const tableFields: [keyof SpellData, string][] = [
-      ['mana', 'Mana'],
+    // Parse mana as number
+    const manaMatch = html.match(/Mana:\s*(\d+)/i);
+    if (manaMatch) {
+      data.mana = parseInt(manaMatch[1], 10);
+    }
+
+    // Parse other fields
+    const stringFields: [keyof SpellData, string][] = [
       ['castTime', 'Casting Time'],
       ['recastTime', 'Recast Time'],
       ['duration', 'Duration'],
@@ -126,28 +135,41 @@ export class AllakhazamSource extends EQDataSource {
       ['skill', 'Skill'],
     ];
 
-    for (const [field, label] of tableFields) {
-      const regex = new RegExp(`<strong>${label}:</strong>\\s*</td>\\s*<td[^>]*>([^<]+)`, 'i');
+    for (const [field, label] of stringFields) {
+      const regex = new RegExp(`${label}[:\\s]*</td>\\s*<td[^>]*>([^<]+)`, 'i');
       const match = html.match(regex);
       if (match) {
-        data[field] = stripHtml(match[1]);
+        (data as unknown as Record<string, unknown>)[field] = stripHtml(match[1]);
       }
     }
 
-    const classMatch = html.match(/Classes that can use[^:]*:([^<]*(?:<[^>]+>[^<]*)*?)(?=<\/tr>|<\/table>)/is);
+    // Parse classes with levels: "Cleric(1) Druid(5) Shaman(3)"
+    const classMatch = html.match(/Classes?[^:]*:[^<]*(?:<[^>]+>)?([^<]+(?:<[^>]+>[^<]*)*?)(?=<\/tr>|<\/table>)/is);
     if (classMatch) {
-      data.classes = stripHtml(classMatch[1]);
-    } else {
-      const altClassMatch = html.match(/<strong>Classes?:<\/strong>\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/i);
-      if (altClassMatch) {
-        data.classes = stripHtml(altClassMatch[1]);
+      const classText = stripHtml(classMatch[1]);
+      const classes: Record<string, number> = {};
+      const classPattern = /(\w+)\s*\((\d+)\)/g;
+      let cm;
+      while ((cm = classPattern.exec(classText)) !== null) {
+        classes[cm[1]] = parseInt(cm[2], 10);
+      }
+      if (Object.keys(classes).length > 0) {
+        data.classes = classes;
       }
     }
 
-    const effectMatch = html.match(/Slot \d+:[^<]*<a[^>]*>([^<]+)/i) ||
-                        html.match(/<td[^>]*><i>([^<]{10,200})<\/i>/);
-    if (effectMatch) {
-      data.effect = effectMatch[1].trim();
+    // Parse spell effects
+    const effects: string[] = [];
+    const slotPattern = /Slot\s*(\d+):\s*([^<\n]+)/gi;
+    let slotMatch;
+    while ((slotMatch = slotPattern.exec(html)) !== null) {
+      const effect = stripHtml(slotMatch[2]).trim();
+      if (effect && effect.length > 2) {
+        effects.push(effect);
+      }
+    }
+    if (effects.length > 0) {
+      data.effects = effects;
     }
 
     return data;
@@ -164,67 +186,116 @@ export class AllakhazamSource extends EQDataSource {
 
     const data: ItemData = { name, id, source: this.name };
 
-    const tableFields: [keyof ItemData, string][] = [
-      ['slot', 'Slot'],
-      ['ac', 'AC'],
-      ['damage', 'Damage'],
-      ['delay', 'Delay'],
-      ['weight', 'Weight'],
+    // Parse slot
+    const slotMatch = html.match(/Slot:\s*([A-Z, ]+)/i);
+    if (slotMatch) {
+      data.slot = slotMatch[1].trim();
+    }
+
+    // Parse numeric fields
+    const acMatch = html.match(/\bAC:\s*(\d+)/i);
+    if (acMatch) data.ac = parseInt(acMatch[1], 10);
+
+    const dmgMatch = html.match(/\bDMG:\s*(\d+)/i);
+    if (dmgMatch) data.damage = parseInt(dmgMatch[1], 10);
+
+    const delayMatch = html.match(/\bDelay:\s*(\d+)/i);
+    if (delayMatch) data.delay = parseInt(delayMatch[1], 10);
+
+    // Calculate ratio
+    if (data.damage && data.delay) {
+      data.ratio = Math.round((data.damage / data.delay) * 100) / 100;
+    }
+
+    const wtMatch = html.match(/\bWT:\s*([\d.]+)/i);
+    if (wtMatch) data.weight = parseFloat(wtMatch[1]);
+
+    // Parse required/recommended level
+    const reqMatch = html.match(/Required\s*Level:\s*(\d+)/i);
+    if (reqMatch) data.required = parseInt(reqMatch[1], 10);
+
+    const recMatch = html.match(/Recommended\s*Level:\s*(\d+)/i);
+    if (recMatch) data.recommended = parseInt(recMatch[1], 10);
+
+    // Parse stats into structured object
+    const stats: Record<string, number> = {};
+    const heroicStats: Record<string, number> = {};
+
+    const statPatterns = [
+      { pattern: /\bSTR:\s*([+-]?\d+)/gi, name: 'STR' },
+      { pattern: /\bSTA:\s*([+-]?\d+)/gi, name: 'STA' },
+      { pattern: /\bAGI:\s*([+-]?\d+)/gi, name: 'AGI' },
+      { pattern: /\bDEX:\s*([+-]?\d+)/gi, name: 'DEX' },
+      { pattern: /\bWIS:\s*([+-]?\d+)/gi, name: 'WIS' },
+      { pattern: /\bINT:\s*([+-]?\d+)/gi, name: 'INT' },
+      { pattern: /\bCHA:\s*([+-]?\d+)/gi, name: 'CHA' },
+      { pattern: /\bHP:\s*([+-]?\d+)/gi, name: 'HP' },
+      { pattern: /\bMANA:\s*([+-]?\d+)/gi, name: 'MANA' },
+      { pattern: /\bEND(?:URANCE)?:\s*([+-]?\d+)/gi, name: 'END' },
     ];
 
-    for (const [field, label] of tableFields) {
-      const regex = new RegExp(`<strong>${label}:</strong>\\s*</td>\\s*<td[^>]*>([^<]+)`, 'i');
-      const match = html.match(regex);
+    for (const { pattern, name } of statPatterns) {
+      const match = pattern.exec(html);
       if (match) {
-        data[field] = stripHtml(match[1]);
+        stats[name] = parseInt(match[1], 10);
       }
     }
 
-    const simpleFields: [keyof ItemData, RegExp][] = [
-      ['slot', /Slot:\s*([A-Z, ]+)/i],
-      ['ac', /\bAC:\s*(\d+)/i],
-      ['damage', /\bDMG:\s*(\d+)/i],
-      ['delay', /\bDelay:\s*(\d+)/i],
-      ['weight', /\bWT:\s*([\d.]+)/i],
+    // Heroic stats
+    const heroicPatterns = [
+      { pattern: /Heroic\s*STR:\s*([+-]?\d+)/gi, name: 'STR' },
+      { pattern: /Heroic\s*STA:\s*([+-]?\d+)/gi, name: 'STA' },
+      { pattern: /Heroic\s*AGI:\s*([+-]?\d+)/gi, name: 'AGI' },
+      { pattern: /Heroic\s*DEX:\s*([+-]?\d+)/gi, name: 'DEX' },
+      { pattern: /Heroic\s*WIS:\s*([+-]?\d+)/gi, name: 'WIS' },
+      { pattern: /Heroic\s*INT:\s*([+-]?\d+)/gi, name: 'INT' },
+      { pattern: /Heroic\s*CHA:\s*([+-]?\d+)/gi, name: 'CHA' },
     ];
 
-    for (const [field, regex] of simpleFields) {
-      if (!data[field]) {
-        const match = html.match(regex);
-        if (match) {
-          data[field] = match[1].trim();
-        }
+    for (const { pattern, name } of heroicPatterns) {
+      const match = pattern.exec(html);
+      if (match) {
+        heroicStats[name] = parseInt(match[1], 10);
       }
     }
 
-    const statsMatch = html.match(/((?:STR|STA|AGI|DEX|WIS|INT|CHA|HP|MANA|END|AC)[:\s]+[+-]?\d+[^<]*)/gi);
-    if (statsMatch) {
-      data.stats = statsMatch.map(s => stripHtml(s)).join(' ');
-    }
+    if (Object.keys(stats).length > 0) data.stats = stats;
+    if (Object.keys(heroicStats).length > 0) data.heroicStats = heroicStats;
 
+    // Parse classes as array
     const classMatch = html.match(/Class:\s*([A-Z, ]+)/i);
     if (classMatch) {
-      data.classes = classMatch[1].trim();
+      data.classes = classMatch[1].split(/\s*,\s*/).map(c => c.trim()).filter(c => c);
     }
 
+    // Parse races as array
     const raceMatch = html.match(/Race:\s*([A-Z, ]+)/i);
     if (raceMatch) {
-      data.races = raceMatch[1].trim();
+      data.races = raceMatch[1].split(/\s*,\s*/).map(r => r.trim()).filter(r => r);
     }
 
-    const effectMatch = html.match(/Effect:\s*<a[^>]*>([^<]+)/i);
-    if (effectMatch) {
-      data.effect = effectMatch[1].trim();
+    // Parse effects
+    const effects: string[] = [];
+    const effectPattern = /Effect:\s*<a[^>]*>([^<]+)/gi;
+    let effectMatch;
+    while ((effectMatch = effectPattern.exec(html)) !== null) {
+      effects.push(effectMatch[1].trim());
     }
+    if (effects.length > 0) data.effects = effects;
 
+    // Parse drops from (as array)
     const dropMatches = html.matchAll(/Dropped[^:]*:[^<]*<a[^>]*href="\/db\/npc[^"]*"[^>]*>([^<]+)/gi);
     const drops: string[] = [];
+    const seenDrops = new Set<string>();
     for (const match of dropMatches) {
-      drops.push(stripHtml(match[1]));
+      const npc = stripHtml(match[1]);
+      if (npc && !seenDrops.has(npc)) {
+        seenDrops.add(npc);
+        drops.push(npc);
+        if (drops.length >= 10) break;
+      }
     }
-    if (drops.length > 0) {
-      data.dropsFrom = drops.slice(0, 5).join(', ');
-    }
+    if (drops.length > 0) data.dropsFrom = drops;
 
     return data;
   }
@@ -300,6 +371,21 @@ export class AllakhazamSource extends EQDataSource {
       if (match) {
         (data as unknown as Record<string, string>)[field] = match[1].trim();
       }
+    }
+
+    // Parse connected zones
+    const connectedMatches = html.matchAll(/(?:Connects? to|Adjacent)[^<]*<a[^>]*href="\/db\/zone[^"]*"[^>]*>([^<]+)/gi);
+    const connected: string[] = [];
+    const seenZones = new Set<string>();
+    for (const match of connectedMatches) {
+      const zone = stripHtml(match[1]);
+      if (zone && !seenZones.has(zone)) {
+        seenZones.add(zone);
+        connected.push(zone);
+      }
+    }
+    if (connected.length > 0) {
+      data.connectedZones = connected;
     }
 
     const npcMatches = html.matchAll(/href="\/db\/npc\.html\?id=\d+"[^>]*>([^<]+)/gi);
