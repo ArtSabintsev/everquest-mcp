@@ -9,16 +9,62 @@ export interface SearchResult {
   description?: string;
 }
 
+// ============ NEW INTERFACES FOR DIALOG/LOCATION DATA ============
+
+export interface Coordinates {
+  x: number;
+  y: number;
+  z?: number;
+}
+
+export interface DialogEntry {
+  speaker: 'player' | 'npc';
+  text: string;
+  trigger?: string;
+}
+
+export interface ZoneLocation {
+  name: string;
+  coordinates?: Coordinates;
+  description?: string;
+  destination?: string;
+}
+
+export interface QuestStep {
+  number: number;
+  action: string;
+  target?: string;
+  location?: string;
+  coordinates?: Coordinates;
+  result?: string;
+}
+
+export interface QuestNpc {
+  name: string;
+  zone?: string;
+  coordinates?: Coordinates;
+  role?: string;
+}
+
+export interface QuestItem {
+  name: string;
+  source?: string;
+  quantity?: number;
+}
+
+// ============ DATA INTERFACES ============
+
 export interface QuestData {
   name: string;
   url: string;
   source: string;
-  steps?: string[];
-  npcs?: string[];
-  items?: string[];
+  steps?: QuestStep[];
+  npcs?: QuestNpc[];
+  items?: QuestItem[];
   zones?: string[];
   level?: string;
   description?: string;
+  dialog?: DialogEntry[];
   raw?: string;
 }
 
@@ -73,6 +119,9 @@ export interface NpcData {
   faction?: string;
   loot?: string[];
   location?: string;
+  dialog?: DialogEntry[];
+  spawnPoint?: Coordinates;
+  questInvolvement?: string[];
   raw?: string;
 }
 
@@ -85,6 +134,9 @@ export interface ZoneData {
   expansion?: string;
   npcs?: string[];
   connectedZones?: string[];
+  portalStones?: ZoneLocation[];
+  books?: ZoneLocation[];
+  notableLocations?: ZoneLocation[];
   raw?: string;
 }
 
@@ -401,6 +453,102 @@ export function parseNumber(str: string | undefined): number | undefined {
   }
   const num = parseFloat(cleaned);
   return isNaN(num) ? undefined : num;
+}
+
+// Extract coordinates from various EQ formats
+export function extractCoordinates(text: string): Coordinates | null {
+  // Pattern 1: loc(x, y) or loc(x, y, z)
+  let match = text.match(/loc\s*\(\s*([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)\s*(?:,\s*([+-]?\d+(?:\.\d+)?))?\s*\)/i);
+  if (match) {
+    return {
+      x: parseFloat(match[1]),
+      y: parseFloat(match[2]),
+      z: match[3] ? parseFloat(match[3]) : undefined,
+    };
+  }
+
+  // Pattern 2: /loc output format: "Your Location is X, Y, Z"
+  match = text.match(/location\s+(?:is\s+)?([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)\s*(?:,\s*([+-]?\d+(?:\.\d+)?))?/i);
+  if (match) {
+    return {
+      x: parseFloat(match[1]),
+      y: parseFloat(match[2]),
+      z: match[3] ? parseFloat(match[3]) : undefined,
+    };
+  }
+
+  // Pattern 3: Signed coordinate pairs +1234, -5678 or (-1234, 5678)
+  match = text.match(/\(?([+-]\d+(?:\.\d+)?)\s*,\s*([+-]\d+(?:\.\d+)?)\s*(?:,\s*([+-]?\d+(?:\.\d+)?))?\)?/);
+  if (match) {
+    return {
+      x: parseFloat(match[1]),
+      y: parseFloat(match[2]),
+      z: match[3] ? parseFloat(match[3]) : undefined,
+    };
+  }
+
+  // Pattern 4: "at coords x, y" or "coords: x, y"
+  match = text.match(/(?:at|coords?|coordinates)[:\s]+([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)/i);
+  if (match) {
+    return {
+      x: parseFloat(match[1]),
+      y: parseFloat(match[2]),
+    };
+  }
+
+  return null;
+}
+
+// Extract dialog entries from EQ-style text
+export function extractDialog(text: string, npcName?: string): DialogEntry[] {
+  const dialog: DialogEntry[] = [];
+  const seenTexts = new Set<string>();
+
+  // Pattern 1: "You say, 'text'" or "You say 'text'"
+  const playerPattern = /You say,?\s*'([^']+)'/gi;
+  let match;
+  while ((match = playerPattern.exec(text)) !== null) {
+    const dialogText = match[1].trim();
+    if (!seenTexts.has(dialogText.toLowerCase())) {
+      seenTexts.add(dialogText.toLowerCase());
+      dialog.push({
+        speaker: 'player',
+        text: dialogText,
+        trigger: dialogText,
+      });
+    }
+  }
+
+  // Pattern 2: "NpcName says, 'text'" or "NpcName says 'text'"
+  if (npcName) {
+    const escapedName = npcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const npcPattern = new RegExp(`${escapedName}\\s+says,?\\s*'([^']+)'`, 'gi');
+    while ((match = npcPattern.exec(text)) !== null) {
+      const dialogText = match[1].trim();
+      if (!seenTexts.has(dialogText.toLowerCase())) {
+        seenTexts.add(dialogText.toLowerCase());
+        dialog.push({
+          speaker: 'npc',
+          text: dialogText,
+        });
+      }
+    }
+  }
+
+  // Pattern 3: Generic "says, 'text'" for any speaker
+  const genericPattern = /(\w[\w\s]{0,30}?)\s+says,?\s*'([^']+)'/gi;
+  while ((match = genericPattern.exec(text)) !== null) {
+    const dialogText = match[2].trim();
+    if (!seenTexts.has(dialogText.toLowerCase())) {
+      seenTexts.add(dialogText.toLowerCase());
+      dialog.push({
+        speaker: 'npc',
+        text: dialogText,
+      });
+    }
+  }
+
+  return dialog;
 }
 
 // Base class for data sources

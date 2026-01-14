@@ -6,11 +6,18 @@ import {
   ItemData,
   NpcData,
   ZoneData,
+  QuestData,
+  DialogEntry,
+  ZoneLocation,
+  QuestNpc,
+  QuestItem,
   fetchPage,
   stripHtml,
   extractText,
   parseNumber,
   normalizeQuery,
+  extractCoordinates,
+  extractDialog,
 } from './base.js';
 
 const BASE_URL = 'https://everquest.allakhazam.com';
@@ -343,6 +350,41 @@ export class AllakhazamSource extends EQDataSource {
       data.loot = loot;
     }
 
+    // Extract quest involvement from linked quests
+    const questMatches = html.matchAll(/href="\/db\/quest\.html\?quest=\d+"[^>]*>([^<]+)/gi);
+    const seenQuests = new Set<string>();
+    const quests: string[] = [];
+    for (const match of questMatches) {
+      const quest = stripHtml(match[1]);
+      if (quest && !seenQuests.has(quest.toLowerCase())) {
+        seenQuests.add(quest.toLowerCase());
+        quests.push(quest);
+      }
+    }
+    if (quests.length > 0) {
+      data.questInvolvement = quests;
+    }
+
+    // Extract dialog from page content using the utility function
+    const dialog = extractDialog(html, name);
+    if (dialog.length > 0) {
+      data.dialog = dialog;
+    }
+
+    // Extract spawn coordinates from page content
+    const coords = extractCoordinates(html);
+    if (coords) {
+      data.spawnPoint = coords;
+    }
+
+    // Alternative: Look for location description in content
+    if (!data.spawnPoint) {
+      const locMatch = html.match(/(?:spawn|found|wanders?|located)\s+(?:at|near|around|in)\s+([^<.]+)/i);
+      if (locMatch) {
+        data.location = locMatch[1].trim();
+      }
+    }
+
     return data;
   }
 
@@ -402,6 +444,148 @@ export class AllakhazamSource extends EQDataSource {
     if (npcs.length > 0) {
       data.npcs = npcs;
     }
+
+    // Extract portal stones and teleport locations
+    const portalStones: ZoneLocation[] = [];
+    const portalPattern = /(?:portal|stone|spire|wizard|druid)\s+(?:to\s+)?([A-Z][a-zA-Z\s']+?)(?:\s+at\s+|\s+loc\s*)?(?:\(?\s*([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)\s*\)?)?/gi;
+    let match;
+    while ((match = portalPattern.exec(html)) !== null) {
+      const dest = stripHtml(match[1]).trim();
+      if (dest && dest.length > 2 && dest.length < 50) {
+        const loc: ZoneLocation = { name: dest, destination: dest };
+        if (match[2] && match[3]) {
+          loc.coordinates = {
+            x: parseFloat(match[2]),
+            y: parseFloat(match[3]),
+          };
+        }
+        // Avoid duplicates
+        if (!portalStones.some(p => p.name.toLowerCase() === dest.toLowerCase())) {
+          portalStones.push(loc);
+        }
+      }
+    }
+    if (portalStones.length > 0) {
+      data.portalStones = portalStones;
+    }
+
+    // Extract book/tome locations
+    const books: ZoneLocation[] = [];
+    const bookPattern = /(?:book|tome|clickable)\s+(?:to\s+)?([A-Z][a-zA-Z\s']+?)(?:\s+at\s+|\s+loc\s*)?(?:\(?\s*([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)\s*\)?)?/gi;
+    while ((match = bookPattern.exec(html)) !== null) {
+      const dest = stripHtml(match[1]).trim();
+      if (dest && dest.length > 2 && dest.length < 50) {
+        const loc: ZoneLocation = { name: dest, destination: dest };
+        if (match[2] && match[3]) {
+          loc.coordinates = {
+            x: parseFloat(match[2]),
+            y: parseFloat(match[3]),
+          };
+        }
+        if (!books.some(b => b.name.toLowerCase() === dest.toLowerCase())) {
+          books.push(loc);
+        }
+      }
+    }
+    if (books.length > 0) {
+      data.books = books;
+    }
+
+    // Extract notable locations (bank, guild, soulbinder, etc.)
+    const notableLocations: ZoneLocation[] = [];
+    const locationTypes = ['bank', 'guild', 'soulbinder', 'bind point', 'merchant', 'vendor', 'trader', 'forge', 'oven', 'loom', 'pottery wheel', 'brew barrel'];
+    for (const locType of locationTypes) {
+      const locPattern = new RegExp(`${locType}[^.]*?(?:at|near|loc)\\s*\\(?\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*,\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*\\)?`, 'gi');
+      while ((match = locPattern.exec(html)) !== null) {
+        notableLocations.push({
+          name: locType.charAt(0).toUpperCase() + locType.slice(1),
+          coordinates: {
+            x: parseFloat(match[1]),
+            y: parseFloat(match[2]),
+          },
+        });
+        break; // Only take first match per location type
+      }
+    }
+    if (notableLocations.length > 0) {
+      data.notableLocations = notableLocations;
+    }
+
+    return data;
+  }
+
+  async getQuest(id: string): Promise<QuestData | null> {
+    const url = `${BASE_URL}/db/quest.html?quest=${id}`;
+    const html = await fetchPage(url);
+
+    const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+    const name = titleMatch
+      ? stripHtml(titleMatch[1]).replace(' :: Quests :: EverQuest :: ZAM', '').trim()
+      : 'Unknown';
+
+    const data: QuestData = { name, url, source: this.name };
+
+    // Extract level requirement
+    const levelMatch = html.match(/Level:\s*(\d+)/i);
+    if (levelMatch) data.level = levelMatch[1];
+
+    // Extract dialog using utility function
+    const dialog = extractDialog(html);
+    if (dialog.length > 0) {
+      data.dialog = dialog;
+    }
+
+    // Extract items involved in quest
+    const items: QuestItem[] = [];
+    const itemMatches = html.matchAll(/href="\/db\/item\.html\?item=\d+"[^>]*>([^<]+)/gi);
+    const seenItems = new Set<string>();
+    for (const match of itemMatches) {
+      const itemName = stripHtml(match[1]);
+      if (itemName && !seenItems.has(itemName.toLowerCase())) {
+        seenItems.add(itemName.toLowerCase());
+        items.push({ name: itemName });
+        if (items.length >= 20) break;
+      }
+    }
+    if (items.length > 0) {
+      data.items = items;
+    }
+
+    // Extract NPCs involved in quest
+    const npcs: QuestNpc[] = [];
+    const npcMatches = html.matchAll(/href="\/db\/npc\.html\?id=\d+"[^>]*>([^<]+)/gi);
+    const seenNpcs = new Set<string>();
+    for (const match of npcMatches) {
+      const npcName = stripHtml(match[1]);
+      if (npcName && !seenNpcs.has(npcName.toLowerCase())) {
+        seenNpcs.add(npcName.toLowerCase());
+        npcs.push({ name: npcName });
+        if (npcs.length >= 20) break;
+      }
+    }
+    if (npcs.length > 0) {
+      data.npcs = npcs;
+    }
+
+    // Extract zones involved in quest
+    const zones: string[] = [];
+    const zoneMatches = html.matchAll(/href="\/db\/zone\.html[^"]*"[^>]*>([^<]+)/gi);
+    const seenZones = new Set<string>();
+    for (const match of zoneMatches) {
+      const zoneName = stripHtml(match[1]);
+      if (zoneName && !seenZones.has(zoneName.toLowerCase())) {
+        seenZones.add(zoneName.toLowerCase());
+        zones.push(zoneName);
+        if (zones.length >= 10) break;
+      }
+    }
+    if (zones.length > 0) {
+      data.zones = zones;
+    }
+
+    // Store raw content for fallback
+    const content = extractText(html, '<div class="nobgrd">', '</div>');
+    data.raw = stripHtml(content).slice(0, 4000);
 
     return data;
   }
