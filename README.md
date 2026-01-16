@@ -4,10 +4,12 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that pr
 
 ## Features
 
-- **Multi-source search** - Query 6 different EQ databases in parallel
+- **Multi-source search** - Query 9 different EQ databases in parallel
 - **Comprehensive coverage** - Spells, items, NPCs, zones, quests, tradeskills, epic guides
 - **Detailed lookups** - Get full spell effects, item stats, NPC loot tables, zone info
 - **Quest guides** - Epic quest walkthroughs, leveling guides, farming guides
+- **Raid loot** - Raid drop tables by expansion
+- **UI mods** - Maps, parsers, and interface tools
 
 ## Data Sources
 
@@ -19,6 +21,9 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that pr
 | [Fanra's Wiki](https://everquest.fanra.info) | General game information, mechanics |
 | [EQ Traders](https://www.eqtraders.com) | Tradeskill recipes and guides |
 | [Zliz's Compendium](https://www.zlizeq.com) | Comprehensive EQ encyclopedia |
+| [Lucy](https://lucy.allakhazam.com) | Classic EQ spell and item data (historical) |
+| [RaidLoot](https://raidloot.com/EQ) | Raid loot tables by expansion |
+| [EQInterface](https://www.eqinterface.com) | UI mods, maps, parsers, and tools |
 
 ## Installation
 
@@ -68,6 +73,7 @@ Then restart Claude Desktop.
 | `get_item` | Get detailed item stats by ID |
 | `get_npc` | Get NPC info and loot table by ID |
 | `get_zone` | Get zone info by ID |
+| `get_quest` | Get detailed quest info by ID |
 
 ### Source-Specific Search
 | Tool | Description |
@@ -76,6 +82,9 @@ Then restart Claude Desktop.
 | `search_eqresource` | EQResource - modern expansions |
 | `search_fanra` | Fanra's Wiki - game mechanics |
 | `search_eqtraders` | EQ Traders - tradeskill recipes |
+| `search_lucy` | Lucy - classic EQ spell/item data |
+| `search_raidloot` | RaidLoot - raid drop tables |
+| `search_ui` | EQInterface - UI mods, maps, parsers |
 
 ## Example Queries
 
@@ -104,15 +113,20 @@ npm start      # Run built version
 src/
 ├── index.ts          # MCP server entry point
 ├── tools.ts          # Tool definitions and handlers
-└── sources/          # Data source implementations
-    ├── base.ts       # Shared interfaces and fetch utilities
-    ├── index.ts      # Source aggregation
-    ├── allakhazam.ts # Allakhazam scraper
-    ├── almars.ts     # Almar's Guides
-    ├── eqresource.ts # EQResource
-    ├── fanra.ts      # Fanra's Wiki (MediaWiki API)
-    ├── eqtraders.ts  # EQ Traders
-    └── zliz.ts       # Zliz's Compendium
+├── sources/          # Data source implementations
+│   ├── base.ts       # Shared interfaces and fetch utilities
+│   ├── index.ts      # Source aggregation
+│   ├── allakhazam.ts # Allakhazam scraper
+│   ├── almars.ts     # Almar's Guides
+│   ├── eqresource.ts # EQResource
+│   ├── fanra.ts      # Fanra's Wiki (MediaWiki API)
+│   ├── eqtraders.ts  # EQ Traders
+│   ├── zliz.ts       # Zliz's Compendium
+│   ├── lucy.ts       # Lucy spell/item database
+│   ├── raidloot.ts   # RaidLoot raid drops
+│   └── eqinterface.ts # EQInterface UI mods
+└── tests/            # Test suite
+    └── tools.test.ts
 ```
 
 ## Adding New Sources
