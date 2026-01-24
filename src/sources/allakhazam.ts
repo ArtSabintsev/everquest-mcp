@@ -26,34 +26,66 @@ export class AllakhazamSource extends EQDataSource {
   name = 'Allakhazam';
   baseUrl = BASE_URL;
 
+  // Generate query variants to handle apostrophes (e.g., "Combatant Shard" -> "Combatant's Shard")
+  private generateQueryVariants(query: string): string[] {
+    const variants = [query];
+
+    // Add possessive forms: "Word Next" -> "Word's Next"
+    const words = query.split(/\s+/);
+    if (words.length >= 2) {
+      for (let i = 0; i < words.length - 1; i++) {
+        const variant = [...words];
+        // Add 's to word if it doesn't already have one
+        if (!variant[i].includes("'")) {
+          variant[i] = variant[i] + "'s";
+          variants.push(variant.join(' '));
+        }
+      }
+    }
+
+    // Also try removing apostrophes if query has them
+    if (query.includes("'")) {
+      variants.push(query.replace(/'/g, ''));
+    }
+
+    return [...new Set(variants)]; // dedupe
+  }
+
   private async searchByType(
     query: string,
     listUrl: string,
     pattern: RegExp,
     type: SearchResult['type']
   ): Promise<SearchResult[]> {
-    const normalizedQuery = normalizeQuery(query);
-    const url = `${BASE_URL}${listUrl}${encodeURIComponent(query)}`;
-    const html = await fetchPage(url);
+    const variants = this.generateQueryVariants(query);
     const results: SearchResult[] = [];
     const seenIds = new Set<string>();
 
-    let match;
-    while ((match = pattern.exec(html)) !== null) {
-      const id = match[1];
-      if (seenIds.has(id)) continue;
-      seenIds.add(id);
+    // Try each query variant until we get results
+    for (const variant of variants) {
+      const url = `${BASE_URL}${listUrl}${encodeURIComponent(variant)}`;
+      const html = await fetchPage(url);
 
-      const name = stripHtml(match[2]);
-      if (name && name.length > 1) {
-        results.push({
-          name,
-          type,
-          id,
-          url: `${BASE_URL}/db/${type}.html?${type === 'npc' ? 'id' : type === 'zone' ? 'zstrat' : type}=${id}`,
-          source: this.name,
-        });
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const id = match[1];
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+
+        const name = stripHtml(match[2]);
+        if (name && name.length > 1) {
+          results.push({
+            name,
+            type,
+            id,
+            url: `${BASE_URL}/db/${type}.html?${type === 'npc' ? 'id' : type === 'zone' ? 'zstrat' : type}=${id}`,
+            source: this.name,
+          });
+        }
       }
+
+      // If we found results, no need to try more variants
+      if (results.length > 0) break;
     }
 
     return results.slice(0, 20);
@@ -415,15 +447,19 @@ export class AllakhazamSource extends EQDataSource {
       }
     }
 
-    // Parse connected zones
-    const connectedMatches = html.matchAll(/(?:Connects? to|Adjacent)[^<]*<a[^>]*href="\/db\/zone[^"]*"[^>]*>([^<]+)/gi);
+    // Parse connected zones from the Connected_Zones_t tab content
     const connected: string[] = [];
     const seenZones = new Set<string>();
-    for (const match of connectedMatches) {
-      const zone = stripHtml(match[1]);
-      if (zone && !seenZones.has(zone)) {
-        seenZones.add(zone);
-        connected.push(zone);
+    const connectedDiv = html.match(/id="Connected_Zones_t"[^>]*>([\s\S]*?)(?=<div id="\w+_t"|$)/i);
+    if (connectedDiv) {
+      const zonePattern = /href="\/db\/zone[^"]*"[^>]*>([^<]+)/gi;
+      let zoneMatch;
+      while ((zoneMatch = zonePattern.exec(connectedDiv[1])) !== null) {
+        const zone = stripHtml(zoneMatch[1]);
+        if (zone && !seenZones.has(zone)) {
+          seenZones.add(zone);
+          connected.push(zone);
+        }
       }
     }
     if (connected.length > 0) {
