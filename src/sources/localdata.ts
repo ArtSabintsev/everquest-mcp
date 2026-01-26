@@ -19974,3 +19974,298 @@ export async function getZoneFactionWebAnalysis(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SPELL DAMAGE EFFICIENCY ============
+
+export async function getSpellDamageEfficiency(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve class ID
+  const upper = className.toUpperCase();
+  let classId = 0;
+  for (const [id, short] of Object.entries(CLASS_SHORT)) {
+    if (short === upper) { classId = parseInt(id); break; }
+  }
+  if (!classId) {
+    const lower = className.toLowerCase();
+    for (const [id, name] of Object.entries(CLASS_IDS)) {
+      if (name.toLowerCase() === lower) { classId = parseInt(id); break; }
+    }
+  }
+  if (!classId) return `Error: Unknown class "${className}". Use 3-letter code (WAR, CLR, etc.) or full name.`;
+
+  const lines = [`# Spell Damage Efficiency: ${CLASS_IDS[classId]} (${CLASS_SHORT[classId]})`, ''];
+  lines.push('*Damage spells ranked by damage-per-mana (DPM) efficiency.*', '');
+
+  interface DmgSpell {
+    id: number;
+    name: string;
+    level: number;
+    mana: number;
+    damage: number;
+    dpm: number;
+    castTime: number;
+    category: string;
+    isDoT: boolean;
+  }
+
+  const dmgSpells: DmgSpell[] = [];
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    if (spell.fields[SF.BENEFICIAL] === '1') continue; // detrimental only
+
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+    if (level < 1 || level > 125) continue;
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    if (mana <= 0) continue;
+
+    // Parse effect slots for total damage (SPA 0 with negative base = damage)
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        slotsField = i;
+        break;
+      }
+    }
+    if (slotsField < 0) continue;
+
+    const slots = spell.fields[slotsField].split('$');
+    let totalDmg = 0;
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spa = parseInt(parts[1]);
+        const base = parseInt(parts[2]) || 0;
+        if (spa === 0 && base < 0) totalDmg += Math.abs(base);
+      }
+    }
+    if (totalDmg <= 0) continue;
+
+    const castTime = (parseInt(spell.fields[SF.CAST_TIME]) || 0) / 1000;
+    const durFormula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const durValue = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const isDoT = durFormula > 0 || durValue > 0;
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Category ${catId}`);
+
+    dmgSpells.push({
+      id: spell.id,
+      name: spell.name,
+      level,
+      mana,
+      damage: totalDmg,
+      dpm: totalDmg / mana,
+      castTime,
+      category: catName,
+      isDoT,
+    });
+  }
+
+  dmgSpells.sort((a, b) => b.dpm - a.dpm);
+
+  lines.push(`**Total damage spells:** ${dmgSpells.length}`, '');
+
+  // Top 30 most efficient
+  lines.push('## Top 30 Most Mana-Efficient Damage Spells', '');
+  lines.push('| Rank | Spell | Lv | Damage | Mana | DPM | Cast | Type |');
+  lines.push('|-----:|-------|---:|------:|-----:|----:|-----:|------|');
+  for (let i = 0; i < 30 && i < dmgSpells.length; i++) {
+    const s = dmgSpells[i];
+    lines.push(`| ${i + 1} | ${s.name} | ${s.level} | ${s.damage.toLocaleString()} | ${s.mana} | ${s.dpm.toFixed(1)} | ${s.castTime.toFixed(1)}s | ${s.isDoT ? 'DoT' : 'DD'} |`);
+  }
+
+  // Efficiency by level bracket
+  lines.push('', '## Efficiency by Level Bracket', '');
+  const brackets = [[1, 20], [21, 40], [41, 60], [61, 80], [81, 100], [101, 125]];
+  lines.push('| Bracket | Spells | Avg DPM | Best DPM | Best Spell |');
+  lines.push('|---------|------:|--------:|---------:|------------|');
+  for (const [lo, hi] of brackets) {
+    const inBracket = dmgSpells.filter(s => s.level >= lo && s.level <= hi);
+    if (inBracket.length === 0) continue;
+    const avgDPM = inBracket.reduce((s, d) => s + d.dpm, 0) / inBracket.length;
+    const best = inBracket[0]; // already sorted by DPM
+    lines.push(`| ${lo}-${hi} | ${inBracket.length} | ${avgDPM.toFixed(1)} | ${best.dpm.toFixed(1)} | ${best.name} |`);
+  }
+
+  // DD vs DoT efficiency comparison
+  const dds = dmgSpells.filter(s => !s.isDoT);
+  const dots = dmgSpells.filter(s => s.isDoT);
+  lines.push('', '## DD vs DoT Efficiency', '');
+  if (dds.length > 0) {
+    const avgDD = dds.reduce((s, d) => s + d.dpm, 0) / dds.length;
+    lines.push(`- **Direct Damage:** ${dds.length} spells, avg DPM ${avgDD.toFixed(1)}, best ${dds[0].name} (${dds[0].dpm.toFixed(1)})`);
+  }
+  if (dots.length > 0) {
+    const avgDoT = dots.reduce((s, d) => s + d.dpm, 0) / dots.length;
+    lines.push(`- **DoT:** ${dots.length} spells, avg DPM ${avgDoT.toFixed(1)}, best ${dots[0].name} (${dots[0].dpm.toFixed(1)})`);
+  }
+
+  // Category breakdown
+  const catCounts = new Map<string, { count: number; avgDPM: number; totalDPM: number }>();
+  for (const s of dmgSpells) {
+    const existing = catCounts.get(s.category);
+    if (existing) {
+      existing.count++;
+      existing.totalDPM += s.dpm;
+      existing.avgDPM = existing.totalDPM / existing.count;
+    } else {
+      catCounts.set(s.category, { count: 1, avgDPM: s.dpm, totalDPM: s.dpm });
+    }
+  }
+  const sortedCats = [...catCounts.entries()].sort((a, b) => b[1].avgDPM - a[1].avgDPM);
+  lines.push('', '## Damage Categories by Avg Efficiency', '');
+  lines.push('| Category | Spells | Avg DPM |');
+  lines.push('|----------|------:|--------:|');
+  for (const [cat, data] of sortedCats.slice(0, 12)) {
+    lines.push(`| ${cat} | ${data.count} | ${data.avgDPM.toFixed(1)} |`);
+  }
+
+  lines.push('', `*${dmgSpells.length} damage spells analyzed for ${CLASS_IDS[classId]}.*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SEARCH AA BY DESCRIPTION ============
+
+export async function searchAAByDescription(query: string): Promise<string> {
+  await loadAAAbilities();
+  if (!aaAbilities || aaAbilities.size === 0) return 'AA data not available.';
+
+  const lower = query.toLowerCase();
+  const lines = [`# AA Description Search: "${query}"`, ''];
+
+  const matches: { id: number; name: string; desc: string }[] = [];
+  for (const aa of aaAbilities.values()) {
+    if (aa.description && aa.description.toLowerCase().includes(lower)) {
+      matches.push({ id: aa.id, name: aa.name, desc: aa.description });
+    }
+  }
+
+  if (matches.length === 0) {
+    lines.push(`No AAs found with "${query}" in their description.`);
+    lines.push('', 'Try broader terms like "haste", "critical", "damage", "heal", "mana", "resist", "stun", "pet".');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Matches:** ${matches.length}`, '');
+
+  // Group by common name prefix (first word before space or digit)
+  const groups = new Map<string, typeof matches>();
+  for (const m of matches) {
+    const prefix = m.name.replace(/\s*(Rk\.\s*)?[IVX0-9]+$/, '').trim() || m.name;
+    const groupName = prefix.split(/\s+/).slice(0, 3).join(' ');
+    if (!groups.has(groupName)) groups.set(groupName, []);
+    groups.get(groupName)!.push(m);
+  }
+
+  // Show results (if too many, group them)
+  if (matches.length <= 50) {
+    lines.push('| ID | Name | Description (excerpt) |');
+    lines.push('|----|------|----------------------|');
+    for (const m of matches.slice(0, 50)) {
+      const excerpt = m.desc.length > 100 ? m.desc.slice(0, 100) + '...' : m.desc;
+      lines.push(`| ${m.id} | ${m.name} | ${excerpt} |`);
+    }
+  } else {
+    // Show grouped
+    lines.push(`*${matches.length} matches found — showing grouped by name.*`, '');
+    const sortedGroups = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+    lines.push('| Group | Count | Sample Description |');
+    lines.push('|-------|------:|-------------------|');
+    for (const [group, items] of sortedGroups.slice(0, 40)) {
+      const sample = items[0].desc.length > 80 ? items[0].desc.slice(0, 80) + '...' : items[0].desc;
+      lines.push(`| ${group} (${items.map(i => i.name).slice(0, 2).join(', ')}) | ${items.length} | ${sample} |`);
+    }
+    if (sortedGroups.length > 40) {
+      lines.push(`| *(${sortedGroups.length - 40} more groups)* | | |`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: EXPANSION FACTION TIMELINE ============
+
+export async function getExpansionFactionTimeline(): Promise<string> {
+  await loadFactions();
+  await loadExpansions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const lines = ['# Expansion Faction Timeline', ''];
+  lines.push('*Track faction count growth across expansions.*', '');
+
+  // Group factions by category (expansion)
+  const catCounts = new Map<string, number>();
+  let uncategorized = 0;
+  for (const faction of factions.values()) {
+    const cat = faction.category || '';
+    if (!cat) {
+      uncategorized++;
+    } else {
+      catCounts.set(cat, (catCounts.get(cat) || 0) + 1);
+    }
+  }
+
+  // Sort by count
+  const sorted = [...catCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  lines.push('## Factions by Expansion/Category', '');
+  lines.push('| Rank | Expansion/Category | Factions | % | Cumulative |');
+  lines.push('|-----:|-------------------|--------:|---:|----------:|');
+
+  let cumulative = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    const [cat, count] = sorted[i];
+    cumulative += count;
+    const pct = Math.round(count / factions.size * 100);
+    lines.push(`| ${i + 1} | ${cat} | ${count} | ${pct}% | ${cumulative} |`);
+  }
+  if (uncategorized > 0) {
+    cumulative += uncategorized;
+    lines.push(`| — | *(Uncategorized)* | ${uncategorized} | ${Math.round(uncategorized / factions.size * 100)}% | ${cumulative} |`);
+  }
+
+  // Visual bar chart
+  lines.push('', '## Visual Distribution', '');
+  const maxCount = sorted.length > 0 ? sorted[0][1] : 1;
+  for (const [cat, count] of sorted) {
+    const barLen = Math.round(count / maxCount * 40);
+    const bar = '█'.repeat(barLen);
+    lines.push(`- **${cat}:** ${bar} ${count}`);
+  }
+
+  // Faction starting value analysis by expansion
+  lines.push('', '## Starting Value Profile by Expansion', '');
+  lines.push('| Expansion | Factions | With Modifiers | Avg Modifiers |');
+  lines.push('|-----------|--------:|--------------:|-------------:|');
+  for (const [cat, count] of sorted.slice(0, 20)) {
+    let withMods = 0;
+    let totalMods = 0;
+    for (const faction of factions.values()) {
+      if ((faction.category || '') !== cat) continue;
+      const modCount = faction.startingValues?.length || 0;
+      if (modCount > 0) {
+        withMods++;
+        totalMods += modCount;
+      }
+    }
+    const avgMods = withMods > 0 ? (totalMods / withMods).toFixed(1) : '0';
+    lines.push(`| ${cat} | ${count} | ${withMods} | ${avgMods} |`);
+  }
+
+  // Most faction-rich expansions
+  lines.push('', '## Key Statistics', '');
+  lines.push(`- **Total factions:** ${factions.size}`);
+  lines.push(`- **Categorized:** ${factions.size - uncategorized} (${Math.round((factions.size - uncategorized) / factions.size * 100)}%)`);
+  lines.push(`- **Expansion categories:** ${catCounts.size}`);
+  if (sorted.length > 0) {
+    lines.push(`- **Most factions:** ${sorted[0][0]} (${sorted[0][1]})`);
+    lines.push(`- **Fewest factions:** ${sorted[sorted.length - 1][0]} (${sorted[sorted.length - 1][1]})`);
+  }
+
+  return lines.join('\n');
+}

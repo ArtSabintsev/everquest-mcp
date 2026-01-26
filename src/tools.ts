@@ -226,6 +226,9 @@ import {
   getSpellBuffDurationTierList,
   getClassHealingComparisonMatrix,
   getZoneFactionWebAnalysis,
+  getSpellDamageEfficiency,
+  searchAAByDescription,
+  getExpansionFactionTimeline,
 } from './sources/index.js';
 
 export const tools = [
@@ -2969,6 +2972,43 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_damage_efficiency',
+    description: 'Spell damage efficiency — rank a class\'s damage spells by damage-per-mana (DPM) efficiency, DD vs DoT comparison, level bracket analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class name (3-letter code like WIZ, NEC, DRU or full name like Wizard)'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'search_aa_by_description',
+    description: 'Search 2700+ AA abilities by description text (e.g., "haste", "critical hit", "mana regeneration", "pet", "resist").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Text to search for in AA descriptions'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_expansion_faction_timeline',
+    description: 'Expansion faction timeline — faction count growth across expansions, visual distribution, starting value profiles per expansion.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4802,6 +4842,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_zone_faction_web_analysis': {
         return getZoneFactionWebAnalysis();
+      }
+
+      case 'get_spell_damage_efficiency': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellDamageEfficiency(className);
+      }
+
+      case 'search_aa_by_description': {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query) return 'Error: "query" parameter is required.';
+        return searchAAByDescription(query);
+      }
+
+      case 'get_expansion_faction_timeline': {
+        return getExpansionFactionTimeline();
       }
 
       case 'search_help_topics': {
