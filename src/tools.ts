@@ -157,6 +157,9 @@ import {
   getMercenaryAbilityOverview,
   getSpellTimerOverview,
   getSpellCategoryBreakdown,
+  getSharedSpellsOverview,
+  getSpellDurationOverview,
+  getResistTypeComparison,
 } from './sources/index.js';
 
 export const tools = [
@@ -2223,6 +2226,35 @@ export const tools = [
     }
   },
   {
+    name: 'get_shared_spells_overview',
+    description: 'Cross-class spell availability analysis — which spells are shared by the most classes, sharing distribution, and per-class exclusive/shared counts.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_duration_overview',
+    description: 'Spell duration analysis — duration formula breakdown, duration distribution buckets (instant to permanent), optionally filtered by class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name to filter by (optional — omit for all spells)' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_resist_type_comparison',
+    description: 'Resist type distribution matrix across all 16 classes — shows how many detrimental spells each class has per resist type, with dominant resist type per class.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3754,6 +3786,19 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required';
         return getSpellCategoryBreakdown(className);
+      }
+
+      case 'get_shared_spells_overview': {
+        return getSharedSpellsOverview();
+      }
+
+      case 'get_spell_duration_overview': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : undefined;
+        return getSpellDurationOverview(className || undefined);
+      }
+
+      case 'get_resist_type_comparison': {
+        return getResistTypeComparison();
       }
 
       case 'search_help_topics': {

@@ -11578,3 +11578,276 @@ export async function getSpellCategoryBreakdown(className: string): Promise<stri
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SHARED SPELLS OVERVIEW ============
+
+export async function getSharedSpellsOverview(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // For each spell, count how many classes can use it (level < 255)
+  const spellClassCounts: { name: string; classCount: number; classes: string[] }[] = [];
+
+  for (const spell of spells.values()) {
+    const classes: string[] = [];
+    for (let classId = 1; classId <= 16; classId++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+      if (level > 0 && level < 255) {
+        classes.push(CLASS_SHORT[classId]);
+      }
+    }
+    if (classes.length >= 2) {
+      spellClassCounts.push({ name: spell.fields[SF.NAME], classCount: classes.length, classes });
+    }
+  }
+
+  const lines = ['# Cross-Class Spell Availability', ''];
+
+  // Distribution: how many spells are shared by N classes
+  const distribution = new Map<number, number>();
+  for (const s of spellClassCounts) {
+    distribution.set(s.classCount, (distribution.get(s.classCount) || 0) + 1);
+  }
+
+  lines.push('## Spell Sharing Distribution', '');
+  lines.push('| Classes | Spell Count |');
+  lines.push('|---------|-------------|');
+
+  for (let n = 16; n >= 2; n--) {
+    const count = distribution.get(n) || 0;
+    if (count > 0) {
+      lines.push(`| ${n} classes | ${count.toLocaleString()} |`);
+    }
+  }
+
+  // Count single-class spells
+  let singleClass = 0;
+  for (const spell of spells.values()) {
+    let count = 0;
+    for (let classId = 1; classId <= 16; classId++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+      if (level > 0 && level < 255) count++;
+    }
+    if (count === 1) singleClass++;
+  }
+  lines.push(`| 1 class (exclusive) | ${singleClass.toLocaleString()} |`);
+
+  // Most widely shared spells (available to 10+ classes)
+  const widelyShared = spellClassCounts
+    .filter(s => s.classCount >= 10)
+    .sort((a, b) => b.classCount - a.classCount || a.name.localeCompare(b.name));
+
+  if (widelyShared.length > 0) {
+    lines.push('', `## Most Widely Shared Spells (10+ classes, showing top 30)`, '');
+    lines.push('| Spell | Classes | Available To |');
+    lines.push('|-------|---------|--------------|');
+    for (const s of widelyShared.slice(0, 30)) {
+      lines.push(`| ${s.name} | ${s.classCount} | ${s.classes.join(', ')} |`);
+    }
+    if (widelyShared.length > 30) {
+      lines.push(``, `*${widelyShared.length} total spells shared by 10+ classes*`);
+    }
+  }
+
+  // Per-class sharing stats
+  lines.push('', '## Class Sharing Summary', '');
+  lines.push('| Class | Total Spells | Exclusive | Shared |');
+  lines.push('|-------|-------------|-----------|--------|');
+
+  for (let classId = 1; classId <= 16; classId++) {
+    const classIndex = classId - 1;
+    let total = 0;
+    let exclusive = 0;
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+      if (level <= 0 || level >= 255) continue;
+      total++;
+      let otherCount = 0;
+      for (let otherId = 1; otherId <= 16; otherId++) {
+        if (otherId === classId) continue;
+        const otherLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + otherId - 1]) || 255;
+        if (otherLevel > 0 && otherLevel < 255) otherCount++;
+      }
+      if (otherCount === 0) exclusive++;
+    }
+    lines.push(`| ${CLASS_IDS[classId]} | ${total.toLocaleString()} | ${exclusive.toLocaleString()} | ${(total - exclusive).toLocaleString()} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL DURATION OVERVIEW ============
+
+export async function getSpellDurationOverview(className?: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  let classId: number | undefined;
+  let classFullName = 'All Classes';
+  if (className) {
+    classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (!classId) {
+      return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+    }
+    classFullName = CLASS_IDS[classId];
+  }
+
+  // Duration formula explanations
+  const DURATION_FORMULAS: Record<number, string> = {
+    0: 'None (instant)',
+    1: 'level/2 ticks (max 6s per tick)',
+    2: 'level/5 + 1 ticks',
+    3: 'level * 30 ticks',
+    4: '50 ticks (~5 minutes)',
+    5: '2 ticks (~12 seconds)',
+    6: 'level/2 ticks',
+    7: 'level ticks',
+    8: 'level + 10 ticks',
+    9: 'level * 2 + 10 ticks',
+    10: 'level * 3 + 10 ticks',
+    11: '(value) ticks',
+    12: 'Permanent',
+    50: '(value) ticks (fixed)',
+    3600: '(value) seconds (fixed)',
+  };
+
+  // Categorize spells by duration type
+  const formulaCounts = new Map<number, number>();
+  const durationBuckets = new Map<string, number>();
+  let totalSpells = 0;
+
+  for (const spell of spells.values()) {
+    if (classId) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+    }
+    totalSpells++;
+
+    const formula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const value = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    formulaCounts.set(formula, (formulaCounts.get(formula) || 0) + 1);
+
+    // Bucket by approximate duration
+    let bucket: string;
+    if (formula === 0 && value === 0) bucket = 'Instant';
+    else if (formula === 12) bucket = 'Permanent';
+    else if (value <= 1) bucket = '≤6s';
+    else if (value <= 5) bucket = '6-30s';
+    else if (value <= 10) bucket = '30s-1m';
+    else if (value <= 50) bucket = '1-5m';
+    else if (value <= 150) bucket = '5-15m';
+    else if (value <= 600) bucket = '15-60m';
+    else bucket = '60m+';
+
+    durationBuckets.set(bucket, (durationBuckets.get(bucket) || 0) + 1);
+  }
+
+  const lines = [`# Spell Duration Overview — ${classFullName}`, ''];
+  lines.push(`**${totalSpells.toLocaleString()} spells analyzed**`, '');
+
+  // Duration formula breakdown
+  lines.push('## Duration Formulas', '');
+  lines.push('| Formula | Description | Spells | % |');
+  lines.push('|---------|-------------|--------|---|');
+
+  const sortedFormulas = [...formulaCounts.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [formula, count] of sortedFormulas.slice(0, 20)) {
+    const desc = DURATION_FORMULAS[formula] || `Formula ${formula}`;
+    const pct = ((count / totalSpells) * 100).toFixed(1);
+    lines.push(`| ${formula} | ${desc} | ${count.toLocaleString()} | ${pct}% |`);
+  }
+  if (sortedFormulas.length > 20) {
+    lines.push(`| ... | ${sortedFormulas.length - 20} more formulas | | |`);
+  }
+
+  // Duration buckets
+  const bucketOrder = ['Instant', '≤6s', '6-30s', '30s-1m', '1-5m', '5-15m', '15-60m', '60m+', 'Permanent'];
+  lines.push('', '## Duration Distribution', '');
+  lines.push('| Duration | Spells | % |');
+  lines.push('|----------|--------|---|');
+
+  for (const bucket of bucketOrder) {
+    const count = durationBuckets.get(bucket) || 0;
+    if (count > 0) {
+      const pct = ((count / totalSpells) * 100).toFixed(1);
+      const bar = '█'.repeat(Math.round(parseFloat(pct) / 2));
+      lines.push(`| ${bucket} | ${count.toLocaleString()} | ${pct}% ${bar} |`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: RESIST TYPE CLASS COMPARISON ============
+
+export async function getResistTypeComparison(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Build a matrix: class x resist type -> detrimental spell count
+  const matrix: Record<number, Record<number, number>> = {};
+  for (let classId = 1; classId <= 16; classId++) {
+    matrix[classId] = {};
+  }
+
+  for (const spell of spells.values()) {
+    if (spell.fields[SF.BENEFICIAL] === '1') continue; // Only detrimental
+
+    const resistType = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    if (resistType === 0) continue; // Skip unresistable
+
+    for (let classId = 1; classId <= 16; classId++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+      matrix[classId][resistType] = (matrix[classId][resistType] || 0) + 1;
+    }
+  }
+
+  // Find all resist types that appear
+  const resistTypes = new Set<number>();
+  for (const classData of Object.values(matrix)) {
+    for (const rt of Object.keys(classData)) {
+      resistTypes.add(parseInt(rt));
+    }
+  }
+  const sortedResists = [...resistTypes].sort((a, b) => a - b);
+
+  const lines = ['# Resist Type Distribution by Class (Detrimental Spells)', ''];
+
+  // Build header
+  const header = ['| Class', ...sortedResists.map(rt => RESIST_TYPES[rt] || `R${rt}`), 'Total |'];
+  const sep = ['|------', ...sortedResists.map(() => '---'), '-----|'];
+  lines.push(header.join(' | '));
+  lines.push(sep.join(' | '));
+
+  for (let classId = 1; classId <= 16; classId++) {
+    const cells = [CLASS_SHORT[classId]];
+    let total = 0;
+    for (const rt of sortedResists) {
+      const count = matrix[classId][rt] || 0;
+      total += count;
+      cells.push(count > 0 ? count.toString() : '-');
+    }
+    cells.push(total.toString());
+    lines.push(`| ${cells.join(' | ')} |`);
+  }
+
+  // Find dominant resist type per class
+  lines.push('', '## Dominant Resist Type by Class', '');
+
+  for (let classId = 1; classId <= 16; classId++) {
+    let maxType = 0;
+    let maxCount = 0;
+    for (const [rt, count] of Object.entries(matrix[classId])) {
+      if (count > maxCount) {
+        maxCount = count;
+        maxType = parseInt(rt);
+      }
+    }
+    if (maxCount > 0) {
+      lines.push(`- **${CLASS_IDS[classId]}:** ${RESIST_TYPES[maxType]} (${maxCount} spells)`);
+    }
+  }
+
+  return lines.join('\n');
+}

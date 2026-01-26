@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 149 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 152 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **149 tools** for querying EverQuest data
+- **152 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -150,6 +150,9 @@ Then restart Claude Desktop.
 | `get_spell_target_overview` | Breakdown of spells by target type (Single, Self, Group, AoE, etc.) with category analysis — optionally per class |
 | `get_spell_timer_overview` | Spell reuse timer group analysis per class — shared lockout timers, timer group sizes, unique timers |
 | `get_spell_category_breakdown` | Spell category breakdown per class — count, beneficial/detrimental, level ranges per category |
+| `get_shared_spells_overview` | Cross-class spell availability — sharing distribution, most widely shared spells, exclusive vs shared counts per class |
+| `get_spell_duration_overview` | Spell duration analysis — formula breakdown, duration distribution buckets with bar graph, optionally per class |
+| `get_resist_type_comparison` | Resist type distribution matrix across all 16 classes — detrimental spell counts per resist type, dominant resist per class |
 
 ### Local Data - Character
 | Tool | Description |
@@ -306,7 +309,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (149 tools)
+├── tools.ts          # Tool definitions and handlers (152 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
