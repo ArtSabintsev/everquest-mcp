@@ -84,6 +84,7 @@ import {
   searchSpellStackingGroups,
   searchSpellsByDescription,
   searchTimerGroup,
+  getFactionsByRace,
 } from './sources/index.js';
 
 export const tools = [
@@ -673,6 +674,20 @@ export const tools = [
         }
       },
       required: ['id']
+    }
+  },
+  {
+    name: 'get_factions_by_race',
+    description: 'Show all faction standings for a specific playable race. Shows which factions start hostile or friendly for that race, useful for character creation decisions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        race: {
+          type: 'string',
+          description: 'Race name (e.g., "Dark Elf", "Iksar", "Human", "Gnome")'
+        }
+      },
+      required: ['race']
     }
   },
   {
@@ -1999,6 +2014,12 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const id = (args.id as string).trim();
         return getFaction(id);
+      }
+
+      case 'get_factions_by_race': {
+        const race = typeof args.race === 'string' ? args.race.trim() : '';
+        if (!race) return 'Error: "race" parameter is required';
+        return getFactionsByRace(race);
       }
 
       case 'search_aa': {

@@ -74,6 +74,25 @@ RACE_NAME_TO_ID['he'] = 5;
 RACE_NAME_TO_ID['we'] = 4;
 RACE_NAME_TO_ID['hef'] = 7;
 
+// Faction modifier IDs for playable races (from dbstr type 45)
+const PLAYABLE_RACE_MODIFIER_IDS = new Set([
+  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, // Human through Gnome
+  178, // Iksar
+  180, // Vah Shir
+  661, // Froglok (Guktan)
+  1106, // Drakkin
+]);
+
+// Map playable race names to faction modifier IDs
+const RACE_TO_FACTION_MODIFIER: Record<string, number> = {
+  'human': 51, 'barbarian': 52, 'erudite': 53, 'wood elf': 54,
+  'high elf': 55, 'dark elf': 56, 'half elf': 57, 'dwarf': 58,
+  'troll': 59, 'ogre': 60, 'halfling': 61, 'gnome': 62,
+  'iksar': 178, 'vah shir': 180, 'froglok': 661, 'drakkin': 1106,
+  // Short aliases
+  'de': 56, 'he': 55, 'we': 54, 'hef': 57,
+};
+
 // Race starting base stats: [STR, STA, AGI, DEX, WIS, INT, CHA]
 const RACE_BASE_STATS: Record<number, number[]> = {
   1:   [75, 75, 75, 75, 75, 75, 75],       // Human
@@ -4307,7 +4326,7 @@ export async function getFaction(id: string): Promise<string> {
   if (faction.startingValues && faction.startingValues.length > 0) {
     const raceEntries = faction.startingValues.filter(sv =>
       factionModifierNames?.get(sv.modifierId)?.startsWith('Race:') ||
-      (sv.modifierId >= 51 && sv.modifierId <= 62) || sv.modifierId === 178 || sv.modifierId === 330 || sv.modifierId === 661 || sv.modifierId === 1106
+      PLAYABLE_RACE_MODIFIER_IDS.has(sv.modifierId)
     );
     const classEntries = faction.startingValues.filter(sv =>
       sv.modifierId >= 1 && sv.modifierId <= 16 &&
@@ -4349,6 +4368,77 @@ export async function getFaction(id: string): Promise<string> {
           sv.value >= -750 ? 'Threatening' : 'Scowling';
         lines.push(`- **${name}:** ${sv.value} (${standing})`);
       }
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export async function getFactionsByRace(raceName: string): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const modId = RACE_TO_FACTION_MODIFIER[raceName.toLowerCase()];
+  if (!modId) {
+    return `Unknown race: "${raceName}". Valid races: ${Object.keys(RACE_IDS).map(id => RACE_IDS[parseInt(id)]).join(', ')}`;
+  }
+
+  // Find the display name
+  const displayRace = factionModifierNames?.get(modId)?.replace(/^Race:\s*/, '') || raceName;
+
+  // Collect all factions with starting values for this race
+  const factionStandings: { id: number; name: string; value: number; standing: string; category?: string }[] = [];
+
+  for (const [id, faction] of factions) {
+    if (!faction.startingValues) continue;
+    for (const sv of faction.startingValues) {
+      if (sv.modifierId === modId) {
+        const standing = sv.value >= 1100 ? 'Ally' :
+          sv.value >= 750 ? 'Warmly' :
+          sv.value >= 500 ? 'Kindly' :
+          sv.value >= 100 ? 'Amiable' :
+          sv.value >= 0 ? 'Indifferent' :
+          sv.value >= -100 ? 'Apprehensive' :
+          sv.value >= -500 ? 'Dubious' :
+          sv.value >= -750 ? 'Threatening' : 'Scowling';
+        factionStandings.push({ id, name: faction.name, value: sv.value, standing, category: faction.category });
+        break;
+      }
+    }
+  }
+
+  if (factionStandings.length === 0) {
+    return `No faction starting values found for ${displayRace}.`;
+  }
+
+  // Sort: most hostile first (lowest value)
+  factionStandings.sort((a, b) => a.value - b.value);
+
+  const hostile = factionStandings.filter(f => f.value < 0);
+  const friendly = factionStandings.filter(f => f.value >= 0);
+
+  const lines = [
+    `## Faction Standings for ${displayRace}`,
+    `*${factionStandings.length} factions with starting values*`,
+    '',
+  ];
+
+  if (hostile.length > 0) {
+    lines.push(`### Hostile Factions (${hostile.length})`);
+    for (const f of hostile) {
+      const cat = f.category ? ` [${f.category}]` : '';
+      lines.push(`- **${f.name}** (ID: ${f.id}) — ${f.value} (${f.standing})${cat}`);
+    }
+    lines.push('');
+  }
+
+  if (friendly.length > 0) {
+    lines.push(`### Friendly Factions (${friendly.length})`);
+    // Sort friendly highest first
+    friendly.sort((a, b) => b.value - a.value);
+    for (const f of friendly) {
+      const cat = f.category ? ` [${f.category}]` : '';
+      lines.push(`- **${f.name}** (ID: ${f.id}) — ${f.value} (${f.standing})${cat}`);
     }
   }
 
