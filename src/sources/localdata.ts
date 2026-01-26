@@ -17408,3 +17408,400 @@ export async function getClassEndgameProfile(className: string): Promise<string>
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SPELL EFFECT RARITY INDEX ============
+
+export async function getSpellEffectRarityIndex(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Spell Effect Rarity Index', ''];
+  lines.push('*Which spell effects are rare vs common per class — identifies what makes each class irreplaceable.*', '');
+
+  // Count SPA occurrences per class
+  const classSPAs: Map<number, Map<number, number>> = new Map(); // classId -> spaId -> count
+  const globalSPAs: Map<number, Set<number>> = new Map(); // spaId -> set of classIds that have it
+
+  for (let cid = 1; cid <= 16; cid++) {
+    classSPAs.set(cid, new Map());
+  }
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const spas = new Set<number>();
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spaId = parseInt(parts[1]);
+        if (!isNaN(spaId) && spaId > 0) spas.add(spaId);
+      }
+    }
+
+    for (let cid = 1; cid <= 16; cid++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+
+      const classMap = classSPAs.get(cid)!;
+      for (const spa of spas) {
+        classMap.set(spa, (classMap.get(spa) || 0) + 1);
+        if (!globalSPAs.has(spa)) globalSPAs.set(spa, new Set());
+        globalSPAs.get(spa)!.add(cid);
+      }
+    }
+  }
+
+  // Find exclusive and rare effects per class
+  lines.push('## Class-Exclusive Spell Effects', '');
+  lines.push('*Effects available to only 1 class — these define the class\'s unique contribution.*', '');
+
+  const exclusiveByClass = new Map<number, { spa: number; name: string; count: number }[]>();
+
+  for (const [spaId, classes] of globalSPAs) {
+    if (classes.size === 1) {
+      const cid = [...classes][0];
+      const count = classSPAs.get(cid)!.get(spaId) || 0;
+      if (!exclusiveByClass.has(cid)) exclusiveByClass.set(cid, []);
+      exclusiveByClass.get(cid)!.push({ spa: spaId, name: SPA_NAMES[spaId] || `SPA ${spaId}`, count });
+    }
+  }
+
+  for (let cid = 1; cid <= 16; cid++) {
+    const exclusives = exclusiveByClass.get(cid) || [];
+    if (exclusives.length > 0) {
+      exclusives.sort((a, b) => b.count - a.count);
+      const topEffects = exclusives.slice(0, 5).map(e => `${e.name} (${e.count})`).join(', ');
+      lines.push(`- **${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}):** ${exclusives.length} exclusive effects — ${topEffects}`);
+    } else {
+      lines.push(`- **${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}):** No exclusive effects`);
+    }
+  }
+
+  // Rare effects (2-3 classes)
+  lines.push('', '## Rare Effects (2-3 Classes Only)', '');
+  lines.push('| Effect | Classes | Spells |');
+  lines.push('|--------|---------|-------:|');
+
+  const rareEffects: { spa: number; name: string; classes: string[]; total: number }[] = [];
+  for (const [spaId, classes] of globalSPAs) {
+    if (classes.size >= 2 && classes.size <= 3) {
+      let total = 0;
+      const classNames: string[] = [];
+      for (const cid of classes) {
+        classNames.push(CLASS_SHORT[cid]);
+        total += classSPAs.get(cid)!.get(spaId) || 0;
+      }
+      rareEffects.push({ spa: spaId, name: SPA_NAMES[spaId] || `SPA ${spaId}`, classes: classNames, total });
+    }
+  }
+  rareEffects.sort((a, b) => a.classes.length - b.classes.length || b.total - a.total);
+  for (const e of rareEffects.slice(0, 30)) {
+    lines.push(`| ${e.name} | ${e.classes.join(', ')} | ${e.total} |`);
+  }
+
+  // Universal effects (available to all 16 classes)
+  const universalSPAs = [...globalSPAs.entries()].filter(([, c]) => c.size === 16);
+  lines.push('', `## Universal Effects (All 16 Classes): ${universalSPAs.length}`, '');
+  const universalNames = universalSPAs
+    .map(([spaId]) => SPA_NAMES[spaId] || `SPA ${spaId}`)
+    .sort()
+    .slice(0, 20);
+  lines.push(universalNames.join(', ') + (universalSPAs.length > 20 ? `, ... (+${universalSPAs.length - 20} more)` : ''));
+
+  // Effect diversity ranking
+  lines.push('', '## Effect Diversity Ranking', '');
+  lines.push('| Class | Unique SPAs | Exclusive | Rare (≤3) |');
+  lines.push('|-------|----------:|----------:|----------:|');
+  const diversityData: { cid: number; total: number; exclusive: number; rare: number }[] = [];
+  for (let cid = 1; cid <= 16; cid++) {
+    const total = classSPAs.get(cid)!.size;
+    const exclusive = (exclusiveByClass.get(cid) || []).length;
+    const rare = [...globalSPAs.entries()].filter(([spaId, classes]) => classes.has(cid) && classes.size <= 3).length;
+    diversityData.push({ cid, total, exclusive, rare });
+  }
+  diversityData.sort((a, b) => b.total - a.total);
+  for (const d of diversityData) {
+    lines.push(`| ${CLASS_IDS[d.cid]} (${CLASS_SHORT[d.cid]}) | ${d.total} | ${d.exclusive} | ${d.rare} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: MERCENARY CLASS SYNERGY ============
+
+export async function getMercenaryClassSynergy(): Promise<string> {
+  await loadSpells();
+  await loadBaseStats();
+  await loadMercenaries();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  if (!mercenaries || mercenaries.size === 0) return 'Mercenary data not available.';
+
+  const lines = ['# Mercenary-Class Synergy Guide', ''];
+  lines.push('*Which mercenary type best complements each class based on role gaps.*', '');
+
+  // Build role scores per class
+  const HEAL_SPAS = new Set([0, 147]);
+  const TANK_SPAS = new Set([1, 55, 69, 162, 172]);
+  const DPS_SPAS_LOCAL = new Set([0, 79, 85, 119, 330, 374, 413]);
+  const CC_SPAS = new Set([21, 22, 23, 31, 74]);
+
+  interface ClassRole {
+    classId: number;
+    name: string;
+    short: string;
+    heal: number;
+    tank: number;
+    dps: number;
+    cc: number;
+    hp: number;
+    mana: number;
+  }
+
+  const roles: ClassRole[] = [];
+
+  for (let cid = 1; cid <= 16; cid++) {
+    let heal = 0, tank = 0, dps = 0, cc = 0;
+
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+      let effectField = '';
+      for (let i = spell.fields.length - 1; i >= 0; i--) {
+        if (spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+      }
+      if (!effectField) continue;
+
+      const isBen = spell.fields[SF.BENEFICIAL] === '1';
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (isNaN(spaId) || spaId <= 0) continue;
+          if (HEAL_SPAS.has(spaId) && isBen) heal++;
+          if (TANK_SPAS.has(spaId)) tank++;
+          if (DPS_SPAS_LOCAL.has(spaId) && !isBen) dps++;
+          if (CC_SPAS.has(spaId)) cc++;
+        }
+      }
+    }
+
+    let hp = 0, mana = 0;
+    if (baseStats) {
+      const stat = baseStats.find(s => s.classId === cid && s.level === 100);
+      if (stat) { hp = stat.hp; mana = stat.mana; }
+    }
+
+    roles.push({ classId: cid, name: CLASS_IDS[cid], short: CLASS_SHORT[cid], heal, tank, dps, cc, hp, mana });
+  }
+
+  // Normalize
+  const maxHeal = Math.max(...roles.map(r => r.heal), 1);
+  const maxTank = Math.max(...roles.map(r => r.tank), 1);
+  const maxDps = Math.max(...roles.map(r => r.dps), 1);
+
+  // Mercenary types available
+  const mercTypes = new Map<string, number>();
+  for (const m of mercenaries.values()) {
+    mercTypes.set(m.type, (mercTypes.get(m.type) || 0) + 1);
+  }
+
+  lines.push('## Available Mercenary Types', '');
+  lines.push('| Type | Templates |');
+  lines.push('|------|----------:|');
+  for (const [type, count] of [...mercTypes.entries()].sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${type} | ${count} |`);
+  }
+
+  // Recommend merc type per class
+  lines.push('', '## Recommended Mercenary by Class', '');
+  lines.push('*Recommendation based on filling the class\'s weakest role.*', '');
+  lines.push('| Class | Heal % | Tank % | DPS % | Weakness | Recommended Merc | Reasoning |');
+  lines.push('|-------|-------:|-------:|------:|----------|-----------------|-----------|');
+
+  for (const r of roles) {
+    const healPct = Math.round((r.heal / maxHeal) * 100);
+    const tankPct = Math.round((r.tank / maxTank) * 100);
+    const dpsPct = Math.round((r.dps / maxDps) * 100);
+
+    // Find weakest role
+    let weakness = 'DPS';
+    let recommended = 'Melee DPS';
+    let reasoning = 'Augment damage output';
+
+    const scores = [
+      { role: 'Heal', pct: healPct },
+      { role: 'Tank', pct: tankPct },
+      { role: 'DPS', pct: dpsPct },
+    ];
+    scores.sort((a, b) => a.pct - b.pct);
+    weakness = scores[0].role;
+
+    if (weakness === 'Heal') {
+      recommended = 'Healer';
+      reasoning = 'Low healing capability — healer merc provides sustain';
+    } else if (weakness === 'Tank') {
+      recommended = 'Tank';
+      reasoning = 'Low survivability — tank merc absorbs damage';
+    } else {
+      // If already balanced, recommend based on class type
+      if (r.mana > 0 && r.hp < roles.reduce((s, x) => s + x.hp, 0) / roles.length) {
+        recommended = 'Tank';
+        reasoning = 'Caster class with low HP — tank merc provides protection';
+      } else {
+        recommended = 'Healer';
+        reasoning = 'Strong DPS already — healer merc enables sustained combat';
+      }
+    }
+
+    lines.push(`| ${r.name} (${r.short}) | ${healPct} | ${tankPct} | ${dpsPct} | ${weakness} | ${recommended} | ${reasoning} |`);
+  }
+
+  // Mercenary tiers
+  lines.push('', '## Mercenary Tier Summary', '');
+  const tierCounts = new Map<string, Map<string, number>>();
+  for (const m of mercenaries.values()) {
+    if (!tierCounts.has(m.type)) tierCounts.set(m.type, new Map());
+    const tc = tierCounts.get(m.type)!;
+    tc.set(m.tier, (tc.get(m.tier) || 0) + 1);
+  }
+  for (const [type, tiers] of [...tierCounts.entries()].sort()) {
+    const tierList = [...tiers.entries()].sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t}: ${c}`).join(', ');
+    lines.push(`- **${type}:** ${tierList}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: OVERSEER QUEST EFFICIENCY ANALYSIS ============
+
+export async function getOverseerQuestEfficiencyAnalysis(): Promise<string> {
+  await loadOverseerQuests();
+  await loadOverseerMinions();
+  await loadOverseerEnhancements();
+  if (!overseerQuests || overseerQuests.size === 0) return 'Overseer quest data not available.';
+
+  const lines = ['# Overseer Quest Efficiency Analysis', ''];
+  lines.push('*Quest efficiency measured by difficulty-to-slot ratio and duration optimization.*', '');
+
+  // Gather quest data
+  interface QuestData {
+    id: number;
+    name: string;
+    category: string;
+    difficulty: number;
+    duration: number;
+    requiredSlots: number;
+    optionalSlots: number;
+    totalSlots: number;
+    efficiencyScore: number; // difficulty per required slot
+    uniqueJobs: number;
+    bonusTraits: number;
+  }
+
+  const questData: QuestData[] = [];
+
+  for (const quest of overseerQuests.values()) {
+    const category = overseerCategories?.get(quest.categoryId) || `Category ${quest.categoryId}`;
+    const totalSlots = quest.requiredSlots + quest.optionalSlots;
+    const uniqueJobs = new Set(quest.slotDetails.map(s => s.jobTypeId)).size;
+    const bonusTraits = quest.slotDetails.reduce((s, d) => s + d.bonusTraitIds.length, 0);
+    const efficiencyScore = quest.requiredSlots > 0 ? quest.difficulty / quest.requiredSlots : 0;
+
+    questData.push({
+      id: quest.id,
+      name: quest.name,
+      category,
+      difficulty: quest.difficulty,
+      duration: quest.duration,
+      requiredSlots: quest.requiredSlots,
+      optionalSlots: quest.optionalSlots,
+      totalSlots,
+      efficiencyScore,
+      uniqueJobs,
+      bonusTraits
+    });
+  }
+
+  // Category summary
+  const categoryStats = new Map<string, { count: number; avgDiff: number; avgSlots: number; avgDuration: number; totalDiff: number; totalSlots: number; totalDuration: number }>();
+  for (const q of questData) {
+    const cat = categoryStats.get(q.category) || { count: 0, avgDiff: 0, avgSlots: 0, avgDuration: 0, totalDiff: 0, totalSlots: 0, totalDuration: 0 };
+    cat.count++;
+    cat.totalDiff += q.difficulty;
+    cat.totalSlots += q.requiredSlots;
+    cat.totalDuration += q.duration;
+    categoryStats.set(q.category, cat);
+  }
+
+  lines.push('## Category Efficiency Overview', '');
+  lines.push('| Category | Quests | Avg Difficulty | Avg Required Slots | Avg Duration (hrs) | Diff/Slot |');
+  lines.push('|----------|-------:|---------------:|-------------------:|-------------------:|----------:|');
+  for (const [cat, stats] of [...categoryStats.entries()].sort((a, b) => b[1].count - a[1].count)) {
+    const avgDiff = (stats.totalDiff / stats.count).toFixed(1);
+    const avgSlots = (stats.totalSlots / stats.count).toFixed(1);
+    const avgDuration = (stats.totalDuration / stats.count / 3600).toFixed(1);
+    const diffPerSlot = stats.totalSlots > 0 ? (stats.totalDiff / stats.totalSlots).toFixed(2) : '0';
+    lines.push(`| ${cat} | ${stats.count} | ${avgDiff} | ${avgSlots} | ${avgDuration} | ${diffPerSlot} |`);
+  }
+
+  // Most efficient quests (highest difficulty per slot)
+  const sorted = [...questData].sort((a, b) => b.efficiencyScore - a.efficiencyScore);
+  lines.push('', '## Top 15 Most Efficient Quests (Highest Difficulty/Slot)', '');
+  lines.push('| Quest | Category | Diff | Req Slots | Eff Score | Duration |');
+  lines.push('|-------|----------|-----:|----------:|----------:|----------:|');
+  for (const q of sorted.slice(0, 15)) {
+    const durationHrs = (q.duration / 3600).toFixed(1);
+    lines.push(`| ${q.name} | ${q.category} | ${q.difficulty} | ${q.requiredSlots} | ${q.efficiencyScore.toFixed(2)} | ${durationHrs}h |`);
+  }
+
+  // Least demanding quests (fewest required slots)
+  const bySlots = [...questData].sort((a, b) => a.requiredSlots - b.requiredSlots || b.difficulty - a.difficulty);
+  lines.push('', '## Least Demanding Quests (Fewest Required Slots)', '');
+  lines.push('| Quest | Category | Diff | Req Slots | Optional | Duration |');
+  lines.push('|-------|----------|-----:|----------:|---------:|----------:|');
+  for (const q of bySlots.slice(0, 15)) {
+    const durationHrs = (q.duration / 3600).toFixed(1);
+    lines.push(`| ${q.name} | ${q.category} | ${q.difficulty} | ${q.requiredSlots} | ${q.optionalSlots} | ${durationHrs}h |`);
+  }
+
+  // Difficulty distribution
+  lines.push('', '## Difficulty Distribution', '');
+  const diffBuckets = new Map<number, number>();
+  for (const q of questData) {
+    diffBuckets.set(q.difficulty, (diffBuckets.get(q.difficulty) || 0) + 1);
+  }
+  for (const [diff, count] of [...diffBuckets.entries()].sort((a, b) => a[0] - b[0])) {
+    const bar = '#'.repeat(Math.min(Math.round(count / 2), 40));
+    lines.push(`- **Difficulty ${diff}:** ${count} quests ${bar}`);
+  }
+
+  // Job diversity
+  lines.push('', '## Job Diversity per Quest', '');
+  const jobBuckets = new Map<number, number>();
+  for (const q of questData) {
+    jobBuckets.set(q.uniqueJobs, (jobBuckets.get(q.uniqueJobs) || 0) + 1);
+  }
+  for (const [jobs, count] of [...jobBuckets.entries()].sort((a, b) => a[0] - b[0])) {
+    lines.push(`- **${jobs} unique job type${jobs > 1 ? 's' : ''}:** ${count} quests`);
+  }
+
+  // Bonus trait stats
+  const totalBonus = questData.reduce((s, q) => s + q.bonusTraits, 0);
+  const questsWithBonus = questData.filter(q => q.bonusTraits > 0).length;
+  lines.push('', '## Bonus Trait Statistics', '');
+  lines.push(`- **Quests with bonus traits:** ${questsWithBonus} of ${questData.length} (${Math.round(questsWithBonus / questData.length * 100)}%)`);
+  lines.push(`- **Total bonus trait slots:** ${totalBonus}`);
+  if (questsWithBonus > 0) {
+    lines.push(`- **Average bonus traits per quest (with bonuses):** ${(totalBonus / questsWithBonus).toFixed(1)}`);
+  }
+
+  return lines.join('\n');
+}

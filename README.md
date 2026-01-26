@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 197 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 200 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **197 tools** for querying EverQuest data
+- **200 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -172,6 +172,7 @@ Then restart Claude Desktop.
 | `get_spell_cost_efficiency_analysis` | Spell cost efficiency — mana/endurance costs vs resource pools per level bracket, casts per pool, efficiency trends |
 | `get_spell_target_type_matrix` | Spell target type matrix — class specialization by target type (Self, Single, Group, AE) with above-average highlights |
 | `get_spell_scaling_analysis` | Spell scaling analysis — find all versions/ranks of a spell line and show how effects, mana cost, and power scale across ranks |
+| `get_spell_effect_rarity_index` | Spell effect rarity index — exclusive, rare, and universal effects per class, identifying what makes each class irreplaceable |
 
 ### Local Data - Character
 | Tool | Description |
@@ -276,6 +277,7 @@ Then restart Claude Desktop.
 | `search_overseer_agents_by_trait` | Search overseer agents by trait (race/creature type) with auto-list of available traits |
 | `get_overseer_slot_analysis` | Overseer quest slot patterns — job type demand, required vs optional ratios, bonus trait frequency, slots by difficulty, most demanding quests |
 | `get_overseer_minion_rarity_analysis` | Overseer agent rarity analysis — rarity distribution, traits/jobs per rarity tier, job levels by rarity, most common traits and jobs at each tier |
+| `get_overseer_quest_efficiency_analysis` | Overseer quest efficiency analysis — difficulty-to-slot ratios, category efficiency, most/least demanding quests, job diversity |
 
 ### Local Data - Mercenaries
 | Tool | Description |
@@ -286,6 +288,7 @@ Then restart Claude Desktop.
 | `get_mercenary_overview` | Mercenary system overview with types, tiers, races, and stances |
 | `get_mercenary_ability_overview` | Overview of all 14 mercenary abilities with descriptions, themes, and type listing |
 | `get_mercenary_tier_analysis` | Mercenary tier and proficiency analysis — confidence/proficiency distributions, type-by-tier matrix, cross-tab, top races per type |
+| `get_mercenary_class_synergy` | Mercenary-class synergy guide — recommended mercenary type for each of 16 classes based on role gap analysis |
 
 ### Local Data - Items & Effects
 | Tool | Description |
@@ -354,7 +357,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (197 tools)
+├── tools.ts          # Tool definitions and handlers (200 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

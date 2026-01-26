@@ -205,6 +205,9 @@ import {
   getExpansionImpactScore,
   getGroupCompositionAdvisor,
   getClassEndgameProfile,
+  getSpellEffectRarityIndex,
+  getMercenaryClassSynergy,
+  getOverseerQuestEfficiencyAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2749,6 +2752,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_effect_rarity_index',
+    description: 'Spell effect rarity index — which spell effects (SPAs) are exclusive, rare, or universal per class. Identifies what makes each class irreplaceable in a group.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_mercenary_class_synergy',
+    description: 'Mercenary-class synergy guide — recommended mercenary type for each of 16 classes based on role gaps (heal/tank/DPS weakness analysis).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_overseer_quest_efficiency_analysis',
+    description: 'Overseer quest efficiency analysis — difficulty-to-slot ratios, category efficiency, most efficient quests, least demanding quests, job diversity, and bonus trait statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4494,6 +4524,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required. Use short codes (WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER) or full names.';
         return getClassEndgameProfile(className);
+      }
+
+      case 'get_spell_effect_rarity_index': {
+        return getSpellEffectRarityIndex();
+      }
+
+      case 'get_mercenary_class_synergy': {
+        return getMercenaryClassSynergy();
+      }
+
+      case 'get_overseer_quest_efficiency_analysis': {
+        return getOverseerQuestEfficiencyAnalysis();
       }
 
       case 'search_help_topics': {
