@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 155 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 158 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **155 tools** for querying EverQuest data
+- **158 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -154,6 +154,8 @@ Then restart Claude Desktop.
 | `get_spell_duration_overview` | Spell duration analysis — formula breakdown, duration distribution buckets with bar graph, optionally per class |
 | `get_resist_type_comparison` | Resist type distribution matrix across all 16 classes — detrimental spell counts per resist type, dominant resist per class |
 | `get_spell_requirement_overview` | Spell casting requirement associations — prerequisite counts, most common requirement IDs, complexity analysis, sample spell-requirement mappings |
+| `get_spell_level_distribution` | Spell level distribution for a class — spells per bracket, level-by-level counts, peak levels, gaps |
+| `get_spell_cast_time_analysis` | Cast time, recovery, and recast analysis — timing distributions, instant cast %, longest cast/recast spells |
 
 ### Local Data - Character
 | Tool | Description |
@@ -279,6 +281,7 @@ Then restart Claude Desktop.
 | `search_help_topics` | Search 75 official in-game help topics on game mechanics |
 | `get_help_topic` | Read a specific help topic (augments, combat, mercenaries, etc.) |
 | `get_local_data_status` | Show which local data files are loaded |
+| `get_db_string_type_overview` | Meta overview of all 68 string data types in dbstr_us.txt with entry counts, names, and samples |
 
 ## Example Queries
 
@@ -312,7 +315,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (155 tools)
+├── tools.ts          # Tool definitions and handlers (158 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

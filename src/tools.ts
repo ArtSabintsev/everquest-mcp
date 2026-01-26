@@ -163,6 +163,9 @@ import {
   getSpellRequirementOverview,
   getFactionModifierOverview,
   getOverseerSlotAnalysis,
+  getDbStringTypeOverview,
+  getSpellLevelDistribution,
+  getSpellCastTimeAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2285,6 +2288,37 @@ export const tools = [
     }
   },
   {
+    name: 'get_db_string_type_overview',
+    description: 'Meta overview of all string data types in dbstr_us.txt — lists every type ID with entry counts, known names, sample values, and largest types. Shows the data dictionary of available game string data.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_level_distribution',
+    description: 'Spell level distribution for a class — spells per level bracket, level-by-level counts (beneficial vs detrimental), peak spell levels, and gaps.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g., "Wizard", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_spell_cast_time_analysis',
+    description: 'Spell cast time, recovery time, and recast cooldown analysis — timing distributions, instant vs slow cast percentages, longest cast/recast spells. Optionally filtered by class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name to filter by (optional — omit for all spells)' }
+      },
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3841,6 +3875,21 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_overseer_slot_analysis': {
         return getOverseerSlotAnalysis();
+      }
+
+      case 'get_db_string_type_overview': {
+        return getDbStringTypeOverview();
+      }
+
+      case 'get_spell_level_distribution': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required';
+        return getSpellLevelDistribution(className);
+      }
+
+      case 'get_spell_cast_time_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : undefined;
+        return getSpellCastTimeAnalysis(className || undefined);
       }
 
       case 'search_help_topics': {

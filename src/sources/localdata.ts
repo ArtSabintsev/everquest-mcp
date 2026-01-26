@@ -12230,3 +12230,340 @@ export async function getOverseerSlotAnalysis(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ TOOL #156: DB STRING TYPE OVERVIEW ============
+
+export async function getDbStringTypeOverview(): Promise<string> {
+  if (!isGameDataAvailable()) {
+    return 'Game data directory not available.';
+  }
+
+  // Read raw dbstr_us.txt and count entries per type
+  const data = await readGameFile('dbstr_us.txt');
+  const lineArr = data.split('\n');
+
+  const typeCounts: Record<number, number> = {};
+  const typeSamples: Record<number, string[]> = {}; // first 3 samples per type
+
+  for (const line of lineArr) {
+    if (!line.trim()) continue;
+    const fields = line.split('^');
+    if (fields.length < 3) continue;
+    const type = parseInt(fields[1]);
+    const text = fields[2];
+    if (isNaN(type)) continue;
+
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
+    if (!typeSamples[type]) typeSamples[type] = [];
+    if (typeSamples[type].length < 3 && text && text.length > 0) {
+      typeSamples[type].push(text.length > 60 ? text.substring(0, 57) + '...' : text);
+    }
+  }
+
+  // Reverse map DBSTR_TYPES to get names
+  const typeNames: Record<number, string> = {};
+  for (const [name, id] of Object.entries(DBSTR_TYPES)) {
+    typeNames[id] = name;
+  }
+
+  const lines = ['# DB String Types Overview (dbstr_us.txt)', ''];
+
+  const totalEntries = Object.values(typeCounts).reduce((s, v) => s + v, 0);
+  const totalTypes = Object.keys(typeCounts).length;
+  const knownTypes = Object.keys(typeCounts).filter(t => typeNames[parseInt(t)]).length;
+
+  lines.push(`- **Total entries:** ${totalEntries.toLocaleString()}`);
+  lines.push(`- **Total unique types:** ${totalTypes}`);
+  lines.push(`- **Known/named types:** ${knownTypes}`);
+  lines.push(`- **Unknown types:** ${totalTypes - knownTypes}`);
+
+  // Table of all types sorted by type ID
+  lines.push('', '## All String Types', '');
+  lines.push('| Type ID | Name | Entries | Samples |');
+  lines.push('|---------|------|---------|---------|');
+  const sortedTypes = Object.entries(typeCounts).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+  for (const [typeId, count] of sortedTypes) {
+    const id = parseInt(typeId);
+    const name = typeNames[id] || '(unknown)';
+    const samples = (typeSamples[id] || []).map(s => s.replace(/\|/g, '\\|')).join('; ');
+    lines.push(`| ${id} | ${name} | ${count.toLocaleString()} | ${samples} |`);
+  }
+
+  // Top 10 by entry count
+  lines.push('', '## Largest Types by Entry Count', '');
+  const byCount = [...sortedTypes].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  for (const [typeId, count] of byCount) {
+    const id = parseInt(typeId);
+    const name = typeNames[id] || `Type ${id}`;
+    const pct = ((count / totalEntries) * 100).toFixed(1);
+    lines.push(`- **${name}** (type ${id}): ${count.toLocaleString()} entries (${pct}%)`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #157: SPELL LEVEL DISTRIBUTION ============
+
+export async function getSpellLevelDistribution(className: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = Object.entries(CLASS_IDS).find(([, name]) =>
+    name.toLowerCase() === className.toLowerCase()
+  )?.[0];
+  if (!classId) {
+    const validClasses = Object.values(CLASS_IDS).join(', ');
+    return `Unknown class "${className}". Valid classes: ${validClasses}`;
+  }
+  const cid = parseInt(classId);
+  const fieldIdx = SF.CLASS_LEVEL_START + cid - 1;
+
+  // Collect spells by level
+  const byLevel: Record<number, { name: string; id: number; beneficial: boolean; category: string }[]> = {};
+  let totalSpells = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[fieldIdx]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    totalSpells++;
+    if (!byLevel[level]) byLevel[level] = [];
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(catId) || '';
+    byLevel[level].push({ name: spell.name, id: spell.id, beneficial, category });
+  }
+
+  const lines = [`# Spell Level Distribution: ${CLASS_IDS[cid]}`, ''];
+  lines.push(`- **Total spells:** ${totalSpells}`);
+
+  const levels = Object.keys(byLevel).map(Number).sort((a, b) => a - b);
+  lines.push(`- **Level range:** ${levels[0]} to ${levels[levels.length - 1]}`);
+  lines.push(`- **Levels with spells:** ${levels.length}`);
+
+  // Distribution by level bracket
+  lines.push('', '## Spells by Level Bracket', '');
+  const brackets: [string, number, number][] = [
+    ['1-10', 1, 10], ['11-20', 11, 20], ['21-30', 21, 30], ['31-40', 31, 40],
+    ['41-50', 41, 50], ['51-60', 51, 60], ['61-70', 61, 70], ['71-80', 71, 80],
+    ['81-90', 81, 90], ['91-100', 91, 100], ['101-110', 101, 110], ['111-125', 111, 125],
+  ];
+  for (const [label, min, max] of brackets) {
+    let count = 0;
+    let beneficialCount = 0;
+    for (let l = min; l <= max; l++) {
+      if (byLevel[l]) {
+        count += byLevel[l].length;
+        beneficialCount += byLevel[l].filter(s => s.beneficial).length;
+      }
+    }
+    if (count > 0) {
+      const bar = '#'.repeat(Math.min(Math.round(count / 5), 50));
+      const detrCount = count - beneficialCount;
+      lines.push(`- **${label}:** ${count} spells (${beneficialCount} ben, ${detrCount} det) ${bar}`);
+    }
+  }
+
+  // Level-by-level detail
+  lines.push('', '## Spells per Level', '');
+  lines.push('| Level | Count | Beneficial | Detrimental |');
+  lines.push('|-------|-------|-----------|------------|');
+  for (const level of levels) {
+    const spellsAtLevel = byLevel[level];
+    const ben = spellsAtLevel.filter(s => s.beneficial).length;
+    const det = spellsAtLevel.length - ben;
+    lines.push(`| ${level} | ${spellsAtLevel.length} | ${ben} | ${det} |`);
+  }
+
+  // Levels with the most spells
+  const peakLevels = [...levels].sort((a, b) => byLevel[b].length - byLevel[a].length).slice(0, 5);
+  lines.push('', '## Peak Spell Levels', '');
+  for (const level of peakLevels) {
+    const spellNames = byLevel[level].slice(0, 5).map(s => s.name).join(', ');
+    const more = byLevel[level].length > 5 ? ` (+${byLevel[level].length - 5} more)` : '';
+    lines.push(`- **Level ${level}:** ${byLevel[level].length} spells — ${spellNames}${more}`);
+  }
+
+  // Gaps in spell levels
+  const gaps: number[] = [];
+  for (let l = levels[0]; l <= levels[levels.length - 1]; l++) {
+    if (!byLevel[l]) gaps.push(l);
+  }
+  if (gaps.length > 0 && gaps.length <= 30) {
+    lines.push('', '## Levels with No Spells', '');
+    lines.push(gaps.join(', '));
+  } else if (gaps.length > 30) {
+    lines.push('', `## Levels with No Spells: ${gaps.length} gaps`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #158: SPELL CAST TIME ANALYSIS ============
+
+export async function getSpellCastTimeAnalysis(className?: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  let classFilter: number | undefined;
+  let classLabel = 'All Classes';
+  if (className) {
+    const classId = Object.entries(CLASS_IDS).find(([, name]) =>
+      name.toLowerCase() === className.toLowerCase()
+    )?.[0];
+    if (!classId) {
+      const validClasses = Object.values(CLASS_IDS).join(', ');
+      return `Unknown class "${className}". Valid classes: ${validClasses}`;
+    }
+    classFilter = parseInt(classId);
+    classLabel = CLASS_IDS[classFilter];
+  }
+
+  // Collect timing data
+  const castTimes: number[] = [];
+  const recoveryTimes: number[] = [];
+  const recastTimes: number[] = [];
+  let totalSpells = 0;
+
+  const castBuckets: Record<string, number> = {};
+  const recastBuckets: Record<string, number> = {};
+
+  for (const spell of spells.values()) {
+    if (classFilter) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classFilter - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+    }
+
+    totalSpells++;
+    const castMs = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const recoveryMs = parseInt(spell.fields[SF.RECOVERY_TIME]) || 0;
+    const recastMs = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+
+    castTimes.push(castMs);
+    recoveryTimes.push(recoveryMs);
+    recastTimes.push(recastMs);
+
+    // Cast time buckets
+    const castSec = castMs / 1000;
+    let castBucket: string;
+    if (castSec === 0) castBucket = 'Instant (0s)';
+    else if (castSec <= 0.5) castBucket = 'Very Fast (0.1-0.5s)';
+    else if (castSec <= 1.5) castBucket = 'Fast (0.6-1.5s)';
+    else if (castSec <= 3) castBucket = 'Medium (1.6-3.0s)';
+    else if (castSec <= 6) castBucket = 'Slow (3.1-6.0s)';
+    else if (castSec <= 12) castBucket = 'Very Slow (6.1-12s)';
+    else castBucket = 'Ultra Slow (>12s)';
+    castBuckets[castBucket] = (castBuckets[castBucket] || 0) + 1;
+
+    // Recast time buckets
+    const recastSec = recastMs / 1000;
+    let recastBucket: string;
+    if (recastSec === 0) recastBucket = 'None (0s)';
+    else if (recastSec <= 6) recastBucket = 'Short (1-6s)';
+    else if (recastSec <= 15) recastBucket = 'Medium (7-15s)';
+    else if (recastSec <= 30) recastBucket = 'Long (16-30s)';
+    else if (recastSec <= 60) recastBucket = 'Very Long (31-60s)';
+    else if (recastSec <= 300) recastBucket = 'Extended (1-5min)';
+    else if (recastSec <= 900) recastBucket = 'Cooldown (5-15min)';
+    else recastBucket = 'Discipline (>15min)';
+    recastBuckets[recastBucket] = (recastBuckets[recastBucket] || 0) + 1;
+  }
+
+  if (totalSpells === 0) return 'No spells found for the given criteria.';
+
+  const lines = [`# Spell Cast Time Analysis: ${classLabel}`, ''];
+  lines.push(`- **Total spells analyzed:** ${totalSpells}`);
+
+  // Helper for stats
+  const stats = (arr: number[]) => {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const sum = sorted.reduce((s, v) => s + v, 0);
+    const avg = sum / sorted.length;
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+    const nonZero = sorted.filter(v => v > 0).length;
+    return { avg, median, min, max, nonZero };
+  };
+
+  // Cast time stats
+  const cs = stats(castTimes);
+  lines.push('', '## Cast Time', '');
+  lines.push(`- **Average:** ${(cs.avg / 1000).toFixed(2)}s`);
+  lines.push(`- **Median:** ${(cs.median / 1000).toFixed(2)}s`);
+  lines.push(`- **Range:** ${(cs.min / 1000).toFixed(1)}s to ${(cs.max / 1000).toFixed(1)}s`);
+  lines.push(`- **Instant cast spells:** ${totalSpells - cs.nonZero} (${(((totalSpells - cs.nonZero) / totalSpells) * 100).toFixed(1)}%)`);
+
+  // Cast time distribution
+  lines.push('', '### Cast Time Distribution', '');
+  const castOrder = ['Instant (0s)', 'Very Fast (0.1-0.5s)', 'Fast (0.6-1.5s)', 'Medium (1.6-3.0s)', 'Slow (3.1-6.0s)', 'Very Slow (6.1-12s)', 'Ultra Slow (>12s)'];
+  for (const bucket of castOrder) {
+    const count = castBuckets[bucket] || 0;
+    if (count > 0) {
+      const pct = ((count / totalSpells) * 100).toFixed(1);
+      const bar = '#'.repeat(Math.min(Math.round(count / (totalSpells / 50)), 50));
+      lines.push(`- **${bucket}:** ${count} (${pct}%) ${bar}`);
+    }
+  }
+
+  // Recovery time stats
+  const rs = stats(recoveryTimes);
+  lines.push('', '## Recovery Time (Global Cooldown)', '');
+  lines.push(`- **Average:** ${(rs.avg / 1000).toFixed(2)}s`);
+  lines.push(`- **Median:** ${(rs.median / 1000).toFixed(2)}s`);
+  lines.push(`- **Spells with recovery time:** ${rs.nonZero} (${((rs.nonZero / totalSpells) * 100).toFixed(1)}%)`);
+
+  // Recast time stats
+  const rcs = stats(recastTimes);
+  lines.push('', '## Recast Time (Cooldown)', '');
+  lines.push(`- **Average:** ${(rcs.avg / 1000).toFixed(2)}s`);
+  lines.push(`- **Median:** ${(rcs.median / 1000).toFixed(2)}s`);
+  lines.push(`- **Range:** ${(rcs.min / 1000).toFixed(1)}s to ${(rcs.max / 1000).toFixed(1)}s`);
+  lines.push(`- **No recast cooldown:** ${totalSpells - rcs.nonZero} (${(((totalSpells - rcs.nonZero) / totalSpells) * 100).toFixed(1)}%)`);
+
+  // Recast time distribution
+  lines.push('', '### Recast Time Distribution', '');
+  const recastOrder = ['None (0s)', 'Short (1-6s)', 'Medium (7-15s)', 'Long (16-30s)', 'Very Long (31-60s)', 'Extended (1-5min)', 'Cooldown (5-15min)', 'Discipline (>15min)'];
+  for (const bucket of recastOrder) {
+    const count = recastBuckets[bucket] || 0;
+    if (count > 0) {
+      const pct = ((count / totalSpells) * 100).toFixed(1);
+      const bar = '#'.repeat(Math.min(Math.round(count / (totalSpells / 50)), 50));
+      lines.push(`- **${bucket}:** ${count} (${pct}%) ${bar}`);
+    }
+  }
+
+  // Longest cast time spells
+  lines.push('', '## Longest Cast Time Spells (Top 10)', '');
+  const byCast = [...spells.values()]
+    .filter(s => {
+      if (!classFilter) return true;
+      const level = parseInt(s.fields[SF.CLASS_LEVEL_START + classFilter - 1]) || 255;
+      return level > 0 && level < 255;
+    })
+    .sort((a, b) => (parseInt(b.fields[SF.CAST_TIME]) || 0) - (parseInt(a.fields[SF.CAST_TIME]) || 0))
+    .slice(0, 10);
+  for (const spell of byCast) {
+    const ms = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    lines.push(`- **${spell.name}:** ${(ms / 1000).toFixed(1)}s cast`);
+  }
+
+  // Longest recast time spells
+  lines.push('', '## Longest Recast Time Spells (Top 10)', '');
+  const byRecast = [...spells.values()]
+    .filter(s => {
+      if (!classFilter) return true;
+      const level = parseInt(s.fields[SF.CLASS_LEVEL_START + classFilter - 1]) || 255;
+      return level > 0 && level < 255;
+    })
+    .sort((a, b) => (parseInt(b.fields[SF.RECAST_TIME]) || 0) - (parseInt(a.fields[SF.RECAST_TIME]) || 0))
+    .slice(0, 10);
+  for (const spell of byRecast) {
+    const ms = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    const sec = ms / 1000;
+    const display = sec >= 60 ? `${(sec / 60).toFixed(1)}min` : `${sec.toFixed(1)}s`;
+    lines.push(`- **${spell.name}:** ${display} recast`);
+  }
+
+  return lines.join('\n');
+}
