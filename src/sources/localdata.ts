@@ -93,6 +93,25 @@ const RACE_TO_FACTION_MODIFIER: Record<string, number> = {
   'de': 56, 'he': 55, 'we': 54, 'hef': 57,
 };
 
+// Map deity names to faction modifier IDs (from dbstr type 45)
+const DEITY_TO_FACTION_MODIFIER: Record<string, number> = {
+  'bertoxxulous': 201, 'brell serilis': 202, 'brell': 202,
+  'cazic-thule': 203, 'cazic thule': 203, 'cazic': 203,
+  'erollisi marr': 204, 'erollisi': 204,
+  'bristlebane': 205, 'fizzlethorp': 205,
+  'innoruuk': 206, 'karana': 207,
+  'mithaniel marr': 208, 'mithaniel': 208,
+  'prexus': 209, 'quellious': 210,
+  'rallos zek': 211, 'rallos': 211,
+  'rodcet nife': 212, 'rodcet': 212,
+  'solusek ro': 213, 'solusek': 213,
+  'the tribunal': 214, 'tribunal': 214,
+  'tunare': 215, 'veeshan': 216,
+  'agnostic': 396,
+};
+
+const DEITY_MODIFIER_IDS = new Set(Object.values(DEITY_TO_FACTION_MODIFIER));
+
 // Race starting base stats: [STR, STA, AGI, DEX, WIS, INT, CHA]
 const RACE_BASE_STATS: Record<number, number[]> = {
   1:   [75, 75, 75, 75, 75, 75, 75],       // Human
@@ -4369,6 +4388,25 @@ export async function getFaction(id: string): Promise<string> {
         lines.push(`- **${name}:** ${sv.value} (${standing})`);
       }
     }
+
+    // Deity adjustments
+    const deityEntries = faction.startingValues.filter(sv => DEITY_MODIFIER_IDS.has(sv.modifierId));
+    if (deityEntries.length > 0) {
+      lines.push('', '### Starting Faction by Deity');
+      const sorted = [...deityEntries].sort((a, b) => b.value - a.value);
+      for (const sv of sorted) {
+        const name = factionModifierNames?.get(sv.modifierId) || `Deity ${sv.modifierId}`;
+        const standing = sv.value >= 1100 ? 'Ally' :
+          sv.value >= 750 ? 'Warmly' :
+          sv.value >= 500 ? 'Kindly' :
+          sv.value >= 100 ? 'Amiable' :
+          sv.value >= 0 ? 'Indifferent' :
+          sv.value >= -100 ? 'Apprehensive' :
+          sv.value >= -500 ? 'Dubious' :
+          sv.value >= -750 ? 'Threatening' : 'Scowling';
+        lines.push(`- **${name}:** ${sv.value} (${standing})`);
+      }
+    }
   }
 
   return lines.join('\n');
@@ -4439,6 +4477,279 @@ export async function getFactionsByRace(raceName: string): Promise<string> {
     for (const f of friendly) {
       const cat = f.category ? ` [${f.category}]` : '';
       lines.push(`- **${f.name}** (ID: ${f.id}) — ${f.value} (${f.standing})${cat}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export async function getFactionsByDeity(deityName: string): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const modId = DEITY_TO_FACTION_MODIFIER[deityName.toLowerCase()];
+  if (!modId) {
+    const deities = [...new Set(Object.values(DEITY_TO_FACTION_MODIFIER))];
+    const deityNames = Object.entries(DEITY_TO_FACTION_MODIFIER)
+      .filter(([, v]) => deities.includes(v))
+      .map(([k]) => k)
+      .filter(k => k.length > 4) // skip short aliases
+      .sort();
+    return `Unknown deity: "${deityName}". Valid deities: ${deityNames.join(', ')}`;
+  }
+
+  const displayDeity = factionModifierNames?.get(modId) || deityName;
+
+  const factionStandings: { id: number; name: string; value: number; standing: string; category?: string }[] = [];
+
+  for (const [id, faction] of factions) {
+    if (!faction.startingValues) continue;
+    for (const sv of faction.startingValues) {
+      if (sv.modifierId === modId) {
+        const standing = sv.value >= 1100 ? 'Ally' :
+          sv.value >= 750 ? 'Warmly' :
+          sv.value >= 500 ? 'Kindly' :
+          sv.value >= 100 ? 'Amiable' :
+          sv.value >= 0 ? 'Indifferent' :
+          sv.value >= -100 ? 'Apprehensive' :
+          sv.value >= -500 ? 'Dubious' :
+          sv.value >= -750 ? 'Threatening' : 'Scowling';
+        factionStandings.push({ id, name: faction.name, value: sv.value, standing, category: faction.category });
+        break;
+      }
+    }
+  }
+
+  if (factionStandings.length === 0) {
+    return `No faction starting values found for followers of ${displayDeity}.`;
+  }
+
+  factionStandings.sort((a, b) => a.value - b.value);
+
+  const hostile = factionStandings.filter(f => f.value < 0);
+  const friendly = factionStandings.filter(f => f.value >= 0);
+
+  const lines = [
+    `## Faction Standings for followers of ${displayDeity}`,
+    `*${factionStandings.length} factions affected by deity choice*`,
+    '',
+  ];
+
+  if (hostile.length > 0) {
+    lines.push(`### Hostile Factions (${hostile.length})`);
+    for (const f of hostile) {
+      const cat = f.category ? ` [${f.category}]` : '';
+      lines.push(`- **${f.name}** (ID: ${f.id}) — ${f.value} (${f.standing})${cat}`);
+    }
+    lines.push('');
+  }
+
+  if (friendly.length > 0) {
+    lines.push(`### Friendly Factions (${friendly.length})`);
+    friendly.sort((a, b) => b.value - a.value);
+    for (const f of friendly) {
+      const cat = f.category ? ` [${f.category}]` : '';
+      lines.push(`- **${f.name}** (ID: ${f.id}) — ${f.value} (${f.standing})${cat}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export async function getFactionsByClass(className: string): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId || classId < 1 || classId > 16) {
+    const validClasses = Object.values(CLASS_IDS).sort();
+    return `Unknown class: "${className}". Valid classes: ${validClasses.join(', ')}`;
+  }
+
+  const displayClass = CLASS_IDS[classId];
+  const modId = classId; // Class modifier IDs are same as class IDs (1-16)
+
+  const factionStandings: { id: number; name: string; value: number; standing: string; category?: string }[] = [];
+
+  for (const [id, faction] of factions) {
+    if (!faction.startingValues) continue;
+    for (const sv of faction.startingValues) {
+      if (sv.modifierId === modId) {
+        const standing = sv.value >= 1100 ? 'Ally' :
+          sv.value >= 750 ? 'Warmly' :
+          sv.value >= 500 ? 'Kindly' :
+          sv.value >= 100 ? 'Amiable' :
+          sv.value >= 0 ? 'Indifferent' :
+          sv.value >= -100 ? 'Apprehensive' :
+          sv.value >= -500 ? 'Dubious' :
+          sv.value >= -750 ? 'Threatening' : 'Scowling';
+        factionStandings.push({ id, name: faction.name, value: sv.value, standing, category: faction.category });
+        break;
+      }
+    }
+  }
+
+  if (factionStandings.length === 0) {
+    return `No faction starting values found for ${displayClass} class.`;
+  }
+
+  factionStandings.sort((a, b) => a.value - b.value);
+
+  const hostile = factionStandings.filter(f => f.value < 0);
+  const friendly = factionStandings.filter(f => f.value >= 0);
+
+  const lines = [
+    `## Faction Standings for ${displayClass} class`,
+    `*${factionStandings.length} factions affected by class choice*`,
+    '',
+  ];
+
+  if (hostile.length > 0) {
+    lines.push(`### Hostile Factions (${hostile.length})`);
+    for (const f of hostile) {
+      const cat = f.category ? ` [${f.category}]` : '';
+      lines.push(`- **${f.name}** (ID: ${f.id}) — ${f.value} (${f.standing})${cat}`);
+    }
+    lines.push('');
+  }
+
+  if (friendly.length > 0) {
+    lines.push(`### Friendly Factions (${friendly.length})`);
+    friendly.sort((a, b) => b.value - a.value);
+    for (const f of friendly) {
+      const cat = f.category ? ` [${f.category}]` : '';
+      lines.push(`- **${f.name}** (ID: ${f.id}) — ${f.value} (${f.standing})${cat}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export async function getCharacterFactions(race: string, deity?: string, className?: string): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  // Resolve race
+  const raceModId = RACE_TO_FACTION_MODIFIER[race.toLowerCase()];
+  if (!raceModId) {
+    const raceNames = Object.keys(RACE_TO_FACTION_MODIFIER)
+      .filter(k => k.length > 3)
+      .sort();
+    return `Unknown race: "${race}". Valid races: ${raceNames.join(', ')}`;
+  }
+  const displayRace = factionModifierNames?.get(raceModId) || race;
+
+  // Resolve deity (optional)
+  let deityModId: number | undefined;
+  let displayDeity: string | undefined;
+  if (deity) {
+    deityModId = DEITY_TO_FACTION_MODIFIER[deity.toLowerCase()];
+    if (!deityModId) {
+      const deityNames = Object.entries(DEITY_TO_FACTION_MODIFIER)
+        .map(([k]) => k)
+        .filter(k => k.length > 4)
+        .sort();
+      return `Unknown deity: "${deity}". Valid deities: ${deityNames.join(', ')}`;
+    }
+    displayDeity = factionModifierNames?.get(deityModId) || deity;
+  }
+
+  // Resolve class (optional)
+  let classModId: number | undefined;
+  let displayClass: string | undefined;
+  if (className) {
+    const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (!classId || classId < 1 || classId > 16) {
+      return `Unknown class: "${className}". Valid: ${Object.values(CLASS_IDS).sort().join(', ')}`;
+    }
+    classModId = classId;
+    displayClass = CLASS_IDS[classId];
+  }
+
+  // Collect modifier IDs to sum
+  const modIds = [raceModId];
+  if (deityModId) modIds.push(deityModId);
+  if (classModId) modIds.push(classModId);
+
+  // Aggregate faction values across all modifiers
+  const factionTotals = new Map<number, { name: string; total: number; breakdown: { source: string; value: number }[]; category?: string }>();
+
+  for (const [id, faction] of factions) {
+    if (!faction.startingValues) continue;
+    for (const sv of faction.startingValues) {
+      if (modIds.includes(sv.modifierId)) {
+        let entry = factionTotals.get(id);
+        if (!entry) {
+          entry = { name: faction.name, total: 0, breakdown: [], category: faction.category };
+          factionTotals.set(id, entry);
+        }
+        entry.total += sv.value;
+        const source = sv.modifierId === raceModId ? displayRace :
+          sv.modifierId === deityModId ? (displayDeity || '') :
+          sv.modifierId === classModId ? (displayClass || '') : `Mod ${sv.modifierId}`;
+        entry.breakdown.push({ source, value: sv.value });
+      }
+    }
+  }
+
+  if (factionTotals.size === 0) {
+    return 'No faction starting values found for this combination.';
+  }
+
+  // Build title
+  const titleParts = [displayRace];
+  if (displayClass) titleParts.push(displayClass);
+  if (displayDeity) titleParts.push(`follower of ${displayDeity}`);
+  const title = titleParts.join(' ');
+
+  const entries = [...factionTotals.entries()].map(([id, e]) => {
+    const standing = e.total >= 1100 ? 'Ally' :
+      e.total >= 750 ? 'Warmly' :
+      e.total >= 500 ? 'Kindly' :
+      e.total >= 100 ? 'Amiable' :
+      e.total >= 0 ? 'Indifferent' :
+      e.total >= -100 ? 'Apprehensive' :
+      e.total >= -500 ? 'Dubious' :
+      e.total >= -750 ? 'Threatening' : 'Scowling';
+    return { id, ...e, standing };
+  });
+
+  entries.sort((a, b) => a.total - b.total);
+
+  const hostile = entries.filter(f => f.total < 0);
+  const friendly = entries.filter(f => f.total >= 0);
+
+  const lines = [
+    `## Combined Faction Standings: ${title}`,
+    `*${entries.length} factions affected*`,
+    '',
+  ];
+
+  const showBreakdown = modIds.length > 1;
+
+  if (hostile.length > 0) {
+    lines.push(`### Hostile Factions (${hostile.length})`);
+    for (const f of hostile) {
+      const cat = f.category ? ` [${f.category}]` : '';
+      let line = `- **${f.name}** (ID: ${f.id}) — ${f.total} (${f.standing})${cat}`;
+      if (showBreakdown && f.breakdown.length > 1) {
+        line += ` [${f.breakdown.map(b => `${b.source}: ${b.value >= 0 ? '+' : ''}${b.value}`).join(', ')}]`;
+      }
+      lines.push(line);
+    }
+    lines.push('');
+  }
+
+  if (friendly.length > 0) {
+    lines.push(`### Friendly Factions (${friendly.length})`);
+    friendly.sort((a, b) => b.total - a.total);
+    for (const f of friendly) {
+      const cat = f.category ? ` [${f.category}]` : '';
+      let line = `- **${f.name}** (ID: ${f.id}) — ${f.total} (${f.standing})${cat}`;
+      if (showBreakdown && f.breakdown.length > 1) {
+        line += ` [${f.breakdown.map(b => `${b.source}: ${b.value >= 0 ? '+' : ''}${b.value}`).join(', ')}]`;
+      }
+      lines.push(line);
     }
   }
 

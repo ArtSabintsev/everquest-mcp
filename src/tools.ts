@@ -86,6 +86,8 @@ import {
   searchTimerGroup,
   getFactionsByRace,
   getFactionsByDeity,
+  getFactionsByClass,
+  getCharacterFactions,
 } from './sources/index.js';
 
 export const tools = [
@@ -703,6 +705,42 @@ export const tools = [
         }
       },
       required: ['deity']
+    }
+  },
+  {
+    name: 'get_factions_by_class',
+    description: 'Show all faction standings for a specific class. Shows which factions start hostile or friendly based on class choice.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Necromancer", "Paladin", "Shadow Knight", "Rogue")'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'get_character_factions',
+    description: 'Calculate combined starting faction standings for a character based on race, deity, and class choices. Shows the total faction value from all modifiers with breakdown. Essential for character creation planning.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        race: {
+          type: 'string',
+          description: 'Race name (e.g., "Dark Elf", "Iksar", "Human")'
+        },
+        deity: {
+          type: 'string',
+          description: 'Deity name (e.g., "Tunare", "Innoruuk", "Agnostic"). Optional.'
+        },
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Necromancer", "Paladin"). Optional.'
+        }
+      },
+      required: ['race']
     }
   },
   {
@@ -2041,6 +2079,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const deity = typeof args.deity === 'string' ? args.deity.trim() : '';
         if (!deity) return 'Error: "deity" parameter is required';
         return getFactionsByDeity(deity);
+      }
+
+      case 'get_factions_by_class': {
+        const cls = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!cls) return 'Error: "class" parameter is required';
+        return getFactionsByClass(cls);
+      }
+
+      case 'get_character_factions': {
+        const race = typeof args.race === 'string' ? args.race.trim() : '';
+        if (!race) return 'Error: "race" parameter is required';
+        const deity = typeof args.deity === 'string' ? args.deity.trim() : undefined;
+        const cls = typeof args.class === 'string' ? args.class.trim() : undefined;
+        return getCharacterFactions(race, deity, cls);
       }
 
       case 'search_aa': {
