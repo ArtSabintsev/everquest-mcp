@@ -94,6 +94,7 @@ export interface SpellData {
   recourseId?: number;      // Recourse spell ID (cast on caster when landing)
   recourseName?: string;    // Recourse spell name
   teleportZone?: string;    // Teleport destination zone short name
+  timerId?: number;         // Shared reuse timer group (>0 = shared timer)
   raw?: string;
 }
 

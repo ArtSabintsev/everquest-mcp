@@ -173,6 +173,7 @@ const SF = {
   RECOURSE: 81,     // Recourse spell ID (spell cast on caster when landing on target)
   CATEGORY: 87,     // Spell category ID (maps to dbstr type 5)
   SUBCATEGORY: 88,  // Spell subcategory ID (maps to dbstr type 5)
+  TIMER_ID: 97,     // Reuse timer group (0 = default spell gem, >0 = shared timer)
 };
 
 // ============ LOOKUP TABLES ============
@@ -1114,6 +1115,10 @@ function buildLocalSpellData(spell: LocalSpell): SpellData {
   const pushUp = parseInt(f[SF.PUSH_UP]);
   if (!isNaN(pushBack) && pushBack > 0) spellData.pushBack = pushBack;
   if (!isNaN(pushUp) && pushUp > 0) spellData.pushUp = pushUp;
+
+  // Reuse timer group
+  const timerId = parseInt(f[SF.TIMER_ID]);
+  if (!isNaN(timerId) && timerId > 0) spellData.timerId = timerId;
 
   // Spell category/subcategory
   const catId = parseInt(f[SF.CATEGORY]);

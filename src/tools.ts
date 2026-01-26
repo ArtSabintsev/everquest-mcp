@@ -1067,6 +1067,7 @@ function formatSpell(spell: SpellData): string {
   if (spell.skill) lines.push(`**Skill:** ${spell.skill}`);
   if (spell.pushBack) lines.push(`**Push Back:** ${spell.pushBack}`);
   if (spell.pushUp) lines.push(`**Push Up:** ${spell.pushUp}`);
+  if (spell.timerId) lines.push(`**Timer:** ${spell.timerId}`);
   if (spell.teleportZone) lines.push(`**Teleport Zone:** ${spell.teleportZone}`);
   if (spell.recourseName) {
     lines.push(`**Recourse:** ${spell.recourseName} (ID: ${spell.recourseId})`);
