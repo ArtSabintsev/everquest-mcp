@@ -7167,6 +7167,287 @@ export async function compareClasses(class1: string, class2: string): Promise<st
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: ADVANCED SPELL SEARCH ============
+
+export async function searchSpellsAdvanced(criteria: {
+  class?: string;
+  minLevel?: number;
+  maxLevel?: number;
+  beneficial?: boolean;
+  targetType?: string;
+  resistType?: string;
+  category?: string;
+  nameContains?: string;
+  hasEffect?: string;
+}): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve class
+  let classId: number | undefined;
+  let classIndex: number | undefined;
+  if (criteria.class) {
+    classId = CLASS_NAME_TO_ID[criteria.class.toLowerCase()];
+    if (!classId) return `Unknown class: "${criteria.class}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+    classIndex = classId - 1;
+  }
+
+  // Resolve target type
+  let targetTypeId: number | undefined;
+  if (criteria.targetType) {
+    const lowerTarget = criteria.targetType.toLowerCase();
+    for (const [id, name] of Object.entries(TARGET_TYPES)) {
+      if (name.toLowerCase().includes(lowerTarget)) {
+        targetTypeId = parseInt(id);
+        break;
+      }
+    }
+    if (targetTypeId === undefined) {
+      return `Unknown target type: "${criteria.targetType}". Valid: ${Object.values(TARGET_TYPES).join(', ')}`;
+    }
+  }
+
+  // Resolve resist type
+  let resistTypeId: number | undefined;
+  if (criteria.resistType) {
+    const lowerResist = criteria.resistType.toLowerCase();
+    for (const [id, name] of Object.entries(RESIST_TYPES)) {
+      if (name.toLowerCase() === lowerResist || name.toLowerCase().startsWith(lowerResist)) {
+        resistTypeId = parseInt(id);
+        break;
+      }
+    }
+    if (resistTypeId === undefined) {
+      return `Unknown resist type: "${criteria.resistType}". Valid: ${Object.values(RESIST_TYPES).join(', ')}`;
+    }
+  }
+
+  // Resolve effect SPA
+  let effectSPA: number | undefined;
+  if (criteria.hasEffect) {
+    const lowerEffect = criteria.hasEffect.toLowerCase();
+    for (const [id, name] of Object.entries(SPA_NAMES)) {
+      if (name.toLowerCase().includes(lowerEffect)) {
+        effectSPA = parseInt(id);
+        break;
+      }
+    }
+  }
+
+  const lowerCategory = criteria.category?.toLowerCase();
+  const lowerName = criteria.nameContains?.toLowerCase();
+
+  const matching: { id: number; name: string; level: number; category?: string; target: string; resist: string }[] = [];
+
+  for (const [id, spell] of spells) {
+    // Class filter
+    let classLevel: number | undefined;
+    if (classIndex !== undefined) {
+      classLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+      if (isNaN(classLevel) || classLevel === 255 || classLevel <= 0) continue;
+      if (criteria.minLevel !== undefined && classLevel < criteria.minLevel) continue;
+      if (criteria.maxLevel !== undefined && classLevel > criteria.maxLevel) continue;
+    }
+
+    // Beneficial/detrimental
+    if (criteria.beneficial !== undefined) {
+      const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+      if (isBeneficial !== criteria.beneficial) continue;
+    }
+
+    // Target type
+    if (targetTypeId !== undefined) {
+      const spellTarget = parseInt(spell.fields[SF.TARGET_TYPE]);
+      if (spellTarget !== targetTypeId) continue;
+    }
+
+    // Resist type
+    if (resistTypeId !== undefined) {
+      const spellResist = parseInt(spell.fields[SF.RESIST_TYPE]);
+      if (spellResist !== resistTypeId) continue;
+    }
+
+    // Name filter
+    if (lowerName && !spell.name.toLowerCase().includes(lowerName)) continue;
+
+    // Category filter
+    let cat: string | undefined;
+    if (spellCategories) {
+      const catId = parseInt(spell.fields[SF.CATEGORY]);
+      if (!isNaN(catId) && catId > 0) cat = spellCategories.get(catId);
+    }
+    if (lowerCategory && !(cat?.toLowerCase().includes(lowerCategory))) continue;
+
+    // Effect filter
+    if (effectSPA !== undefined) {
+      let hasEffect = false;
+      for (let i = spell.fields.length - 1; i >= 0; i--) {
+        if (spell.fields[i] === String(effectSPA)) {
+          hasEffect = true;
+          break;
+        }
+      }
+      if (!hasEffect) continue;
+    }
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]);
+    const target = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]);
+    const resist = RESIST_TYPES[resistId] || `Type ${resistId}`;
+
+    matching.push({
+      id,
+      name: spell.name,
+      level: classLevel || 0,
+      category: cat,
+      target,
+      resist,
+    });
+  }
+
+  matching.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  // Build filter description
+  const filters: string[] = [];
+  if (classId) filters.push(`Class: ${CLASS_IDS[classId]}`);
+  if (criteria.minLevel !== undefined) filters.push(`Min Level: ${criteria.minLevel}`);
+  if (criteria.maxLevel !== undefined) filters.push(`Max Level: ${criteria.maxLevel}`);
+  if (criteria.beneficial !== undefined) filters.push(criteria.beneficial ? 'Beneficial' : 'Detrimental');
+  if (criteria.targetType) filters.push(`Target: ${TARGET_TYPES[targetTypeId!] || criteria.targetType}`);
+  if (criteria.resistType) filters.push(`Resist: ${RESIST_TYPES[resistTypeId!] || criteria.resistType}`);
+  if (criteria.category) filters.push(`Category: ${criteria.category}`);
+  if (criteria.nameContains) filters.push(`Name: "${criteria.nameContains}"`);
+  if (criteria.hasEffect) filters.push(`Effect: ${criteria.hasEffect}`);
+
+  if (matching.length === 0) {
+    return `No spells found matching: ${filters.join(', ')}.`;
+  }
+
+  const lines = [
+    `## Advanced Spell Search`,
+    `*Filters: ${filters.join(' | ')}*`,
+    `*${matching.length} spells found*`,
+    '',
+  ];
+
+  let count = 0;
+  let currentLevel = -1;
+  for (const s of matching) {
+    if (count >= 150) {
+      lines.push(`\n*... and ${matching.length - count} more*`);
+      break;
+    }
+    if (classId && s.level !== currentLevel) {
+      currentLevel = s.level;
+      lines.push(`\n### Level ${currentLevel}`);
+    }
+    lines.push(`- **${s.name}** (${s.id}) — ${s.target} | ${s.resist}${s.category ? ` [${s.category}]` : ''}`);
+    count++;
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CLASS SPELL SUMMARY ============
+
+export async function getClassSpellSummary(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+
+  const classIndex = classId - 1;
+
+  // Collect stats
+  const byCategory = new Map<string, number>();
+  const byTarget = new Map<string, number>();
+  const byTier = new Map<string, number>(); // "1-10", "11-20", etc.
+  let totalSpells = 0;
+  let beneficialCount = 0;
+  let detrimentalCount = 0;
+  let maxLevel = 0;
+
+  for (const [, spell] of spells) {
+    const classLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+    if (isNaN(classLevel) || classLevel === 255 || classLevel <= 0) continue;
+
+    totalSpells++;
+    if (classLevel > maxLevel) maxLevel = classLevel;
+
+    // Beneficial/detrimental
+    if (spell.fields[SF.BENEFICIAL] === '1') beneficialCount++;
+    else detrimentalCount++;
+
+    // Category
+    let cat = 'Uncategorized';
+    if (spellCategories) {
+      const catId = parseInt(spell.fields[SF.CATEGORY]);
+      if (!isNaN(catId) && catId > 0) cat = spellCategories.get(catId) || 'Uncategorized';
+    }
+    byCategory.set(cat, (byCategory.get(cat) || 0) + 1);
+
+    // Target
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]);
+    const target = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    byTarget.set(target, (byTarget.get(target) || 0) + 1);
+
+    // Level tier
+    const tier = `${Math.floor((classLevel - 1) / 10) * 10 + 1}-${Math.floor((classLevel - 1) / 10) * 10 + 10}`;
+    byTier.set(tier, (byTier.get(tier) || 0) + 1);
+  }
+
+  const lines = [
+    `## ${CLASS_IDS[classId]} — Spell Book Summary`,
+    '',
+    `**Total Spells:** ${totalSpells}`,
+    `**Beneficial (Buffs):** ${beneficialCount}`,
+    `**Detrimental (Debuffs):** ${detrimentalCount}`,
+    `**Max Spell Level:** ${maxLevel}`,
+    '',
+  ];
+
+  // Level tiers
+  const sortedTiers = [...byTier.entries()].sort((a, b) => {
+    const aNum = parseInt(a[0]);
+    const bNum = parseInt(b[0]);
+    return aNum - bNum;
+  });
+  lines.push('### Spells by Level Range');
+  lines.push('| Level Range | Count |');
+  lines.push('|-------------|-------|');
+  for (const [tier, count] of sortedTiers) {
+    lines.push(`| ${tier} | ${count} |`);
+  }
+  lines.push('');
+
+  // Top categories
+  const sortedCats = [...byCategory.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('### Top Spell Categories');
+  lines.push('| Category | Count |');
+  lines.push('|----------|-------|');
+  for (const [cat, count] of sortedCats.slice(0, 25)) {
+    lines.push(`| ${cat} | ${count} |`);
+  }
+  if (sortedCats.length > 25) {
+    lines.push(`*...and ${sortedCats.length - 25} more categories*`);
+  }
+  lines.push('');
+
+  // Target types
+  const sortedTargets = [...byTarget.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('### By Target Type');
+  lines.push('| Target | Count |');
+  lines.push('|--------|-------|');
+  for (const [target, count] of sortedTargets) {
+    lines.push(`| ${target} | ${count} |`);
+  }
+
+  return lines.join('\n');
+}
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {

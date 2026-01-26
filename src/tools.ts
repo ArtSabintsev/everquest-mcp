@@ -98,6 +98,8 @@ import {
   searchSpellsByBeneficial,
   getExclusiveSpells,
   compareClasses,
+  searchSpellsAdvanced,
+  getClassSpellSummary,
 } from './sources/index.js';
 
 export const tools = [
@@ -630,6 +632,66 @@ export const tools = [
         }
       },
       required: ['class1', 'class2']
+    }
+  },
+  {
+    name: 'search_spells_advanced',
+    description: 'Advanced multi-criteria spell search. Combine any filters: class, level range, beneficial/detrimental, target type, resist type, category, name, and effect type. More flexible than single-filter spell search tools.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Shaman", "SHM")'
+        },
+        min_level: {
+          type: 'number',
+          description: 'Minimum level (inclusive)'
+        },
+        max_level: {
+          type: 'number',
+          description: 'Maximum level (inclusive)'
+        },
+        beneficial: {
+          type: 'boolean',
+          description: 'true = buffs/heals, false = debuffs/nukes'
+        },
+        target_type: {
+          type: 'string',
+          description: 'Target type: Single, Self, Group, PB AE, Targeted AE, Beam, etc.'
+        },
+        resist_type: {
+          type: 'string',
+          description: 'Resist type: Fire, Cold, Magic, Poison, Disease, Chromatic, etc.'
+        },
+        category: {
+          type: 'string',
+          description: 'Spell category (e.g., "Heals", "Damage Shield", "Haste")'
+        },
+        name: {
+          type: 'string',
+          description: 'Spell name substring filter'
+        },
+        effect: {
+          type: 'string',
+          description: 'Spell effect type (e.g., "Stun", "Haste", "Charm", "Root", "HP")'
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_class_spell_summary',
+    description: 'Get a high-level overview of a class\'s entire spell book. Shows total spell count, buff vs debuff ratio, spells per level range, top spell categories, and target type distribution.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Wizard", "WIZ")'
+        }
+      },
+      required: ['class']
     }
   },
   {
@@ -2209,6 +2271,26 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!class1) return 'Error: "class1" parameter is required';
         if (!class2) return 'Error: "class2" parameter is required';
         return compareClasses(class1, class2);
+      }
+
+      case 'search_spells_advanced': {
+        return searchSpellsAdvanced({
+          class: typeof args.class === 'string' ? args.class.trim() : undefined,
+          minLevel: typeof args.min_level === 'number' ? args.min_level : undefined,
+          maxLevel: typeof args.max_level === 'number' ? args.max_level : undefined,
+          beneficial: typeof args.beneficial === 'boolean' ? args.beneficial : undefined,
+          targetType: typeof args.target_type === 'string' ? args.target_type.trim() : undefined,
+          resistType: typeof args.resist_type === 'string' ? args.resist_type.trim() : undefined,
+          category: typeof args.category === 'string' ? args.category.trim() : undefined,
+          nameContains: typeof args.name === 'string' ? args.name.trim() : undefined,
+          hasEffect: typeof args.effect === 'string' ? args.effect.trim() : undefined,
+        });
+      }
+
+      case 'get_class_spell_summary': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        return getClassSpellSummary(className);
       }
 
       case 'get_spells_by_class': {

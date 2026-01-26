@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 90 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 92 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **90 tools** for querying EverQuest data
+- **92 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (90)
+## Available Tools (92)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -130,6 +130,8 @@ Then restart Claude Desktop.
 | `get_spell_line` | Find all versions and ranks of a spell line across levels and classes |
 | `search_beneficial_spells` | Search for beneficial (buff) or detrimental (debuff) spells by class with category breakdown |
 | `get_exclusive_spells` | Find spells only one class can cast — shows what makes each class unique |
+| `search_spells_advanced` | Multi-criteria spell search combining class, level range, buff/debuff, target, resist, category, name, and effect |
+| `get_class_spell_summary` | High-level overview of a class's spell book (buff/debuff ratio, categories, level distribution, target types) |
 
 ### Local Data - Character
 | Tool | Description |
@@ -247,7 +249,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (90 tools)
+├── tools.ts          # Tool definitions and handlers (92 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
