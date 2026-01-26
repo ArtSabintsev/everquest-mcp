@@ -151,6 +151,9 @@ import {
   getStartingCityLore,
   getCreatureTypeOverview,
   getOverseerJobOverview,
+  getSpellResistOverview,
+  getSpellTargetOverview,
+  getAchievementComponentOverview,
 } from './sources/index.js';
 
 export const tools = [
@@ -2155,6 +2158,37 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_resist_overview',
+    description: 'Breakdown of spells by resist type (Magic, Fire, Cold, Poison, Disease, etc.) with beneficial/detrimental counts. Optionally filter by class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name to filter by (optional — omit for all spells)' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_target_overview',
+    description: 'Breakdown of spells by target type (Single, Self, Group, AoE, etc.) with beneficial/detrimental counts and category analysis. Optionally filter by class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name to filter by (optional — omit for all spells)' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_achievement_component_overview',
+    description: 'Overview of achievement components/steps — step count distribution, component types, most complex achievements, and complexity breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3656,6 +3690,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_overseer_job_overview': {
         return getOverseerJobOverview();
+      }
+
+      case 'get_spell_resist_overview': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : undefined;
+        return getSpellResistOverview(className || undefined);
+      }
+
+      case 'get_spell_target_overview': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : undefined;
+        return getSpellTargetOverview(className || undefined);
+      }
+
+      case 'get_achievement_component_overview': {
+        return getAchievementComponentOverview();
       }
 
       case 'search_help_topics': {

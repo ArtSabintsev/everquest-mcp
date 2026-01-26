@@ -11112,3 +11112,254 @@ export async function getOverseerJobOverview(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SPELL RESIST TYPE OVERVIEW ============
+
+export async function getSpellResistOverview(className?: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  let classId: number | undefined;
+  let classFullName = 'All Classes';
+  if (className) {
+    classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (!classId) {
+      return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+    }
+    classFullName = CLASS_IDS[classId];
+  }
+
+  // Count spells by resist type, optionally filtered by class
+  const resistCounts: Record<number, { total: number; beneficial: number; detrimental: number }> = {};
+
+  for (const spell of spells.values()) {
+    if (classId) {
+      const classIndex = classId - 1;
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+      if (level <= 0 || level >= 255) continue;
+    }
+
+    const resistType = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    if (!resistCounts[resistType]) resistCounts[resistType] = { total: 0, beneficial: 0, detrimental: 0 };
+    resistCounts[resistType].total++;
+    if (spell.fields[SF.BENEFICIAL] === '1') {
+      resistCounts[resistType].beneficial++;
+    } else {
+      resistCounts[resistType].detrimental++;
+    }
+  }
+
+  const lines = [`# Spell Resist Type Overview — ${classFullName}`, ''];
+
+  const sorted = Object.entries(resistCounts)
+    .map(([rt, counts]) => ({
+      id: parseInt(rt),
+      name: RESIST_TYPES[parseInt(rt)] || `Unknown (${rt})`,
+      ...counts
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const grandTotal = sorted.reduce((s, r) => s + r.total, 0);
+  lines.push(`**${grandTotal.toLocaleString()} total spells analyzed**`, '');
+
+  lines.push('| Resist Type | Total | % | Beneficial | Detrimental |');
+  lines.push('|-------------|-------|---|------------|-------------|');
+
+  for (const r of sorted) {
+    const pct = ((r.total / grandTotal) * 100).toFixed(1);
+    lines.push(`| ${r.name} | ${r.total.toLocaleString()} | ${pct}% | ${r.beneficial.toLocaleString()} | ${r.detrimental.toLocaleString()} |`);
+  }
+
+  // Which resist types are most commonly detrimental vs beneficial
+  lines.push('', '## Analysis', '');
+
+  const detrimentalResists = sorted
+    .filter(r => r.detrimental > 0 && r.id > 0)
+    .sort((a, b) => b.detrimental - a.detrimental);
+
+  if (detrimentalResists.length > 0) {
+    lines.push('**Most resisted spell types (detrimental only):**');
+    for (const r of detrimentalResists.slice(0, 5)) {
+      const detrPct = ((r.detrimental / r.total) * 100).toFixed(0);
+      lines.push(`- ${r.name}: ${r.detrimental.toLocaleString()} detrimental spells (${detrPct}% of ${r.name} spells)`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL TARGET TYPE OVERVIEW ============
+
+export async function getSpellTargetOverview(className?: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  let classId: number | undefined;
+  let classFullName = 'All Classes';
+  if (className) {
+    classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (!classId) {
+      return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+    }
+    classFullName = CLASS_IDS[classId];
+  }
+
+  const targetCounts: Record<number, { total: number; beneficial: number; detrimental: number }> = {};
+
+  for (const spell of spells.values()) {
+    if (classId) {
+      const classIndex = classId - 1;
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+      if (level <= 0 || level >= 255) continue;
+    }
+
+    const targetType = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    if (!targetCounts[targetType]) targetCounts[targetType] = { total: 0, beneficial: 0, detrimental: 0 };
+    targetCounts[targetType].total++;
+    if (spell.fields[SF.BENEFICIAL] === '1') {
+      targetCounts[targetType].beneficial++;
+    } else {
+      targetCounts[targetType].detrimental++;
+    }
+  }
+
+  const lines = [`# Spell Target Type Overview — ${classFullName}`, ''];
+
+  const sorted = Object.entries(targetCounts)
+    .map(([tt, counts]) => ({
+      id: parseInt(tt),
+      name: TARGET_TYPES[parseInt(tt)] || `Type ${tt}`,
+      ...counts
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const grandTotal = sorted.reduce((s, r) => s + r.total, 0);
+  lines.push(`**${grandTotal.toLocaleString()} total spells analyzed**`, '');
+
+  lines.push('| Target Type | Total | % | Beneficial | Detrimental |');
+  lines.push('|-------------|-------|---|------------|-------------|');
+
+  for (const t of sorted) {
+    const pct = ((t.total / grandTotal) * 100).toFixed(1);
+    lines.push(`| ${t.name} | ${t.total.toLocaleString()} | ${pct}% | ${t.beneficial.toLocaleString()} | ${t.detrimental.toLocaleString()} |`);
+  }
+
+  // Categorize target types
+  lines.push('', '## Target Type Categories', '');
+
+  const aoeTargets = sorted.filter(t => [2, 4, 8, 40, 42, 44, 46].includes(t.id));
+  const singleTargets = sorted.filter(t => [1, 5, 9, 10, 13].includes(t.id));
+  const selfTargets = sorted.filter(t => [6].includes(t.id));
+  const groupTargets = sorted.filter(t => [3, 41].includes(t.id));
+
+  if (aoeTargets.length > 0) {
+    const aoeTotal = aoeTargets.reduce((s, t) => s + t.total, 0);
+    lines.push(`**AoE spells:** ${aoeTotal.toLocaleString()} (${((aoeTotal / grandTotal) * 100).toFixed(1)}%)`);
+  }
+  if (singleTargets.length > 0) {
+    const singleTotal = singleTargets.reduce((s, t) => s + t.total, 0);
+    lines.push(`**Single-target spells:** ${singleTotal.toLocaleString()} (${((singleTotal / grandTotal) * 100).toFixed(1)}%)`);
+  }
+  if (selfTargets.length > 0) {
+    const selfTotal = selfTargets.reduce((s, t) => s + t.total, 0);
+    lines.push(`**Self-only spells:** ${selfTotal.toLocaleString()} (${((selfTotal / grandTotal) * 100).toFixed(1)}%)`);
+  }
+  if (groupTargets.length > 0) {
+    const groupTotal = groupTargets.reduce((s, t) => s + t.total, 0);
+    lines.push(`**Group spells:** ${groupTotal.toLocaleString()} (${((groupTotal / grandTotal) * 100).toFixed(1)}%)`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: ACHIEVEMENT COMPONENT OVERVIEW ============
+
+export async function getAchievementComponentOverview(): Promise<string> {
+  await loadAchievementComponents();
+  await loadAchievements();
+  if (!achievementComponents || achievementComponents.size === 0) return 'Achievement component data not available.';
+
+  const lines = ['# Achievement Component Overview', ''];
+
+  let totalComponents = 0;
+  let totalAchievements = achievementComponents.size;
+
+  // Component count distribution
+  const stepCounts: number[] = [];
+  const componentTypes = new Map<number, number>();
+
+  for (const [, components] of achievementComponents) {
+    totalComponents += components.length;
+    stepCounts.push(components.length);
+    for (const comp of components) {
+      componentTypes.set(comp.type, (componentTypes.get(comp.type) || 0) + 1);
+    }
+  }
+
+  lines.push(`- **Achievements with components:** ${totalAchievements.toLocaleString()}`);
+  lines.push(`- **Total components/steps:** ${totalComponents.toLocaleString()}`);
+
+  const avgSteps = (totalComponents / totalAchievements).toFixed(1);
+  stepCounts.sort((a, b) => a - b);
+  const medianSteps = stepCounts[Math.floor(stepCounts.length / 2)];
+  const maxSteps = stepCounts[stepCounts.length - 1];
+
+  lines.push(`- **Average steps per achievement:** ${avgSteps}`);
+  lines.push(`- **Median steps:** ${medianSteps}`);
+  lines.push(`- **Maximum steps:** ${maxSteps}`);
+
+  // Step count distribution
+  const stepDistribution = new Map<number, number>();
+  for (const count of stepCounts) {
+    const bucket = count <= 10 ? count : count <= 20 ? 20 : count <= 50 ? 50 : 100;
+    stepDistribution.set(bucket, (stepDistribution.get(bucket) || 0) + 1);
+  }
+
+  lines.push('', '## Step Count Distribution', '');
+  lines.push('| Steps | Achievements |');
+  lines.push('|-------|-------------|');
+
+  const sortedBuckets = [...stepDistribution.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [bucket, count] of sortedBuckets) {
+    const label = bucket <= 10 ? `${bucket}` : bucket <= 20 ? '11-20' : bucket <= 50 ? '21-50' : '51+';
+    lines.push(`| ${label} | ${count} |`);
+  }
+
+  // Component type breakdown
+  if (componentTypes.size > 0) {
+    lines.push('', '## Component Types', '');
+    lines.push('| Type ID | Count | % |');
+    lines.push('|---------|-------|---|');
+
+    const sortedTypes = [...componentTypes.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [typeId, count] of sortedTypes) {
+      const pct = ((count / totalComponents) * 100).toFixed(1);
+      lines.push(`| ${typeId} | ${count.toLocaleString()} | ${pct}% |`);
+    }
+  }
+
+  // Achievements with most steps
+  const bySteps = [...achievementComponents.entries()]
+    .map(([achId, comps]) => ({ achId, count: comps.length }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  if (bySteps.length > 0 && achievements) {
+    lines.push('', '## Most Complex Achievements', '');
+    for (const entry of bySteps) {
+      const ach = achievements.get(entry.achId);
+      const name = ach ? ach.name : `Achievement ${entry.achId}`;
+      lines.push(`- **${name}**: ${entry.count} steps`);
+    }
+  }
+
+  // Achievements with single step
+  const singleStep = stepCounts.filter(c => c === 1).length;
+  lines.push('', '## Complexity Breakdown', '');
+  lines.push(`- **Single-step:** ${singleStep} achievements (${((singleStep / totalAchievements) * 100).toFixed(1)}%)`);
+  lines.push(`- **2-5 steps:** ${stepCounts.filter(c => c >= 2 && c <= 5).length} achievements`);
+  lines.push(`- **6-10 steps:** ${stepCounts.filter(c => c >= 6 && c <= 10).length} achievements`);
+  lines.push(`- **11+ steps:** ${stepCounts.filter(c => c > 10).length} achievements`);
+
+  return lines.join('\n');
+}
