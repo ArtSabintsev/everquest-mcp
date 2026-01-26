@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 200 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 203 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **200 tools** for querying EverQuest data
+- **203 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -187,6 +187,7 @@ Then restart Claude Desktop.
 | `get_ac_mitigation_comparison` | Compare AC soft caps and multipliers across all 16 classes — armor tier groupings and rankings |
 | `search_creature_types` | Search 980+ creature/NPC race types (Aviaks, Werewolves, Giants, etc.) |
 | `get_creature_type_overview` | Overview of all 973 creature/NPC race types — alphabetical breakdown, common name words, and statistics |
+| `get_creature_type_faction_correlation` | Creature type-faction correlation — cross-reference 973 creature types with factions for lore connections |
 | `compare_races` | Compare two races side by side (stats, classes, deities) |
 | `compare_classes` | Compare two classes side by side (races, spell counts, category breakdown) |
 | `compare_deities` | Compare two deities side by side (follower races, classes, lore) |
@@ -240,6 +241,7 @@ Then restart Claude Desktop.
 | `get_tribute` | Get tribute item details |
 | `get_tribute_overview` | Tribute system overview — personal vs guild tributes, full listing, and common themes |
 | `get_tribute_benefit_analysis` | Tribute benefit analysis — keyword frequency (HP, mana, haste, resist), personal vs guild split, name patterns |
+| `get_tribute_role_analysis` | Tribute role analysis — classify tributes by benefitting role (Tank, Healer, Melee DPS, Caster DPS, Utility) with keyword matching |
 | `get_faction_overview` | Faction system overview with counts by expansion, value ranges, starting modifier stats |
 | `compare_factions` | Compare two factions side by side (expansion, value ranges, starting values by race) |
 | `get_currency_overview` | Alternate currency overview — total count, description stats, keyword analysis, complete listing |
@@ -282,7 +284,7 @@ Then restart Claude Desktop.
 ### Local Data - Mercenaries
 | Tool | Description |
 |------|-------------|
-| `search_mercenaries` | Search 4200+ mercenary templates |
+| `search_mercenaries` | Search 4203+ mercenary templates |
 | `get_mercenary` | Get mercenary details with abilities |
 | `get_mercenary_stances` | List mercenary stances and descriptions |
 | `get_mercenary_overview` | Mercenary system overview with types, tiers, races, and stances |
@@ -296,6 +298,7 @@ Then restart Claude Desktop.
 | `search_item_effects` | Search 1100+ item click/proc effect descriptions |
 | `get_item_effect` | Get specific item effect description |
 | `get_item_effect_overview` | Item effect overview — keyword frequency, description stats, common words, sample effects by category |
+| `get_item_effect_spell_correlation` | Item effect-spell correlation — cross-reference item click/proc effects with spell names and keywords, effect category classification |
 | `search_augment_groups` | Search augmentation slot groups |
 | `list_augment_slot_types` | List all 31 augmentation slot types |
 | `search_item_lore_groups` | Search item lore groups (LORE duplicate definitions) |
@@ -357,7 +360,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (200 tools)
+├── tools.ts          # Tool definitions and handlers (203 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

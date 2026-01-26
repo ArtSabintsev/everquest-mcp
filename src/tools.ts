@@ -208,6 +208,9 @@ import {
   getSpellEffectRarityIndex,
   getMercenaryClassSynergy,
   getOverseerQuestEfficiencyAnalysis,
+  getTributeRoleAnalysis,
+  getItemEffectSpellCorrelation,
+  getCreatureTypeFactionCorrelation,
 } from './sources/index.js';
 
 export const tools = [
@@ -2779,6 +2782,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_tribute_role_analysis',
+    description: 'Tribute role analysis — classify 266 tributes by benefitting role (Tank, Healer, Melee DPS, Caster DPS, Utility) with keyword matching and personal/guild breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_item_effect_spell_correlation',
+    description: 'Item effect-spell correlation — cross-reference 1100+ item click/proc effects with 70K+ spells by keyword and name matching, effect category classification.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_creature_type_faction_correlation',
+    description: 'Creature type-faction correlation — cross-reference 973 creature types with 1600+ factions to find lore connections, expansion distribution, most connected creatures.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4536,6 +4566,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_overseer_quest_efficiency_analysis': {
         return getOverseerQuestEfficiencyAnalysis();
+      }
+
+      case 'get_tribute_role_analysis': {
+        return getTributeRoleAnalysis();
+      }
+
+      case 'get_item_effect_spell_correlation': {
+        return getItemEffectSpellCorrelation();
+      }
+
+      case 'get_creature_type_faction_correlation': {
+        return getCreatureTypeFactionCorrelation();
       }
 
       case 'search_help_topics': {

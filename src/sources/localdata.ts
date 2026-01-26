@@ -17805,3 +17805,307 @@ export async function getOverseerQuestEfficiencyAnalysis(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: TRIBUTE ROLE ANALYSIS ============
+
+export async function getTributeRoleAnalysis(): Promise<string> {
+  await loadTributes();
+  if (!tributes || tributes.size === 0) return 'Tribute data not available.';
+
+  const lines = ['# Tribute Role Analysis', ''];
+  lines.push('*Tributes classified by benefitting role based on keyword analysis.*', '');
+
+  // Keyword → role mapping
+  const roleKeywords: Record<string, string[]> = {
+    'Tank': ['hit point', 'hp', 'armor', 'ac', 'avoidance', 'mitigation', 'shield', 'block', 'parry', 'riposte', 'defense', 'absorb', 'damage shield', 'aggro', 'hate'],
+    'Healer': ['heal', 'mana', 'cure', 'resurrection', 'mana regen', 'beneficial', 'group heal'],
+    'Melee DPS': ['attack', 'backstab', 'double attack', 'triple attack', 'flurry', 'melee', 'strikethrough', 'accuracy', 'damage bonus', 'combat effects', 'proc'],
+    'Caster DPS': ['spell damage', 'nuke', 'critical', 'focus', 'spell haste', 'cast time', 'mana cost'],
+    'Utility': ['resist', 'movement', 'run speed', 'haste', 'regeneration', 'regen', 'endurance', 'experience', 'exp'],
+  };
+
+  // Classify each tribute
+  interface TributeRole {
+    id: number;
+    name: string;
+    desc: string;
+    isGuild: boolean;
+    roles: string[];
+    keywords: string[];
+  }
+
+  const classified: TributeRole[] = [];
+  const roleCounts: Record<string, number> = {};
+  const guildRoleCounts: Record<string, number> = {};
+
+  for (const t of tributes.values()) {
+    const text = (t.name + ' ' + t.description).toLowerCase();
+    const roles: string[] = [];
+    const keywords: string[] = [];
+
+    for (const [role, kws] of Object.entries(roleKeywords)) {
+      for (const kw of kws) {
+        if (text.includes(kw)) {
+          if (!roles.includes(role)) roles.push(role);
+          keywords.push(kw);
+        }
+      }
+    }
+
+    if (roles.length === 0) roles.push('General');
+    classified.push({ id: t.id, name: t.name, desc: t.description, isGuild: t.isGuild, roles, keywords });
+
+    for (const r of roles) {
+      roleCounts[r] = (roleCounts[r] || 0) + 1;
+      if (t.isGuild) guildRoleCounts[r] = (guildRoleCounts[r] || 0) + 1;
+    }
+  }
+
+  // Role distribution
+  lines.push('## Tribute Role Distribution', '');
+  lines.push('| Role | Personal | Guild | Total |');
+  lines.push('|------|--------:|------:|------:|');
+  const allRoles = [...new Set([...Object.keys(roleCounts)])].sort((a, b) => (roleCounts[b] || 0) - (roleCounts[a] || 0));
+  for (const role of allRoles) {
+    const total = roleCounts[role] || 0;
+    const guild = guildRoleCounts[role] || 0;
+    const personal = total - guild;
+    lines.push(`| ${role} | ${personal} | ${guild} | ${total} |`);
+  }
+
+  // Top tributes per role
+  for (const role of allRoles) {
+    if (role === 'General') continue;
+    const roleTributes = classified.filter(t => t.roles.includes(role)).slice(0, 10);
+    lines.push('', `## Top ${role} Tributes`, '');
+    lines.push('| Tribute | Type | Keywords |');
+    lines.push('|---------|------|----------|');
+    for (const t of roleTributes) {
+      const type = t.isGuild ? 'Guild' : 'Personal';
+      lines.push(`| ${t.name} | ${type} | ${[...new Set(t.keywords)].join(', ')} |`);
+    }
+  }
+
+  // Unclassified tributes
+  const general = classified.filter(t => t.roles.includes('General') && t.roles.length === 1);
+  if (general.length > 0) {
+    lines.push('', `## Unclassified Tributes (${general.length})`, '');
+    for (const t of general.slice(0, 15)) {
+      lines.push(`- **${t.name}** ${t.isGuild ? '(Guild)' : '(Personal)'}: ${t.desc.slice(0, 80)}${t.desc.length > 80 ? '...' : ''}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: ITEM EFFECT SPELL CORRELATION ============
+
+export async function getItemEffectSpellCorrelation(): Promise<string> {
+  await loadItemEffects();
+  await loadSpells();
+  if (!itemEffectDescs || itemEffectDescs.size === 0) return 'Item effect data not available.';
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Item Effect-Spell Correlation', ''];
+  lines.push('*Cross-reference item click/proc effects with spell names and effect keywords.*', '');
+
+  // Build a set of spell names for matching
+  const spellNameSet = new Map<string, number>(); // lowercase name -> spell count
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const lower = spell.name.toLowerCase();
+    spellNameSet.set(lower, (spellNameSet.get(lower) || 0) + 1);
+  }
+
+  // Find item effects that reference spell names
+  const matchedEffects: { id: number; desc: string; matchedSpells: string[] }[] = [];
+  const keywordCounts = new Map<string, number>();
+
+  // Common effect keywords
+  const effectKeywords = ['damage', 'heal', 'regen', 'haste', 'slow', 'stun', 'root', 'snare', 'charm', 'mez',
+    'nuke', 'dot', 'buff', 'debuff', 'resist', 'fire', 'cold', 'magic', 'poison', 'disease',
+    'mana', 'endurance', 'attack', 'strength', 'agility', 'stamina', 'charisma', 'wisdom', 'intelligence',
+    'proc', 'click', 'worn', 'focus', 'lifetap', 'shield', 'thorns', 'illusion'];
+
+  for (const [id, desc] of itemEffectDescs) {
+    const lowerDesc = desc.toLowerCase();
+
+    // Count keywords
+    for (const kw of effectKeywords) {
+      if (lowerDesc.includes(kw)) {
+        keywordCounts.set(kw, (keywordCounts.get(kw) || 0) + 1);
+      }
+    }
+
+    // Check for spell name matches (3+ word names to avoid false positives)
+    const matched: string[] = [];
+    for (const [spellName] of spellNameSet) {
+      if (spellName.length >= 8 && lowerDesc.includes(spellName)) {
+        matched.push(spellName);
+      }
+    }
+    if (matched.length > 0) {
+      matchedEffects.push({ id, desc, matchedSpells: matched });
+    }
+  }
+
+  // Keyword frequency
+  lines.push('## Effect Keyword Frequency', '');
+  lines.push('| Keyword | Item Effects | % of Total |');
+  lines.push('|---------|------------:|----------:|');
+  const sortedKeywords = [...keywordCounts.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [kw, count] of sortedKeywords) {
+    const pct = Math.round(count / itemEffectDescs.size * 100);
+    lines.push(`| ${kw} | ${count} | ${pct}% |`);
+  }
+
+  // Item effects with spell name matches
+  lines.push('', `## Item Effects Referencing Spell Names (${matchedEffects.length})`, '');
+  if (matchedEffects.length > 0) {
+    lines.push('| Item Effect ID | Matched Spells | Description (preview) |');
+    lines.push('|---------------:|---------------|----------------------|');
+    for (const m of matchedEffects.slice(0, 30)) {
+      const preview = m.desc.slice(0, 60) + (m.desc.length > 60 ? '...' : '');
+      lines.push(`| ${m.id} | ${m.matchedSpells.slice(0, 3).join(', ')} | ${preview} |`);
+    }
+  } else {
+    lines.push('*No exact spell name matches found in item effect descriptions.*');
+  }
+
+  // Category analysis based on keywords
+  lines.push('', '## Effect Category Classification', '');
+  const categories: Record<string, number> = {
+    'Offensive': 0, 'Defensive': 0, 'Healing': 0, 'Stat Enhancement': 0,
+    'Utility': 0, 'Resist': 0, 'Crowd Control': 0
+  };
+  const offenseKws = ['damage', 'nuke', 'dot', 'proc', 'attack', 'lifetap', 'thorns'];
+  const defenseKws = ['shield', 'armor', 'absorb', 'rune', 'avoidance'];
+  const healKws = ['heal', 'regen', 'mana regen', 'endurance'];
+  const statKws = ['strength', 'agility', 'stamina', 'charisma', 'wisdom', 'intelligence', 'haste'];
+  const utilKws = ['illusion', 'click', 'worn', 'focus', 'levitate', 'see invis'];
+  const resistKws = ['resist', 'fire', 'cold', 'magic', 'poison', 'disease'];
+  const ccKws = ['stun', 'root', 'snare', 'charm', 'mez', 'slow'];
+
+  for (const [, desc] of itemEffectDescs) {
+    const lower = desc.toLowerCase();
+    if (offenseKws.some(k => lower.includes(k))) categories['Offensive']++;
+    if (defenseKws.some(k => lower.includes(k))) categories['Defensive']++;
+    if (healKws.some(k => lower.includes(k))) categories['Healing']++;
+    if (statKws.some(k => lower.includes(k))) categories['Stat Enhancement']++;
+    if (utilKws.some(k => lower.includes(k))) categories['Utility']++;
+    if (resistKws.some(k => lower.includes(k))) categories['Resist']++;
+    if (ccKws.some(k => lower.includes(k))) categories['Crowd Control']++;
+  }
+
+  const sortedCats = Object.entries(categories).sort((a, b) => b[1] - a[1]);
+  for (const [cat, count] of sortedCats) {
+    const pct = Math.round(count / itemEffectDescs.size * 100);
+    const bar = '#'.repeat(Math.min(pct, 40));
+    lines.push(`- **${cat}:** ${count} (${pct}%) ${bar}`);
+  }
+
+  lines.push('', `*${itemEffectDescs.size} total item effects analyzed, ${spells.size} spells cross-referenced.*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CREATURE TYPE FACTION CORRELATION ============
+
+export async function getCreatureTypeFactionCorrelation(): Promise<string> {
+  await loadCreatureTypes();
+  await loadFactions();
+  if (!creatureTypes || creatureTypes.size === 0) return 'Creature type data not available.';
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const lines = ['# Creature Type-Faction Correlation', ''];
+  lines.push('*Cross-reference 973 creature types with 1600+ factions to find lore connections.*', '');
+
+  // For each creature type, find factions whose name contains the creature name
+  interface Correlation {
+    creatureId: number;
+    creatureName: string;
+    matchedFactions: { id: number; name: string; category: string }[];
+  }
+
+  const correlations: Correlation[] = [];
+  let totalMatches = 0;
+
+  // Build word-based lookup from creature type names
+  const creatureWords = new Map<string, string[]>(); // word -> creature names that contain it
+  for (const [, name] of creatureTypes) {
+    const words = name.toLowerCase().split(/\s+/).filter(w => w.length >= 4); // skip short words
+    for (const w of words) {
+      if (!creatureWords.has(w)) creatureWords.set(w, []);
+      creatureWords.get(w)!.push(name);
+    }
+  }
+
+  for (const [cId, cName] of creatureTypes) {
+    const cLower = cName.toLowerCase();
+    // Skip very short or generic names
+    if (cLower.length < 4) continue;
+
+    const matched: { id: number; name: string; category: string }[] = [];
+    for (const [fId, faction] of factions) {
+      const fLower = faction.name.toLowerCase();
+      // Check if creature name appears in faction name or vice versa
+      if (cLower.length >= 4 && (fLower.includes(cLower) || cLower.includes(fLower.split(' ')[0]))) {
+        matched.push({ id: fId, name: faction.name, category: faction.category || '' });
+      }
+    }
+
+    if (matched.length > 0) {
+      correlations.push({ creatureId: cId, creatureName: cName, matchedFactions: matched });
+      totalMatches += matched.length;
+    }
+  }
+
+  // Sort by number of matches
+  correlations.sort((a, b) => b.matchedFactions.length - a.matchedFactions.length);
+
+  lines.push(`## Summary`, '');
+  lines.push(`- **Creature types with faction matches:** ${correlations.length} of ${creatureTypes.size} (${Math.round(correlations.length / creatureTypes.size * 100)}%)`);
+  lines.push(`- **Total creature-faction links:** ${totalMatches}`);
+  lines.push(`- **Average factions per matched creature:** ${correlations.length > 0 ? (totalMatches / correlations.length).toFixed(1) : '0'}`);
+
+  // Top correlated creatures
+  lines.push('', '## Most Connected Creature Types', '');
+  lines.push('| Creature | Factions | Top Faction Names |');
+  lines.push('|----------|--------:|-------------------|');
+  for (const c of correlations.slice(0, 25)) {
+    const topNames = c.matchedFactions.slice(0, 3).map(f => f.name).join('; ');
+    lines.push(`| ${c.creatureName} | ${c.matchedFactions.length} | ${topNames} |`);
+  }
+
+  // Expansion distribution of matched factions
+  const expDist = new Map<string, number>();
+  for (const c of correlations) {
+    for (const f of c.matchedFactions) {
+      const exp = f.category || 'Unknown';
+      expDist.set(exp, (expDist.get(exp) || 0) + 1);
+    }
+  }
+  if (expDist.size > 0) {
+    lines.push('', '## Creature-Linked Factions by Expansion', '');
+    const sortedExp = [...expDist.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+    for (const [exp, count] of sortedExp) {
+      const bar = '#'.repeat(Math.min(Math.round(count / 2), 40));
+      lines.push(`- **${exp}:** ${count} ${bar}`);
+    }
+  }
+
+  // Creature types with NO faction matches
+  const unmatched = creatureTypes.size - correlations.length;
+  lines.push('', `## Unmatched Creature Types: ${unmatched}`, '');
+  lines.push(`*${unmatched} creature types have no matching faction names — these are likely generic mob types or player-only races.*`);
+
+  // Sample unmatched
+  const unmatchedSet = new Set([...creatureTypes.keys()]);
+  for (const c of correlations) unmatchedSet.delete(c.creatureId);
+  const sampleUnmatched = [...unmatchedSet].slice(0, 15).map(id => creatureTypes!.get(id) || `ID ${id}`);
+  if (sampleUnmatched.length > 0) {
+    lines.push(`Sample: ${sampleUnmatched.join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
