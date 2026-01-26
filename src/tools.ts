@@ -72,6 +72,7 @@ import {
   getGameEvent,
   listSpellCategories,
   searchSpellsByEffect,
+  searchCreatureTypes,
 } from './sources/index.js';
 
 export const tools = [
@@ -952,6 +953,20 @@ export const tools = [
     }
   },
   {
+    name: 'search_creature_types',
+    description: 'Search 980+ EverQuest creature/NPC race types (e.g., Aviaks, Werewolves, Giants, Golems, Centaurs). An encyclopedia of every creature type in the game.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Creature type to search for (e.g., "dragon", "undead", "golem", "elemental")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
     name: 'get_local_data_status',
     description: 'Show status of local EverQuest game data integration - which data files are loaded and available.',
     inputSchema: {
@@ -1312,7 +1327,7 @@ function formatSources(): string {
   const lines = ['# Available EverQuest Data Sources', ''];
 
   const sourceInfo = [
-    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with 500+ effect types & categories), zones, skill caps, class stats, achievements, factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+ with stances & abilities), AC mitigation, spell stacking, map POIs (34K+), lore (50 stories), game strings (7K), Overseer agents (300+ with jobs & traits) & quests (800+ with slots, incapacitations & outcomes), race/class info (16/16), deities (17 with lore), stats, tributes (266), alt currencies (54), item effects (1100+), banner/campsite categories, expansion list (33), game events/bulletins (550+)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
+    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with 500+ effect types & categories), zones, skill caps, class stats, achievements, factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+ with stances & abilities), AC mitigation, spell stacking, map POIs (34K+), lore (50 stories), game strings (7K), Overseer agents (300+ with archetypes, jobs & traits) & quests (800+ with slots, incapacitations & outcomes), race/class info (16/16 with starting city lore & Drakkin heritages), deities (17 with lore), stats, tributes (266), alt currencies (54), item effects (1100+), creature/NPC race types (980+), banner/campsite categories, expansion list (33), game events/bulletins (550+)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
     { name: 'Allakhazam', specialty: 'Primary database - spells, items, NPCs, zones, quests', url: 'https://everquest.allakhazam.com' },
     { name: "Almar's Guides", specialty: 'Quest walkthroughs, epic guides, leveling guides', url: 'https://www.almarsguides.com/eq' },
     { name: 'EQResource', specialty: 'Modern expansion content, progression, spells database', url: 'https://eqresource.com' },
@@ -1923,6 +1938,13 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const id = (args.id as string).trim();
         return getGameEvent(id);
+      }
+
+      case 'search_creature_types': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        return searchCreatureTypes(query);
       }
 
       case 'get_local_data_status': {

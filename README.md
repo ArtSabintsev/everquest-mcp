@@ -1,15 +1,16 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 64 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 65 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **64 tools** for querying EverQuest data
+- **65 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, and effect-type search
-- **Character data** - Race/class info, skill caps, base stats, AC mitigation, deities
-- **Overseer system** - Agents with traits/jobs, quests with slot details and success/failure outcomes
+- **Character data** - Race/class info with starting city lore and Drakkin heritages, skill caps, base stats, AC mitigation, deities
+- **Creature encyclopedia** - 980+ NPC/monster race types searchable by name
+- **Overseer system** - Agents with archetypes/traits/jobs, quests with slot details and success/failure outcomes
 - **Zone maps** - 34K+ points of interest from Brewall map files
 - **Quest guides** - Epic quest walkthroughs, leveling guides, farming guides
 
@@ -74,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (64)
+## Available Tools (65)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -122,13 +123,14 @@ Then restart Claude Desktop.
 ### Local Data - Character
 | Tool | Description |
 |------|-------------|
-| `get_race_info` | Race details: classes, deities, starting stats |
+| `get_race_info` | Race details: classes, deities, starting city lore, Drakkin heritages |
 | `get_class_info` | Class details: description, available races |
 | `get_deity_info` | Deity lore and follower races |
 | `get_stat_info` | Base stat descriptions and effects |
 | `get_skill_caps` | Skill caps by class and level |
 | `get_base_stats` | Base stats progression by class and level |
 | `get_ac_mitigation` | AC mitigation values by class and level |
+| `search_creature_types` | Search 980+ creature/NPC race types (Aviaks, Werewolves, Giants, etc.) |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -220,7 +222,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (64 tools)
+├── tools.ts          # Tool definitions and handlers (65 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
@@ -246,7 +248,7 @@ When `EQ_GAME_PATH` is set, the server parses these game files on demand:
 |------|------|
 | `spells_us.txt` | 70K+ spells with effects, classes, categories |
 | `spells_us_str.txt` | Spell cast messages |
-| `dbstr_us.txt` | AA names, spell descriptions, faction names, overseer data, events, expansions, and 40+ other string types |
+| `dbstr_us.txt` | AA names, spell descriptions, faction names, overseer data, events, expansions, creature types (980+), starting city lore, and 40+ other string types |
 | `eqstr_us.txt` | Game UI strings, deity lore |
 | `Resources/skillcaps.txt` | Skill cap data by class/level |
 | `Resources/basedata.txt` | Base stat progression |
@@ -260,6 +262,7 @@ When `EQ_GAME_PATH` is set, the server parses these game files on demand:
 | `Resources/OvrJobClient.txt` | Overseer job types |
 | `Resources/bannercategories.txt` | Guild banner categories |
 | `Resources/campsitecategories.txt` | Fellowship campsite categories |
+| `Resources/playercustomization.txt` | Drakkin heritage data (6 dragon lineages) |
 | `maps/` | Brewall/standard zone map files (34K+ POIs) |
 
 ## Adding New Sources

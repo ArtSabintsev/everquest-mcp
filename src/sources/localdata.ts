@@ -74,6 +74,26 @@ RACE_NAME_TO_ID['he'] = 5;
 RACE_NAME_TO_ID['we'] = 4;
 RACE_NAME_TO_ID['hef'] = 7;
 
+// Race -> starting city dbstr type 15 IDs
+const RACE_STARTING_CITY_IDS: Record<number, number[]> = {
+  1: [1, 382],      // Human: Qeynos, Freeport
+  2: [29],           // Barbarian: Halas
+  3: [23],           // Erudite: Erudin/Paineel
+  4: [54],           // Wood Elf: Kelethin
+  5: [61],           // High Elf: Felwithe
+  6: [40],           // Dark Elf: Neriak
+  7: [382, 3],       // Half Elf: Freeport, Surefall Glade
+  8: [60],           // Dwarf: Kaladim
+  9: [52],           // Troll: Grobb
+  10: [49],          // Ogre: Oggok
+  11: [19],          // Halfling: Rivervale
+  12: [55],          // Gnome: Ak'Anon
+  128: [82],         // Iksar: Cabilis
+  130: [155],        // Vah Shir: Shar Vahl
+  330: [50],         // Froglok: Gukta
+  522: [394],        // Drakkin: Crescent Reach
+};
+
 // Deity data from eqstr_us.txt (IDs 3250-3266)
 const DEITY_IDS: Record<number, number> = {
   3250: 0, 3251: 201, 3252: 202, 3253: 203, 3254: 206,
@@ -657,6 +677,25 @@ let overseerTraitDescs: Map<number, string> | null = null;
 let overseerIncapNames: Map<number, string> | null = null;
 let overseerIncapDescs: Map<number, string> | null = null;
 let overseerJobNames: Map<number, string> | null = null;
+let overseerArchetypeNames: Map<number, string> | null = null;
+
+// Creature race types (NPC/monster race names)
+let creatureTypes: Map<number, string> | null = null;
+let creatureTypeIndex: Map<string, number[]> | null = null;
+
+// Starting city lore descriptions
+let startingCityLore: Map<number, string> | null = null;
+
+// Overseer job class descriptions
+let overseerJobClassDescs: Map<number, string> | null = null;
+
+// Drakkin heritage data
+interface DrakkinHeritage {
+  id: number;
+  name: string;
+  classes: number[];
+}
+let drakkinHeritages: DrakkinHeritage[] | null = null;
 
 let dataAvailable: boolean | null = null;
 
@@ -1416,6 +1455,9 @@ const DBSTR_TYPES = {
   EVENT_DESCRIPTION: 31,
   OVERSEER_SUCCESS: 68,
   OVERSEER_FAILURE: 69,
+  CREATURE_RACE: 12,
+  STARTING_CITY: 15,
+  OVERSEER_JOB_CLASS_DESC: 65,
 };
 
 const OVERSEER_RARITIES: Record<number, string> = {
@@ -2408,6 +2450,8 @@ async function loadOverseerEnhancements(): Promise<void> {
   overseerIncapNames = new Map();
   overseerIncapDescs = new Map();
   overseerJobNames = new Map();
+  overseerArchetypeNames = new Map();
+  overseerJobClassDescs = new Map();
   if (!isGameDataAvailable()) return;
 
   await loadDbStrings([
@@ -2415,6 +2459,7 @@ async function loadOverseerEnhancements(): Promise<void> {
     DBSTR_TYPES.OVERSEER_TRAIT_DESC, DBSTR_TYPES.OVERSEER_INCAP_NAME,
     DBSTR_TYPES.OVERSEER_INCAP_DESC, DBSTR_TYPES.OVERSEER_JOB_NAME,
     DBSTR_TYPES.OVERSEER_SUCCESS, DBSTR_TYPES.OVERSEER_FAILURE,
+    DBSTR_TYPES.OVERSEER_ARCHETYPE_NAME, DBSTR_TYPES.OVERSEER_JOB_CLASS_DESC,
   ]);
   const cats = dbStrings?.get(DBSTR_TYPES.OVERSEER_QUEST_CATEGORY) || new Map();
   const diffs = dbStrings?.get(DBSTR_TYPES.OVERSEER_DIFFICULTY) || new Map();
@@ -2422,6 +2467,8 @@ async function loadOverseerEnhancements(): Promise<void> {
   const incapNs = dbStrings?.get(DBSTR_TYPES.OVERSEER_INCAP_NAME) || new Map();
   const incapDs = dbStrings?.get(DBSTR_TYPES.OVERSEER_INCAP_DESC) || new Map();
   const jobNs = dbStrings?.get(DBSTR_TYPES.OVERSEER_JOB_NAME) || new Map();
+  const archNs = dbStrings?.get(DBSTR_TYPES.OVERSEER_ARCHETYPE_NAME) || new Map();
+  const jobCDs = dbStrings?.get(DBSTR_TYPES.OVERSEER_JOB_CLASS_DESC) || new Map();
 
   for (const [id, name] of cats) overseerCategories.set(id, name);
   for (const [id, name] of diffs) overseerDifficulties.set(id, name);
@@ -2429,8 +2476,10 @@ async function loadOverseerEnhancements(): Promise<void> {
   for (const [id, name] of incapNs) overseerIncapNames.set(id, name);
   for (const [id, desc] of incapDs) overseerIncapDescs.set(id, desc);
   for (const [id, name] of jobNs) overseerJobNames.set(id, name);
+  for (const [id, name] of archNs) overseerArchetypeNames.set(id, name);
+  for (const [id, desc] of jobCDs) overseerJobClassDescs.set(id, desc);
 
-  console.error(`[LocalData] Loaded ${overseerCategories.size} categories, ${overseerDifficulties.size} difficulties, ${overseerIncapNames.size} incapacitations, ${overseerJobNames.size} job types`);
+  console.error(`[LocalData] Loaded ${overseerCategories.size} categories, ${overseerDifficulties.size} difficulties, ${overseerIncapNames.size} incapacitations, ${overseerJobNames.size} job types, ${overseerArchetypeNames.size} archetypes`);
 }
 
 // ============ MAP POI PARSER (On-Demand) ============
@@ -3671,6 +3720,20 @@ export async function getOverseerMinion(id: string): Promise<string> {
     `**Rarity:** ${OVERSEER_RARITIES[minion.rarity] || 'Unknown'}`,
   ];
 
+  // Determine archetype from first job (jobs 1-3=Fighter, 4-6=Worker, 7-9=Traveler)
+  if (minion.jobs.length > 0) {
+    const firstJobId = minion.jobs[0].jobTypeId;
+    if (firstJobId >= 1 && firstJobId <= 9) {
+      const archetypeId = Math.ceil(firstJobId / 3);
+      const archetypeName = overseerArchetypeNames?.get(archetypeId);
+      if (archetypeName) {
+        lines.push(`**Archetype:** ${archetypeName}`);
+        const classDesc = overseerJobClassDescs?.get(archetypeId);
+        if (classDesc) lines.push(`*${classDesc}*`);
+      }
+    }
+  }
+
   // Show jobs this agent can perform
   if (minion.jobs.length > 0) {
     const jobNames = minion.jobs
@@ -4035,6 +4098,7 @@ export async function getMercenaryStances(): Promise<string> {
 
 export async function getRaceInfo(raceName: string): Promise<string> {
   await loadRaceClassInfo();
+  await loadStartingCityLore();
   if (!raceDescriptions) return 'Race data not available.';
 
   // Resolve race ID
@@ -4064,6 +4128,34 @@ export async function getRaceInfo(raceName: string): Promise<string> {
   const deities = RACE_DEITIES[raceId];
   if (deities) {
     lines.push(`**Available Deities:** ${deities.join(', ')}`);
+  }
+
+  // Starting city lore
+  const cityIds = RACE_STARTING_CITY_IDS[raceId];
+  if (cityIds && startingCityLore) {
+    const uniqueLore = new Set<string>();
+    for (const cityId of cityIds) {
+      const lore = startingCityLore.get(cityId);
+      if (lore) uniqueLore.add(lore);
+    }
+    if (uniqueLore.size > 0) {
+      lines.push('', '### Starting City');
+      for (const lore of uniqueLore) {
+        lines.push(lore);
+      }
+    }
+  }
+
+  // Drakkin heritages
+  if (raceId === 522) {
+    await loadDrakkinHeritages();
+    if (drakkinHeritages && drakkinHeritages.length > 0) {
+      lines.push('', '### Dragon Heritages');
+      for (const h of drakkinHeritages) {
+        const classNames = h.classes.map(c => CLASS_IDS[c]).filter(Boolean).join(', ');
+        lines.push(`- **${h.name}** (Heritage ${h.id}) — Classes: ${classNames}`);
+      }
+    }
   }
 
   return lines.join('\n');
@@ -4565,6 +4657,146 @@ export async function getGameEvent(id: string): Promise<string> {
   return lines.join('\n');
 }
 
+// ============ CREATURE RACE TYPES ============
+
+async function loadCreatureTypes(): Promise<void> {
+  if (creatureTypes !== null) return;
+
+  creatureTypes = new Map();
+  creatureTypeIndex = new Map();
+  if (!isGameDataAvailable()) return;
+
+  await loadDbStrings([DBSTR_TYPES.CREATURE_RACE]);
+  const races: Map<number, string> = dbStrings?.get(DBSTR_TYPES.CREATURE_RACE) || new Map();
+
+  for (const [id, name] of races) {
+    if (!name || name === 'UNKNOWN RACE') continue;
+    creatureTypes.set(id, name);
+
+    // Build word index
+    const words = name.toLowerCase().split(/\W+/).filter((w: string) => w.length > 2);
+    for (const word of new Set(words)) {
+      const existing = creatureTypeIndex!.get(word) || [];
+      existing.push(id);
+      creatureTypeIndex!.set(word, existing);
+    }
+  }
+  console.error(`[LocalData] Loaded ${creatureTypes.size} creature race types`);
+}
+
+export async function searchCreatureTypes(query: string): Promise<string> {
+  await loadCreatureTypes();
+  if (!creatureTypes || creatureTypes.size === 0) return 'Creature type data not available.';
+
+  const lowerQuery = query.toLowerCase().trim();
+  const matches: { id: number; name: string; score: number }[] = [];
+
+  // Word index search
+  const queryWords = lowerQuery.split(/\W+/).filter(w => w.length > 2);
+  const idScores = new Map<number, number>();
+
+  if (queryWords.length > 0 && creatureTypeIndex) {
+    for (const word of queryWords) {
+      for (const [indexWord, ids] of creatureTypeIndex) {
+        if (indexWord.includes(word) || word.includes(indexWord)) {
+          for (const id of ids) {
+            idScores.set(id, (idScores.get(id) || 0) + 1);
+          }
+        }
+      }
+    }
+  }
+
+  // Also do direct substring matching on full names
+  for (const [id, name] of creatureTypes) {
+    const lowerName = name.toLowerCase();
+    let score = idScores.get(id) || 0;
+    if (lowerName === lowerQuery) score += 10;
+    else if (lowerName.startsWith(lowerQuery)) score += 5;
+    else if (lowerName.includes(lowerQuery)) score += 3;
+    if (score > 0) matches.push({ id, name, score });
+  }
+
+  if (matches.length === 0) {
+    // Fuzzy fallback
+    for (const [id, name] of creatureTypes) {
+      if (fuzzyMatch(name, query)) {
+        matches.push({ id, name, score: 1 });
+      }
+    }
+  }
+
+  matches.sort((a, b) => b.score - a.score);
+  const limited = matches.slice(0, 50);
+
+  if (limited.length === 0) return `No creature types found matching "${query}".`;
+
+  const lines = [`## Creature/NPC Race Types matching "${query}"`, '', `Found ${limited.length} of ${matches.length} matches:`, ''];
+  for (const m of limited) {
+    lines.push(`- **${m.name}** (Race ID: ${m.id})`);
+  }
+
+  lines.push('', `*${creatureTypes.size} total creature types available*`);
+  return lines.join('\n');
+}
+
+// ============ STARTING CITY LORE ============
+
+async function loadStartingCityLore(): Promise<void> {
+  if (startingCityLore !== null) return;
+
+  startingCityLore = new Map();
+  if (!isGameDataAvailable()) return;
+
+  await loadDbStrings([DBSTR_TYPES.STARTING_CITY]);
+  const cities = dbStrings?.get(DBSTR_TYPES.STARTING_CITY) || new Map();
+  for (const [id, text] of cities) {
+    if (text) startingCityLore.set(id, text);
+  }
+  console.error(`[LocalData] Loaded ${startingCityLore.size} starting city descriptions`);
+}
+
+// ============ DRAKKIN HERITAGES ============
+
+async function loadDrakkinHeritages(): Promise<void> {
+  if (drakkinHeritages !== null) return;
+
+  drakkinHeritages = [];
+  if (!isGameDataAvailable()) return;
+
+  try {
+    const data = await readGameFile(join('Resources', 'playercustomization.txt'));
+    const seen = new Set<number>();
+
+    for (const line of data.split('\n')) {
+      if (!line.trim() || line.startsWith('#')) continue;
+      const fields = line.split('^');
+      if (fields.length < 5) continue;
+
+      const raceId = parseInt(fields[0]);
+      if (raceId !== 522) continue; // Drakkin only
+
+      const heritageId = parseInt(fields[1]);
+      if (isNaN(heritageId) || seen.has(heritageId)) continue;
+      seen.add(heritageId);
+
+      const name = fields[2] || '';
+      if (!name) continue;
+
+      // Parse class list
+      const classStr = fields[4] || '';
+      const classes = classStr.split(',').map(c => parseInt(c.trim())).filter(c => !isNaN(c));
+
+      drakkinHeritages.push({ id: heritageId, name, classes });
+    }
+  } catch {
+    // playercustomization.txt not available
+  }
+  console.error(`[LocalData] Loaded ${drakkinHeritages.length} Drakkin heritages`);
+}
+
+
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {
@@ -4618,6 +4850,10 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Banner Categories:** ${bannerCategories ? bannerCategories.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Expansions:** ${expansionNames ? expansionNames.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Game Events:** ${gameEvents ? gameEvents.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Creature Types:** ${creatureTypes ? creatureTypes.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Starting City Lore:** ${startingCityLore ? startingCityLore.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Drakkin Heritages:** ${drakkinHeritages ? drakkinHeritages.length.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Overseer Archetypes:** ${overseerArchetypeNames ? overseerArchetypeNames.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Map Cache:** ${mapCache.size} zones loaded`);
 
   return lines.join('\n');
