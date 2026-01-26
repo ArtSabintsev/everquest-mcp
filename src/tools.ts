@@ -139,6 +139,9 @@ import {
   compareSkillCaps,
   getBaseStatOverview,
   getSpellEffectOverview,
+  getSkillOverview,
+  getSpellGrowthCurve,
+  getRaceStatComparison,
 } from './sources/index.js';
 
 export const tools = [
@@ -2024,6 +2027,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_skill_overview',
+    description: 'Overview of all EverQuest skills with a class-skill matrix — shows which classes can use each combat and magic skill at level 125, plus skills-per-class rankings.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_growth_curve',
+    description: 'Spell progression curve for a class — new spells per level bracket, top spell-gain levels, cumulative growth chart, and longest dry spell analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Wizard", "Cleric")'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'get_race_stat_comparison',
+    description: 'All 16 playable races\' starting stats in one comparison table — sorted by total stats, per-stat rankings (best race for STR/STA/etc.), and stat spread analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3470,6 +3505,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_spell_effect_overview': {
         return getSpellEffectOverview();
+      }
+
+      case 'get_skill_overview': {
+        return getSkillOverview();
+      }
+
+      case 'get_spell_growth_curve': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        return getSpellGrowthCurve(className);
+      }
+
+      case 'get_race_stat_comparison': {
+        return getRaceStatComparison();
       }
 
       case 'search_help_topics': {

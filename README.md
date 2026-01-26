@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 131 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 134 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **131 tools** for querying EverQuest data
+- **134 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -144,6 +144,7 @@ Then restart Claude Desktop.
 | `search_spells_by_subcategory` | Search spells by subcategory (Twincast, Undead, etc.) with auto-list of available subcategories |
 | `search_spells_with_recourse` | Find spells with recourse (follow-up) effects — automatic cast on caster when spell lands |
 | `get_spell_effect_overview` | Overview of all 419 spell effect types (SPAs) — most common effects, category breakdown, rarest effects |
+| `get_spell_growth_curve` | Spell progression curve per class — new spells per level bracket, top spell-gain levels, dry spell analysis |
 
 ### Local Data - Character
 | Tool | Description |
@@ -169,6 +170,8 @@ Then restart Claude Desktop.
 | `compare_base_stats` | Compare HP, mana, endurance, and regen progression between two classes |
 | `compare_skill_caps` | Compare skill caps between two classes — shared skills, unique skills, cap differences |
 | `get_base_stat_overview` | All 16 classes' base HP/mana/endurance/regen at a specific level, ranked |
+| `get_skill_overview` | Skill-class matrix — which classes can use each combat/magic skill at level 125 |
+| `get_race_stat_comparison` | All 16 races' starting stats compared — sorted by total, per-stat rankings, stat spreads |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -288,7 +291,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (131 tools)
+├── tools.ts          # Tool definitions and handlers (134 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

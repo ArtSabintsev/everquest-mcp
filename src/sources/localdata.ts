@@ -10228,3 +10228,218 @@ export async function getSpellEffectOverview(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SKILL OVERVIEW ============
+
+export async function getSkillOverview(): Promise<string> {
+  await loadSkillCaps();
+  if (!skillCaps || skillCaps.length === 0) return 'Skill cap data not available.';
+
+  const lines = ['# EverQuest Skill Overview', ''];
+
+  // Build skill -> classes map at max level (125)
+  const skillClasses = new Map<number, Map<number, number>>(); // skillId -> classId -> cap
+
+  for (const entry of skillCaps) {
+    if (entry.level !== 125 || entry.cap <= 0) continue;
+    if (!skillClasses.has(entry.skillId)) skillClasses.set(entry.skillId, new Map());
+    skillClasses.get(entry.skillId)!.set(entry.classId, entry.cap);
+  }
+
+  const sortedSkills = [...skillClasses.entries()].sort((a, b) => a[0] - b[0]);
+
+  lines.push(`**${sortedSkills.length} skills** at level 125`, '');
+
+  // Combat skills
+  const combatSkillIds = [0, 1, 2, 3, 36, 77, 7, 8, 10, 11, 15, 16, 19, 20, 22, 23, 26, 28, 30, 33, 34, 37, 38, 52, 73, 74, 76, 21];
+  const magicSkillIds = [4, 5, 13, 14, 18, 24, 31, 43, 44, 45, 46, 47];
+  const bardSkillIds = [12, 41, 49, 54, 70];
+  const rogueSkillIds = [6, 9, 17, 25, 29, 35, 42, 48, 56, 62, 64, 65, 71, 75];
+
+  const classHeaders = Object.entries(CLASS_IDS).slice(0, 16).map(([, name]) => name.substring(0, 3).toUpperCase());
+
+  lines.push('## Combat Skills', '');
+  lines.push('| Skill | ' + classHeaders.join(' | ') + ' |');
+  lines.push('|-------|' + classHeaders.map(() => '---').join('|') + '|');
+
+  for (const [skillId, classMap] of sortedSkills) {
+    if (!combatSkillIds.includes(skillId)) continue;
+    const skillName = SKILL_NAMES[skillId] || `Skill ${skillId}`;
+    const caps = [];
+    for (let c = 1; c <= 16; c++) {
+      const cap = classMap.get(c);
+      caps.push(cap ? String(cap) : '-');
+    }
+    lines.push(`| ${skillName} | ${caps.join(' | ')} |`);
+  }
+
+  lines.push('', '## Magic Skills', '');
+  lines.push('| Skill | ' + classHeaders.join(' | ') + ' |');
+  lines.push('|-------|' + classHeaders.map(() => '---').join('|') + '|');
+
+  for (const [skillId, classMap] of sortedSkills) {
+    if (!magicSkillIds.includes(skillId)) continue;
+    const skillName = SKILL_NAMES[skillId] || `Skill ${skillId}`;
+    const caps = [];
+    for (let c = 1; c <= 16; c++) {
+      const cap = classMap.get(c);
+      caps.push(cap ? String(cap) : '-');
+    }
+    lines.push(`| ${skillName} | ${caps.join(' | ')} |`);
+  }
+
+  // Summary: how many skills per class
+  lines.push('', '## Skills Per Class', '');
+  lines.push('| Class | Total Skills | Avg Cap |');
+  lines.push('|-------|-------------|---------|');
+
+  for (let c = 1; c <= 16; c++) {
+    let totalSkills = 0;
+    let totalCap = 0;
+    for (const [, classMap] of sortedSkills) {
+      const cap = classMap.get(c);
+      if (cap && cap > 0) {
+        totalSkills++;
+        totalCap += cap;
+      }
+    }
+    const avg = totalSkills > 0 ? Math.round(totalCap / totalSkills) : 0;
+    lines.push(`| ${CLASS_IDS[c]} | ${totalSkills} | ${avg} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL GROWTH CURVE ============
+
+export async function getSpellGrowthCurve(className: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+
+  const classIndex = classId - 1;
+
+  // Count spells at each level
+  const spellsByLevel = new Map<number, number>();
+  let totalSpells = 0;
+
+  for (const [, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const classLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+    if (isNaN(classLevel) || classLevel > 254 || classLevel <= 0) continue;
+
+    spellsByLevel.set(classLevel, (spellsByLevel.get(classLevel) || 0) + 1);
+    totalSpells++;
+  }
+
+  if (totalSpells === 0) return `No spells found for ${CLASS_IDS[classId]}.`;
+
+  const lines = [`# ${CLASS_IDS[classId]} Spell Growth Curve`, ''];
+  lines.push(`**${totalSpells} total spells** across ${spellsByLevel.size} different levels`, '');
+
+  // Major spell gain levels (top 10)
+  const sortedByCount = [...spellsByLevel.entries()].sort((a, b) => b[1] - a[1]);
+
+  lines.push('## Top 10 Spell Gain Levels', '');
+  lines.push('| Rank | Level | New Spells |');
+  lines.push('|------|-------|-----------|');
+  for (let i = 0; i < Math.min(10, sortedByCount.length); i++) {
+    lines.push(`| ${i + 1} | ${sortedByCount[i][0]} | ${sortedByCount[i][1]} |`);
+  }
+
+  // Growth by 5-level brackets
+  const maxLevel = Math.max(...spellsByLevel.keys());
+  lines.push('', '## Spells by Level Bracket', '');
+  lines.push('| Bracket | New Spells | Cumulative | Bar |');
+  lines.push('|---------|-----------|------------|-----|');
+
+  let cumulative = 0;
+  const brackets: { label: string; count: number; cum: number }[] = [];
+
+  for (let start = 1; start <= maxLevel; start += 5) {
+    let bracketCount = 0;
+    for (let lvl = start; lvl < start + 5; lvl++) {
+      bracketCount += spellsByLevel.get(lvl) || 0;
+    }
+    cumulative += bracketCount;
+    brackets.push({ label: `${start}-${start + 4}`, count: bracketCount, cum: cumulative });
+  }
+
+  const maxCount = Math.max(...brackets.map(b => b.count));
+  for (const b of brackets) {
+    if (b.count === 0) continue;
+    const barLen = Math.max(1, Math.round((b.count / maxCount) * 20));
+    const bar = '█'.repeat(barLen);
+    lines.push(`| ${b.label} | ${b.count} | ${b.cum} | ${bar} |`);
+  }
+
+  // Dry spell analysis (longest gap between new spells)
+  const allLevels = [...spellsByLevel.keys()].sort((a, b) => a - b);
+  let maxGap = 0;
+  let gapStart = 0;
+  let gapEnd = 0;
+  for (let i = 1; i < allLevels.length; i++) {
+    const gap = allLevels[i] - allLevels[i - 1];
+    if (gap > maxGap) {
+      maxGap = gap;
+      gapStart = allLevels[i - 1];
+      gapEnd = allLevels[i];
+    }
+  }
+
+  if (maxGap > 1) {
+    lines.push('', `**Longest dry spell:** Levels ${gapStart + 1}-${gapEnd - 1} (${maxGap - 1} levels with no new spells)`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: RACE STAT COMPARISON ============
+
+export async function getRaceStatComparison(): Promise<string> {
+  const lines = ['# All Races Starting Stat Comparison', ''];
+
+  const raceIds = Object.keys(RACE_BASE_STATS).map(Number);
+
+  lines.push('| Race | STR | STA | AGI | DEX | WIS | INT | CHA | Total |');
+  lines.push('|------|-----|-----|-----|-----|-----|-----|-----|-------|');
+
+  const raceData: { id: number; name: string; stats: number[]; total: number }[] = [];
+
+  for (const raceId of raceIds) {
+    const stats = RACE_BASE_STATS[raceId];
+    if (!stats) continue;
+    const total = stats.reduce((a, b) => a + b, 0);
+    raceData.push({ id: raceId, name: RACE_IDS[raceId] || `Race ${raceId}`, stats, total });
+  }
+
+  // Sort by total stats
+  raceData.sort((a, b) => b.total - a.total);
+
+  for (const r of raceData) {
+    lines.push(`| ${r.name} | ${r.stats.join(' | ')} | ${r.total} |`);
+  }
+
+  // Per-stat rankings
+  lines.push('', '## Best Race by Stat', '');
+  lines.push('| Stat | #1 | #2 | #3 |');
+  lines.push('|------|----|----|-----|');
+
+  for (let s = 0; s < STAT_NAMES.length; s++) {
+    const ranked = [...raceData].sort((a, b) => b.stats[s] - a.stats[s]);
+    lines.push(`| ${STAT_NAMES[s]} | ${ranked[0].name} (${ranked[0].stats[s]}) | ${ranked[1].name} (${ranked[1].stats[s]}) | ${ranked[2].name} (${ranked[2].stats[s]}) |`);
+  }
+
+  // Stat spread analysis
+  lines.push('', '## Stat Spread', '');
+  for (let s = 0; s < STAT_NAMES.length; s++) {
+    const values = raceData.map(r => r.stats[s]);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    lines.push(`- **${STAT_NAMES[s]}:** ${min}–${max} (spread: ${max - min})`);
+  }
+
+  return lines.join('\n');
+}
