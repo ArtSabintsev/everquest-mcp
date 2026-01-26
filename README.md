@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 164 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 167 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **164 tools** for querying EverQuest data
+- **167 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -161,6 +161,8 @@ Then restart Claude Desktop.
 | `get_spell_subcategory_overview` | Category and subcategory tree — hierarchical breakdown with beneficial/detrimental split |
 | `get_class_unique_spell_analysis` | Class-exclusive spell analysis — exclusive vs shared counts, categories, level distribution |
 | `get_teleport_spell_overview` | All teleport spells — unique destinations, most-served zones, class availability, rare destinations |
+| `get_spell_stacking_overview` | Spell stacking group overview — group size distribution, stacking type breakdown, class coverage, largest groups |
+| `get_spell_ae_analysis` | AE spell analysis — AE type breakdown (PB AE, targeted, directional, beam, ring), radius distribution, largest AE spells, class comparison |
 
 ### Local Data - Character
 | Tool | Description |
@@ -248,6 +250,7 @@ Then restart Claude Desktop.
 | `get_overseer_job_overview` | Complete overseer system overview — jobs, archetypes, categories, difficulties, traits, incapacitations, minion rarity breakdown |
 | `search_overseer_agents_by_trait` | Search overseer agents by trait (race/creature type) with auto-list of available traits |
 | `get_overseer_slot_analysis` | Overseer quest slot patterns — job type demand, required vs optional ratios, bonus trait frequency, slots by difficulty, most demanding quests |
+| `get_overseer_minion_rarity_analysis` | Overseer agent rarity analysis — rarity distribution, traits/jobs per rarity tier, job levels by rarity, most common traits and jobs at each tier |
 
 ### Local Data - Mercenaries
 | Tool | Description |
@@ -321,7 +324,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (164 tools)
+├── tools.ts          # Tool definitions and handlers (167 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

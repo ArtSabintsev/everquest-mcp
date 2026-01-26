@@ -172,6 +172,9 @@ import {
   getTeleportSpellOverview,
   getCombatAbilityOverview,
   getItemEffectOverview,
+  getSpellStackingOverview,
+  getSpellAEAnalysis,
+  getOverseerMinionRarityAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2385,6 +2388,35 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_stacking_overview',
+    description: 'Overview of spell stacking groups — group size distribution, stacking type breakdown (buff/song/short duration/etc.), class coverage analysis, largest groups, and groups with the most spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_ae_analysis',
+    description: 'Analysis of AE (area effect) spells — AE type breakdown (PB AE, targeted AE, rain, cone, beam, etc.), radius distribution by size category, largest radius spells, class comparison, and beneficial vs detrimental AE split.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Optional class name to filter (e.g., "Wizard", "Druid"). Omit for all classes.' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_overseer_minion_rarity_analysis',
+    description: 'Analysis of Overseer agents by rarity tier — Common through Iconic distribution, traits per rarity, jobs per rarity, job level ranges by rarity, most common traits/jobs at each tier.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3984,6 +4016,19 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_item_effect_overview': {
         return getItemEffectOverview();
+      }
+
+      case 'get_spell_stacking_overview': {
+        return getSpellStackingOverview();
+      }
+
+      case 'get_spell_ae_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : undefined;
+        return getSpellAEAnalysis(className || undefined);
+      }
+
+      case 'get_overseer_minion_rarity_analysis': {
+        return getOverseerMinionRarityAnalysis();
       }
 
       case 'search_help_topics': {
