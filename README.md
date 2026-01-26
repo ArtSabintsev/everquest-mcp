@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 203 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 206 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **203 tools** for querying EverQuest data
+- **206 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -226,6 +226,7 @@ Then restart Claude Desktop.
 | `get_map_poi_label_analysis` | Map POI label analysis — common label words, prefix categories, color distribution, zones with most/fewest POIs |
 | `get_teleport_network_analysis` | Teleport network topology — hub zones, class teleport rankings, level-range coverage, class-exclusive destinations |
 | `get_zone_content_density_ranking` | Zone content density ranking — zones scored by map POIs, teleport accessibility, and level range |
+| `get_map_poi_functional_classification` | Map POI functional classification — classify POIs into categories (Merchant, Zone Line, Bank, Guard, Temple, Camp, Craft, Transport) |
 
 ### Local Data - Factions & Currencies
 | Tool | Description |
@@ -265,6 +266,8 @@ Then restart Claude Desktop.
 | `get_achievement_requirement_analysis` | Achievement requirement value analysis — value distributions by type, highest requirements, most demanding achievements |
 | `get_aa_overview` | AA system overview with keyword analysis, description stats, and rank distribution |
 | `get_aa_name_group_analysis` | AA name grouping — rank distribution, longest AA lines, common prefixes, keyword themes, name length stats |
+| `get_aa_role_theme_analysis` | AA role theme analysis — classify 2700+ AAs by role (Tank, Healer, DPS, CC, Buff, Pet, Utility) from descriptions |
+| `get_achievement_category_depth_analysis` | Achievement category hierarchy — tree depth, subcategory counts, point density, most complex trees |
 
 ### Local Data - Overseer System
 | Tool | Description |
@@ -284,7 +287,7 @@ Then restart Claude Desktop.
 ### Local Data - Mercenaries
 | Tool | Description |
 |------|-------------|
-| `search_mercenaries` | Search 4203+ mercenary templates |
+| `search_mercenaries` | Search 4206+ mercenary templates |
 | `get_mercenary` | Get mercenary details with abilities |
 | `get_mercenary_stances` | List mercenary stances and descriptions |
 | `get_mercenary_overview` | Mercenary system overview with types, tiers, races, and stances |
@@ -360,7 +363,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (203 tools)
+├── tools.ts          # Tool definitions and handlers (206 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

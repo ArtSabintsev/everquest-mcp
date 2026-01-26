@@ -211,6 +211,9 @@ import {
   getTributeRoleAnalysis,
   getItemEffectSpellCorrelation,
   getCreatureTypeFactionCorrelation,
+  getAARoleThemeAnalysis,
+  getAchievementCategoryDepthAnalysis,
+  getMapPOIFunctionalClassification,
 } from './sources/index.js';
 
 export const tools = [
@@ -2809,6 +2812,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_aa_role_theme_analysis',
+    description: 'AA role theme analysis — classify 2700+ AA abilities by role (Tank, Healer, Melee DPS, Spell DPS, CC, Buff, Pet, Utility, Resource, Resist) from description keywords.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_achievement_category_depth_analysis',
+    description: 'Achievement category hierarchy analysis — tree depth, subcategory counts, point density per category, most complex achievement trees.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_map_poi_functional_classification',
+    description: 'Map POI functional classification — classify 34K+ POIs into categories (Merchant, Zone Line, Quest NPC, Bank, Guard, Temple, Camp, Craft, Transport, Landmark).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4578,6 +4608,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_creature_type_faction_correlation': {
         return getCreatureTypeFactionCorrelation();
+      }
+
+      case 'get_aa_role_theme_analysis': {
+        return getAARoleThemeAnalysis();
+      }
+
+      case 'get_achievement_category_depth_analysis': {
+        return getAchievementCategoryDepthAnalysis();
+      }
+
+      case 'get_map_poi_functional_classification': {
+        return getMapPOIFunctionalClassification();
       }
 
       case 'search_help_topics': {

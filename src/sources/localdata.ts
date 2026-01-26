@@ -18109,3 +18109,310 @@ export async function getCreatureTypeFactionCorrelation(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: AA ROLE THEME ANALYSIS ============
+
+export async function getAARoleThemeAnalysis(): Promise<string> {
+  await loadAAAbilities();
+  if (!aaAbilities || aaAbilities.size === 0) return 'AA ability data not available.';
+
+  const lines = ['# AA Role Theme Analysis', ''];
+  lines.push('*2700+ AA abilities classified by role theme from description keywords.*', '');
+
+  // Role keyword mapping
+  const roleKeywords: Record<string, string[]> = {
+    'Tank/Defense': ['mitigat', 'absorb', 'block', 'parry', 'riposte', 'avoidance', 'armor class', 'aggro', 'hate', 'taunt', 'shield', 'defensive', 'fortif'],
+    'Healing': ['heal', 'cure', 'resurrect', 'restoration', 'mend', 'remedy', 'patch', 'bandage'],
+    'Melee DPS': ['melee', 'backstab', 'double attack', 'triple attack', 'flurry', 'frenzy', 'kick', 'bash', 'slam', 'strikethrough', 'accuracy', 'weapon'],
+    'Spell DPS': ['spell damage', 'nuke', 'critical spell', 'spell crit', 'focus effect', 'cast time', 'mana cost', 'spell haste', 'detrimental'],
+    'DoT/Debuff': ['damage over time', 'dot', 'debuff', 'slow', 'reduce', 'weaken', 'corruption'],
+    'Crowd Control': ['stun', 'root', 'snare', 'mezz', 'charm', 'fear', 'pacif'],
+    'Buff/Support': ['buff', 'enhance', 'augment', 'aura', 'beneficial', 'group', 'raid', 'ally'],
+    'Pet': ['pet', 'minion', 'companion', 'warder', 'swarm', 'summon'],
+    'Utility': ['gate', 'bind', 'invis', 'levitat', 'see invis', 'track', 'forage', 'feign', 'fade', 'escape', 'teleport', 'evac'],
+    'Resource': ['mana', 'endurance', 'regenerat', 'regen', 'conservation', 'efficiency'],
+    'Resist/Survival': ['resist', 'fire resist', 'cold resist', 'magic resist', 'poison resist', 'disease resist', 'save', 'hit point', 'hp'],
+  };
+
+  const roleCounts: Record<string, number> = {};
+  const roleAASamples: Record<string, string[]> = {};
+  let classified = 0;
+  let unclassified = 0;
+
+  for (const aa of aaAbilities.values()) {
+    const text = (aa.name + ' ' + aa.description).toLowerCase();
+    let found = false;
+
+    for (const [role, keywords] of Object.entries(roleKeywords)) {
+      for (const kw of keywords) {
+        if (text.includes(kw)) {
+          roleCounts[role] = (roleCounts[role] || 0) + 1;
+          if (!roleAASamples[role]) roleAASamples[role] = [];
+          if (roleAASamples[role].length < 5) roleAASamples[role].push(aa.name);
+          found = true;
+          break;
+        }
+      }
+      if (found) break; // Only count primary role
+    }
+
+    if (found) classified++; else unclassified++;
+  }
+
+  // Summary table
+  lines.push('## Role Distribution', '');
+  lines.push('| Role | AA Count | % |');
+  lines.push('|------|--------:|---:|');
+  const sortedRoles = Object.entries(roleCounts).sort((a, b) => b[1] - a[1]);
+  for (const [role, count] of sortedRoles) {
+    const pct = Math.round(count / aaAbilities.size * 100);
+    lines.push(`| ${role} | ${count} | ${pct}% |`);
+  }
+  lines.push(`| *Unclassified* | *${unclassified}* | *${Math.round(unclassified / aaAbilities.size * 100)}%* |`);
+
+  // Bar chart
+  lines.push('', '## Visual Distribution', '');
+  for (const [role, count] of sortedRoles) {
+    const pct = Math.round(count / aaAbilities.size * 100);
+    const bar = '█'.repeat(Math.min(pct * 2, 40));
+    lines.push(`- **${role}:** ${bar} ${pct}% (${count})`);
+  }
+
+  // Samples per role
+  lines.push('', '## Sample AAs by Role', '');
+  for (const [role, count] of sortedRoles) {
+    const samples = roleAASamples[role] || [];
+    lines.push(`- **${role}:** ${samples.join(', ')}`);
+  }
+
+  lines.push('', `*${classified} classified / ${unclassified} unclassified out of ${aaAbilities.size} total AAs.*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: ACHIEVEMENT CATEGORY DEPTH ANALYSIS ============
+
+export async function getAchievementCategoryDepthAnalysis(): Promise<string> {
+  await loadAchievements();
+  await loadAchievementCategories();
+  await loadAchievementComponents();
+  if (!achievementCategories || achievementCategories.size === 0) return 'Achievement category data not available.';
+
+  const lines = ['# Achievement Category Hierarchy Analysis', ''];
+
+  // Build parent-child tree
+  const children = new Map<number, number[]>(); // parentId -> childIds
+  const rootCategories: number[] = [];
+
+  for (const [catId, cat] of achievementCategories) {
+    if (cat.parentId === 0 || cat.parentId === -1 || !achievementCategories.has(cat.parentId)) {
+      rootCategories.push(catId);
+    } else {
+      if (!children.has(cat.parentId)) children.set(cat.parentId, []);
+      children.get(cat.parentId)!.push(catId);
+    }
+  }
+
+  // Calculate depth and breadth for each category
+  interface CategoryStats {
+    id: number;
+    name: string;
+    depth: number;
+    totalDescendants: number;
+    directChildren: number;
+    achievementCount: number;
+    totalPoints: number;
+  }
+
+  function getDepth(catId: number): number {
+    const kids = children.get(catId) || [];
+    if (kids.length === 0) return 0;
+    return 1 + Math.max(...kids.map(getDepth));
+  }
+
+  function countDescendants(catId: number): number {
+    const kids = children.get(catId) || [];
+    let count = kids.length;
+    for (const kid of kids) count += countDescendants(kid);
+    return count;
+  }
+
+  const rootStats: CategoryStats[] = [];
+  for (const rootId of rootCategories) {
+    const cat = achievementCategories.get(rootId)!;
+    const depth = getDepth(rootId);
+    const totalDescendants = countDescendants(rootId);
+    const directChildren = (children.get(rootId) || []).length;
+
+    // Count achievements in this tree
+    let achievementCount = 0;
+    let totalPoints = 0;
+    function countInTree(id: number) {
+      const achs = categoryToAchievements?.get(id) || [];
+      achievementCount += achs.length;
+      if (achievements) {
+        for (const aId of achs) {
+          const ach = achievements.get(aId);
+          if (ach) totalPoints += ach.points;
+        }
+      }
+      for (const kid of (children.get(id) || [])) countInTree(kid);
+    }
+    countInTree(rootId);
+
+    rootStats.push({ id: rootId, name: cat.name, depth, totalDescendants, directChildren, achievementCount, totalPoints });
+  }
+
+  // Sort by achievement count
+  rootStats.sort((a, b) => b.achievementCount - a.achievementCount);
+
+  lines.push(`## Category Overview`, '');
+  lines.push(`- **Top-level categories:** ${rootCategories.length}`);
+  lines.push(`- **Total categories:** ${achievementCategories.size}`);
+  lines.push(`- **Max hierarchy depth:** ${Math.max(...rootStats.map(r => r.depth))}`);
+
+  lines.push('', '## Top-Level Categories', '');
+  lines.push('| Category | Depth | Subcategories | Achievements | Points |');
+  lines.push('|----------|------:|-------------:|-----------:|-------:|');
+  for (const s of rootStats) {
+    lines.push(`| ${s.name} | ${s.depth} | ${s.totalDescendants} | ${s.achievementCount} | ${s.totalPoints} |`);
+  }
+
+  // Depth distribution
+  const depthCounts = new Map<number, number>();
+  for (const s of rootStats) {
+    depthCounts.set(s.depth, (depthCounts.get(s.depth) || 0) + 1);
+  }
+  lines.push('', '## Hierarchy Depth Distribution', '');
+  for (const [depth, count] of [...depthCounts.entries()].sort((a, b) => a[0] - b[0])) {
+    const bar = '#'.repeat(Math.min(count * 2, 40));
+    lines.push(`- **Depth ${depth}:** ${count} categories ${bar}`);
+  }
+
+  // Most complex (deepest + widest)
+  const byComplexity = [...rootStats].sort((a, b) => (b.depth + b.totalDescendants) - (a.depth + a.totalDescendants));
+  lines.push('', '## Most Complex Category Trees', '');
+  for (const s of byComplexity.slice(0, 10)) {
+    lines.push(`- **${s.name}:** depth ${s.depth}, ${s.totalDescendants} subcategories, ${s.achievementCount} achievements`);
+  }
+
+  // Point density (points per achievement)
+  lines.push('', '## Point Density by Category', '');
+  lines.push('| Category | Achievements | Total Points | Avg Points |');
+  lines.push('|----------|------------:|------------:|----------:|');
+  const withAch = rootStats.filter(s => s.achievementCount > 0);
+  withAch.sort((a, b) => (b.totalPoints / b.achievementCount) - (a.totalPoints / a.achievementCount));
+  for (const s of withAch.slice(0, 15)) {
+    const avg = (s.totalPoints / s.achievementCount).toFixed(1);
+    lines.push(`| ${s.name} | ${s.achievementCount} | ${s.totalPoints} | ${avg} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: MAP POI FUNCTIONAL CLASSIFICATION ============
+
+export async function getMapPOIFunctionalClassification(): Promise<string> {
+  await loadZones();
+
+  const lines = ['# Map POI Functional Classification', ''];
+  lines.push('*34K+ map points of interest classified into functional categories.*', '');
+
+  const mapDir = gamePath('maps');
+  if (!existsSync(mapDir)) return 'Maps directory not found at ' + mapDir;
+
+  const allFiles = await readdir(mapDir);
+  const files = allFiles.filter((f: string) => f.endsWith('.txt') && !f.endsWith('_1.txt') && !f.endsWith('_2.txt') && !f.endsWith('_3.txt'));
+
+  // Functional categories with keyword patterns
+  const categories: Record<string, string[]> = {
+    'Merchant/Vendor': ['merchant', 'vendor', 'shop', 'trader', 'bazaar', 'store', 'supply', 'dealer'],
+    'Zone Line/Portal': ['zone', 'portal', 'entrance', 'exit', 'tunnel', 'passage', 'door', 'gate to', 'to ', 'from '],
+    'Quest NPC': ['quest', 'task', 'mission', 'giver', 'objective'],
+    'Bank/Vault': ['bank', 'vault', 'deposit', 'storage'],
+    'Guild/Class': ['guild', 'guildmaster', 'guildmast', 'class trainer', 'trainer'],
+    'Guard/Military': ['guard', 'soldier', 'captain', 'lieutenant', 'sergeant', 'commander', 'watchman', 'patrol'],
+    'Temple/Shrine': ['temple', 'shrine', 'altar', 'church', 'chapel', 'priest', 'cleric'],
+    'Camp/Spawn': ['camp', 'spawn', 'named', 'rare', 'boss', 'ph'],
+    'Craft/Trade': ['forge', 'loom', 'oven', 'brew', 'kiln', 'pottery', 'tinkering', 'fletching', 'jewel'],
+    'Binding/Resurrection': ['bind', 'soulbinder', 'resurrect', 'graveyard'],
+    'Boat/Transport': ['boat', 'ship', 'dock', 'translocator', 'port', 'harbor'],
+    'Inn/Tavern': ['inn', 'tavern', 'bar', 'pub', 'brew'],
+    'Landmark': ['tower', 'bridge', 'fountain', 'statue', 'monument', 'ruins', 'cave', 'lake', 'river', 'mountain'],
+  };
+
+  const categoryCounts: Record<string, number> = {};
+  const categoryZones: Record<string, Set<string>> = {};
+  let totalPOIs = 0;
+  let classified = 0;
+
+  for (const cat of Object.keys(categories)) {
+    categoryCounts[cat] = 0;
+    categoryZones[cat] = new Set();
+  }
+
+  for (const file of files) {
+    try {
+      const content = await readFile(join(mapDir, file), 'utf-8');
+      const poiLines = content.split('\n').filter((l: string) => l.startsWith('P '));
+      const zoneName = file.replace('.txt', '');
+
+      for (const line of poiLines) {
+        const parts = line.split(',');
+        if (parts.length < 8) continue;
+        totalPOIs++;
+
+        const label = parts.slice(7).join(',').trim().toLowerCase();
+        if (!label) continue;
+
+        let matched = false;
+        for (const [cat, keywords] of Object.entries(categories)) {
+          for (const kw of keywords) {
+            if (label.includes(kw)) {
+              categoryCounts[cat]++;
+              categoryZones[cat].add(zoneName);
+              matched = true;
+              break;
+            }
+          }
+          if (matched) break;
+        }
+        if (matched) classified++;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // Category summary
+  lines.push('## Functional Category Summary', '');
+  lines.push('| Category | POIs | % of Total | Zones |');
+  lines.push('|----------|-----:|----------:|------:|');
+  const sortedCats = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1]);
+  for (const [cat, count] of sortedCats) {
+    if (count > 0) {
+      const pct = Math.round(count / totalPOIs * 100);
+      lines.push(`| ${cat} | ${count} | ${pct}% | ${categoryZones[cat].size} |`);
+    }
+  }
+  const unclassified = totalPOIs - classified;
+  lines.push(`| *Unclassified* | *${unclassified}* | *${Math.round(unclassified / totalPOIs * 100)}%* | - |`);
+
+  // Visual distribution
+  lines.push('', '## Visual Distribution', '');
+  for (const [cat, count] of sortedCats) {
+    if (count > 0) {
+      const pct = Math.round(count / totalPOIs * 100);
+      const bar = '█'.repeat(Math.min(pct * 2, 40));
+      lines.push(`- **${cat}:** ${bar} ${pct}% (${count})`);
+    }
+  }
+
+  lines.push('', `## Totals`, '');
+  lines.push(`- **Total POIs scanned:** ${totalPOIs.toLocaleString()}`);
+  lines.push(`- **Classified:** ${classified.toLocaleString()} (${Math.round(classified / totalPOIs * 100)}%)`);
+  lines.push(`- **Unclassified:** ${unclassified.toLocaleString()} (${Math.round(unclassified / totalPOIs * 100)}%)`);
+  lines.push(`- **Map files scanned:** ${files.length}`);
+
+  return lines.join('\n');
+}
