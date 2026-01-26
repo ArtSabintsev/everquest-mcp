@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 146 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 149 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **146 tools** for querying EverQuest data
+- **149 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -148,6 +148,8 @@ Then restart Claude Desktop.
 | `get_spell_growth_curve` | Spell progression curve per class — new spells per level bracket, top spell-gain levels, dry spell analysis |
 | `get_spell_resist_overview` | Breakdown of spells by resist type (Magic, Fire, Cold, etc.) with beneficial/detrimental counts — optionally per class |
 | `get_spell_target_overview` | Breakdown of spells by target type (Single, Self, Group, AoE, etc.) with category analysis — optionally per class |
+| `get_spell_timer_overview` | Spell reuse timer group analysis per class — shared lockout timers, timer group sizes, unique timers |
+| `get_spell_category_breakdown` | Spell category breakdown per class — count, beneficial/detrimental, level ranges per category |
 
 ### Local Data - Character
 | Tool | Description |
@@ -241,6 +243,7 @@ Then restart Claude Desktop.
 | `get_mercenary` | Get mercenary details with abilities |
 | `get_mercenary_stances` | List mercenary stances and descriptions |
 | `get_mercenary_overview` | Mercenary system overview with types, tiers, races, and stances |
+| `get_mercenary_ability_overview` | Overview of all 14 mercenary abilities with descriptions, themes, and type listing |
 
 ### Local Data - Items & Effects
 | Tool | Description |
@@ -303,7 +306,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (146 tools)
+├── tools.ts          # Tool definitions and handlers (149 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

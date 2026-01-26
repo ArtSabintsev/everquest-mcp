@@ -154,6 +154,9 @@ import {
   getSpellResistOverview,
   getSpellTargetOverview,
   getAchievementComponentOverview,
+  getMercenaryAbilityOverview,
+  getSpellTimerOverview,
+  getSpellCategoryBreakdown,
 } from './sources/index.js';
 
 export const tools = [
@@ -2189,6 +2192,37 @@ export const tools = [
     }
   },
   {
+    name: 'get_mercenary_ability_overview',
+    description: 'Overview of all mercenary abilities with descriptions, common themes, and mercenary type listing.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_timer_overview',
+    description: 'Analyze spell reuse timer groups for a class — shows shared lockout timers, which spells share cooldowns, and timer group sizes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g., "Warrior", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_spell_category_breakdown',
+    description: 'Breakdown of all spells for a class by spell category — count, beneficial/detrimental split, level ranges, and top categories.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g., "Necromancer", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3704,6 +3738,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_achievement_component_overview': {
         return getAchievementComponentOverview();
+      }
+
+      case 'get_mercenary_ability_overview': {
+        return getMercenaryAbilityOverview();
+      }
+
+      case 'get_spell_timer_overview': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required';
+        return getSpellTimerOverview(className);
+      }
+
+      case 'get_spell_category_breakdown': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required';
+        return getSpellCategoryBreakdown(className);
       }
 
       case 'search_help_topics': {

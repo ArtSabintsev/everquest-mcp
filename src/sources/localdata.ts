@@ -11363,3 +11363,218 @@ export async function getAchievementComponentOverview(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: MERCENARY ABILITY OVERVIEW ============
+
+export async function getMercenaryAbilityOverview(): Promise<string> {
+  await loadMercenaryStances();
+  if (!mercenaryAbilities || mercenaryAbilities.size === 0) return 'Mercenary ability data not available.';
+
+  const lines = ['# Mercenary Ability Overview', ''];
+  lines.push(`**${mercenaryAbilities.size} abilities defined**`, '');
+
+  // List all abilities sorted by ID
+  const sorted = [...mercenaryAbilities.entries()].sort((a, b) => a[0] - b[0]);
+
+  lines.push('| ID | Ability | Description |');
+  lines.push('|----|---------|-------------|');
+
+  for (const [id, ability] of sorted) {
+    const desc = ability.description.length > 80
+      ? ability.description.substring(0, 80) + '...'
+      : ability.description;
+    lines.push(`| ${id} | ${ability.name} | ${desc} |`);
+  }
+
+  // Word frequency analysis
+  const wordCounts = new Map<string, number>();
+  const stopWords = new Set(['the', 'a', 'an', 'of', 'to', 'in', 'for', 'and', 'or', 'is', 'by', 'on', 'at', 'with', 'your', 'you', 'this', 'that', 'it', 'from', 'are', 'be', 'has', 'was', 'will', 'can', 'all', 'as', 'not', 'but']);
+  for (const [, ability] of mercenaryAbilities) {
+    const words = ability.description.toLowerCase().split(/\W+/);
+    for (const word of words) {
+      if (word.length > 3 && !stopWords.has(word)) {
+        wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+      }
+    }
+  }
+  const topWords = [...wordCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  if (topWords.length > 0) {
+    lines.push('', '## Common Themes', '');
+    for (const [word, count] of topWords) {
+      lines.push(`- **${word}:** ${count} mentions`);
+    }
+  }
+
+  // Types summary
+  if (mercenaryTypes && mercenaryTypes.size > 0) {
+    lines.push('', '## Mercenary Types', '');
+    for (const [id, name] of [...mercenaryTypes.entries()].sort((a, b) => a[0] - b[0])) {
+      lines.push(`- **${name}** (Type ${id})`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL TIMER GROUP OVERVIEW ============
+
+export async function getSpellTimerOverview(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // Group spells by timer ID
+  const timerGroups = new Map<number, { name: string; level: number; recast: number; category: string }[]>();
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const timerId = parseInt(spell.fields[SF.TIMER_ID]) || 0;
+    const name = spell.fields[SF.NAME];
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    if (!timerGroups.has(timerId)) timerGroups.set(timerId, []);
+    timerGroups.get(timerId)!.push({ name, level, recast, category });
+  }
+
+  const lines = [`# ${classFullName} Spell Timer Groups`, ''];
+
+  // Shared timer groups (timer > 0 with multiple spells)
+  const sharedTimers = [...timerGroups.entries()]
+    .filter(([id, spells]) => id > 0 && spells.length > 1)
+    .sort((a, b) => b[1].length - a[1].length);
+
+  lines.push(`**${timerGroups.size} timer groups (${sharedTimers.length} shared lockouts)**`, '');
+
+  // Default timer group (0)
+  const defaultGroup = timerGroups.get(0);
+  if (defaultGroup) {
+    lines.push(`## Default Spell Gem Timer (${defaultGroup.length} spells)`, '');
+    lines.push('Spells on the default timer use individual spell gem cooldowns.', '');
+  }
+
+  // Shared timers
+  if (sharedTimers.length > 0) {
+    lines.push('## Shared Timer Lockouts', '');
+    lines.push('These timers are shared — activating one locks out all others in the same group.', '');
+
+    for (const [timerId, groupSpells] of sharedTimers.slice(0, 25)) {
+      const sorted = groupSpells.sort((a, b) => b.level - a.level);
+      const maxRecast = Math.max(...groupSpells.map(s => s.recast));
+      const recastStr = maxRecast === 0 ? '' : ` (${(maxRecast / 1000).toFixed(0)}s recast)`;
+
+      lines.push(`### Timer ${timerId}${recastStr} — ${groupSpells.length} spells`);
+      for (const s of sorted.slice(0, 10)) {
+        lines.push(`- Lv ${s.level}: ${s.name} [${s.category}]`);
+      }
+      if (sorted.length > 10) {
+        lines.push(`- ... and ${sorted.length - 10} more`);
+      }
+      lines.push('');
+    }
+  }
+
+  // Single-spell timers
+  const singleTimers = [...timerGroups.entries()]
+    .filter(([id, spells]) => id > 0 && spells.length === 1);
+
+  if (singleTimers.length > 0) {
+    lines.push(`## Unique Timers (${singleTimers.length} timers with 1 spell each)`, '');
+    const singleSorted = singleTimers
+      .map(([id, s]) => ({ id, ...s[0] }))
+      .sort((a, b) => b.level - a.level);
+    for (const s of singleSorted.slice(0, 20)) {
+      const recastStr = s.recast > 0 ? ` (${(s.recast / 1000).toFixed(0)}s)` : '';
+      lines.push(`- Timer ${s.id}: Lv ${s.level} ${s.name}${recastStr}`);
+    }
+    if (singleSorted.length > 20) {
+      lines.push(`- ... and ${singleSorted.length - 20} more`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL CATEGORY BREAKDOWN ============
+
+export async function getSpellCategoryBreakdown(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const categories = new Map<string, { count: number; beneficial: number; detrimental: number; minLevel: number; maxLevel: number }>();
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    if (!categories.has(category)) {
+      categories.set(category, { count: 0, beneficial: 0, detrimental: 0, minLevel: 255, maxLevel: 0 });
+    }
+    const cat = categories.get(category)!;
+    cat.count++;
+    if (beneficial) cat.beneficial++;
+    else cat.detrimental++;
+    if (level < cat.minLevel) cat.minLevel = level;
+    if (level > cat.maxLevel) cat.maxLevel = level;
+  }
+
+  const sorted = [...categories.entries()].sort((a, b) => b[1].count - a[1].count);
+  const totalSpells = sorted.reduce((s, [, c]) => s + c.count, 0);
+
+  const lines = [`# ${classFullName} Spell Category Breakdown`, ''];
+  lines.push(`**${totalSpells.toLocaleString()} spells across ${sorted.length} categories**`, '');
+
+  lines.push('| Category | Count | % | Beneficial | Detrimental | Level Range |');
+  lines.push('|----------|-------|---|------------|-------------|-------------|');
+
+  for (const [name, data] of sorted) {
+    const pct = ((data.count / totalSpells) * 100).toFixed(1);
+    lines.push(`| ${name} | ${data.count} | ${pct}% | ${data.beneficial} | ${data.detrimental} | ${data.minLevel}-${data.maxLevel} |`);
+  }
+
+  // Top 5 categories by category type
+  lines.push('', '## Top Categories', '');
+  const topBeneficial = sorted.filter(([, d]) => d.beneficial > 0).sort((a, b) => b[1].beneficial - a[1].beneficial);
+  if (topBeneficial.length > 0) {
+    lines.push(`**Most beneficial:** ${topBeneficial[0][0]} (${topBeneficial[0][1].beneficial} spells)`);
+  }
+  const topDetrimental = sorted.filter(([, d]) => d.detrimental > 0).sort((a, b) => b[1].detrimental - a[1].detrimental);
+  if (topDetrimental.length > 0) {
+    lines.push(`**Most detrimental:** ${topDetrimental[0][0]} (${topDetrimental[0][1].detrimental} spells)`);
+  }
+
+  // Categories unique to high levels (min level >= 70)
+  const highLevelOnly = sorted.filter(([, d]) => d.minLevel >= 70);
+  if (highLevelOnly.length > 0) {
+    lines.push('', '**High-level only categories (70+):**');
+    for (const [name, data] of highLevelOnly.slice(0, 10)) {
+      lines.push(`- ${name}: ${data.count} spells (Lv ${data.minLevel}-${data.maxLevel})`);
+    }
+  }
+
+  return lines.join('\n');
+}
