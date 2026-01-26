@@ -14276,3 +14276,354 @@ export async function getTributeBenefitAnalysis(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SPELL DURATION FORMULA ANALYSIS ============
+
+export async function getSpellDurationFormulaAnalysis(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const DURATION_FORMULAS: Record<number, string> = {
+    0: 'None (instant)',
+    1: 'level/2 ticks (max value)',
+    2: 'level/5 + 1 ticks',
+    3: 'level * 30 ticks',
+    4: '50 ticks (~5 minutes)',
+    5: '2 ticks (~12 seconds)',
+    6: 'level/2 ticks',
+    7: 'level ticks',
+    8: 'level + 10 ticks',
+    9: 'level * 2 + 10 ticks',
+    10: 'level * 3 + 10 ticks',
+    11: '(value) ticks',
+    12: 'Permanent',
+    50: '(value) ticks (fixed)',
+    3600: '(value) seconds (fixed)',
+  };
+
+  const lines = ['# Spell Duration Formula × Value Analysis', ''];
+
+  // Collect formula-value pairs
+  const formulaValues = new Map<number, number[]>();
+  let totalSpells = 0;
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    totalSpells++;
+    const formula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const value = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    if (!formulaValues.has(formula)) formulaValues.set(formula, []);
+    formulaValues.get(formula)!.push(value);
+  }
+
+  lines.push(`- **Total spells analyzed:** ${totalSpells.toLocaleString()}`);
+  lines.push(`- **Unique duration formulas:** ${formulaValues.size}`);
+
+  // For each formula, show value statistics
+  lines.push('', '## Formula-Value Interaction Statistics', '');
+  lines.push('| Formula | Description | Spells | Min Val | Max Val | Avg Val | Median Val | Unique Values |');
+  lines.push('|---------|-------------|--------|---------|---------|---------|------------|---------------|');
+
+  const sortedFormulas = [...formulaValues.entries()].sort((a, b) => b[1].length - a[1].length);
+  for (const [formula, values] of sortedFormulas) {
+    const desc = DURATION_FORMULAS[formula] || `Formula ${formula}`;
+    const sorted = [...values].sort((a, b) => a - b);
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const unique = new Set(values).size;
+    lines.push(`| ${formula} | ${desc} | ${values.length.toLocaleString()} | ${min} | ${max} | ${avg.toFixed(1)} | ${median} | ${unique} |`);
+  }
+
+  // Value frequency across all formulas
+  const valueCounts = new Map<number, number>();
+  for (const values of formulaValues.values()) {
+    for (const v of values) {
+      valueCounts.set(v, (valueCounts.get(v) || 0) + 1);
+    }
+  }
+
+  lines.push('', '## Most Common Duration Values (All Formulas)', '');
+  lines.push('| Value | Spells | Used with Formulas |');
+  lines.push('|-------|--------|-------------------|');
+  const sortedValues = [...valueCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+  for (const [value, count] of sortedValues) {
+    const usedFormulas: number[] = [];
+    for (const [formula, values] of formulaValues) {
+      if (values.includes(value)) usedFormulas.push(formula);
+    }
+    lines.push(`| ${value} | ${count.toLocaleString()} | ${usedFormulas.join(', ')} |`);
+  }
+
+  // Anomalies: formulas where all values are identical
+  lines.push('', '## Constant-Value Formulas (Same Value for All Spells)', '');
+  for (const [formula, values] of sortedFormulas) {
+    const unique = new Set(values).size;
+    if (unique === 1 && values.length > 5) {
+      const desc = DURATION_FORMULAS[formula] || `Formula ${formula}`;
+      lines.push(`- **Formula ${formula}** (${desc}): all ${values.length} spells use value=${values[0]}`);
+    }
+  }
+
+  // Beneficial vs detrimental duration patterns
+  const benFormulas = new Map<number, number>();
+  const detFormulas = new Map<number, number>();
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const formula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const ben = spell.fields[SF.BENEFICIAL] === '1';
+    if (ben) benFormulas.set(formula, (benFormulas.get(formula) || 0) + 1);
+    else detFormulas.set(formula, (detFormulas.get(formula) || 0) + 1);
+  }
+
+  lines.push('', '## Beneficial vs Detrimental by Formula', '');
+  lines.push('| Formula | Description | Beneficial | Detrimental | % Beneficial |');
+  lines.push('|---------|-------------|------------|-------------|--------------|');
+  for (const [formula] of sortedFormulas.slice(0, 15)) {
+    const desc = DURATION_FORMULAS[formula] || `Formula ${formula}`;
+    const ben = benFormulas.get(formula) || 0;
+    const det = detFormulas.get(formula) || 0;
+    const total = ben + det;
+    const pct = total > 0 ? (ben / total * 100).toFixed(1) : '0.0';
+    lines.push(`| ${formula} | ${desc} | ${ben} | ${det} | ${pct}% |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: MAP POI LABEL ANALYSIS ============
+
+export async function getMapPOILabelAnalysis(): Promise<string> {
+  await loadZones();
+
+  const lines = ['# Map POI Label Analysis', ''];
+
+  const mapDir = gamePath('maps');
+  if (!existsSync(mapDir)) return 'Maps directory not found at ' + mapDir;
+
+  const allFiles = await readdir(mapDir);
+  const files = allFiles.filter((f: string) => f.endsWith('.txt') && !f.endsWith('_1.txt') && !f.endsWith('_2.txt') && !f.endsWith('_3.txt'));
+
+  const wordFreq = new Map<string, number>();
+  const labelPrefixes = new Map<string, number>();
+  const colorCounts = new Map<string, number>();
+  let totalPOIs = 0;
+  let totalLabeled = 0;
+  const zonePOICounts: { zone: string; count: number }[] = [];
+  const emptyLabelZones: string[] = [];
+
+  for (const file of files) {
+    try {
+      const content = await readFile(join(mapDir, file), 'utf-8');
+      const poiLines = content.split('\n').filter((l: string) => l.startsWith('P '));
+      const zoneName = file.replace('.txt', '');
+
+      if (poiLines.length === 0) continue;
+      zonePOICounts.push({ zone: zoneName, count: poiLines.length });
+      totalPOIs += poiLines.length;
+
+      let labeled = 0;
+      for (const line of poiLines) {
+        const parts = line.split(',');
+        if (parts.length >= 8) {
+          const label = parts.slice(7).join(',').trim();
+          const r = parseInt(parts[4]) || 0;
+          const g = parseInt(parts[5]) || 0;
+          const b = parseInt(parts[6]) || 0;
+          const colorKey = `${r},${g},${b}`;
+          colorCounts.set(colorKey, (colorCounts.get(colorKey) || 0) + 1);
+
+          if (label && label.length > 0) {
+            labeled++;
+            totalLabeled++;
+
+            // Word frequency
+            const words = label.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/);
+            for (const word of words) {
+              if (word.length > 2) {
+                wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
+              }
+            }
+
+            // First word as prefix category
+            const firstWord = words[0];
+            if (firstWord && firstWord.length > 1) {
+              labelPrefixes.set(firstWord, (labelPrefixes.get(firstWord) || 0) + 1);
+            }
+          }
+        }
+      }
+
+      if (labeled === 0 && poiLines.length > 0) {
+        emptyLabelZones.push(zoneName);
+      }
+    } catch {
+      // Skip files that can't be read
+    }
+  }
+
+  lines.push(`- **Total POIs analyzed:** ${totalPOIs.toLocaleString()}`);
+  lines.push(`- **Labeled POIs:** ${totalLabeled.toLocaleString()} (${(totalLabeled / totalPOIs * 100).toFixed(1)}%)`);
+  lines.push(`- **Unlabeled POIs:** ${(totalPOIs - totalLabeled).toLocaleString()}`);
+  lines.push(`- **Zones with POIs:** ${zonePOICounts.length}`);
+
+  // Most common POI label words
+  lines.push('', '## Most Common POI Label Words', '');
+  lines.push('| Word | Occurrences |');
+  lines.push('|------|------------|');
+  const sortedWords = [...wordFreq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30);
+  for (const [word, count] of sortedWords) {
+    lines.push(`| ${word} | ${count} |`);
+  }
+
+  // Label prefix categories
+  lines.push('', '## POI Label Prefixes (First Word)', '');
+  lines.push('| Prefix | Count | % |');
+  lines.push('|--------|-------|---|');
+  const sortedPrefixes = [...labelPrefixes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25);
+  for (const [prefix, count] of sortedPrefixes) {
+    lines.push(`| ${prefix} | ${count} | ${(count / totalLabeled * 100).toFixed(1)}% |`);
+  }
+
+  // Color distribution
+  lines.push('', '## POI Color Distribution (Top 15)', '');
+  lines.push('| Color (R,G,B) | Count | % |');
+  lines.push('|---------------|-------|---|');
+  const sortedColors = [...colorCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  for (const [color, count] of sortedColors) {
+    lines.push(`| ${color} | ${count} | ${(count / totalPOIs * 100).toFixed(1)}% |`);
+  }
+
+  // Zones with most POIs
+  zonePOICounts.sort((a, b) => b.count - a.count);
+  lines.push('', '## Zones with Most POIs (Top 15)', '');
+  for (const { zone, count } of zonePOICounts.slice(0, 15)) {
+    lines.push(`- **${zone}**: ${count} POIs`);
+  }
+
+  // Zones with fewest POIs
+  lines.push('', '## Zones with Fewest POIs (Bottom 10)', '');
+  const bottom = zonePOICounts.slice(-10).reverse();
+  for (const { zone, count } of bottom) {
+    lines.push(`- **${zone}**: ${count} POIs`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: AA NAME GROUP ANALYSIS ============
+
+export async function getAANameGroupAnalysis(): Promise<string> {
+  await loadAAAbilities();
+  if (!aaAbilities || aaAbilities.size === 0) return 'AA ability data not available.';
+
+  const lines = ['# AA Ability Name Group Analysis', ''];
+
+  // Group AAs by base name (strip rank numbers)
+  const baseNameGroups = new Map<string, { names: string[]; ids: number[] }>();
+  const rankPatterns = /\s+(Rk\.\s*\d+|Rank\s*\d+|[IVXLC]+)$/i;
+  const numberSuffix = /\s+\d+$/;
+
+  for (const aa of aaAbilities.values()) {
+    // Strip rank/number suffix to find base name
+    let baseName = aa.name.replace(rankPatterns, '').replace(numberSuffix, '').trim();
+    if (baseName.length === 0) baseName = aa.name;
+
+    if (!baseNameGroups.has(baseName)) baseNameGroups.set(baseName, { names: [], ids: [] });
+    const group = baseNameGroups.get(baseName)!;
+    group.names.push(aa.name);
+    group.ids.push(aa.id);
+  }
+
+  const totalGroups = baseNameGroups.size;
+  const multiRank = [...baseNameGroups.values()].filter(g => g.names.length > 1);
+  const singleRank = [...baseNameGroups.values()].filter(g => g.names.length === 1);
+
+  lines.push(`- **Total AA abilities:** ${aaAbilities.size.toLocaleString()}`);
+  lines.push(`- **Unique base names:** ${totalGroups.toLocaleString()}`);
+  lines.push(`- **Multi-rank AA lines:** ${multiRank.length.toLocaleString()}`);
+  lines.push(`- **Single-rank AAs:** ${singleRank.length.toLocaleString()}`);
+
+  // Rank distribution
+  const rankSizes = new Map<number, number>();
+  for (const group of baseNameGroups.values()) {
+    const size = group.names.length;
+    rankSizes.set(size, (rankSizes.get(size) || 0) + 1);
+  }
+
+  lines.push('', '## Rank Count Distribution', '');
+  lines.push('| Ranks | AA Lines |');
+  lines.push('|-------|----------|');
+  const sortedSizes = [...rankSizes.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [size, count] of sortedSizes.slice(0, 15)) {
+    const bar = '#'.repeat(Math.min(count, 50));
+    lines.push(`| ${size} | ${count} ${bar} |`);
+  }
+
+  // Largest AA lines (most ranks)
+  const sortedGroups = [...baseNameGroups.entries()].sort((a, b) => b[1].names.length - a[1].names.length);
+  lines.push('', '## Longest AA Lines (Most Ranks)', '');
+  lines.push('| Base Name | Ranks |');
+  lines.push('|-----------|-------|');
+  for (const [name, group] of sortedGroups.slice(0, 20)) {
+    lines.push(`| ${name} | ${group.names.length} |`);
+  }
+
+  // First word frequency (common prefixes/themes)
+  const firstWords = new Map<string, number>();
+  for (const aa of aaAbilities.values()) {
+    const firstWord = aa.name.split(/\s+/)[0].toLowerCase();
+    if (firstWord.length > 2) {
+      firstWords.set(firstWord, (firstWords.get(firstWord) || 0) + 1);
+    }
+  }
+
+  lines.push('', '## Most Common AA Name Prefixes', '');
+  lines.push('| Prefix | Count |');
+  lines.push('|--------|-------|');
+  const sortedPrefixes = [...firstWords.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+  for (const [prefix, count] of sortedPrefixes) {
+    lines.push(`| ${prefix} | ${count} |`);
+  }
+
+  // Keyword themes in AA names
+  const themeKeywords = [
+    'strike', 'blast', 'fury', 'ward', 'shield', 'bolt', 'burn', 'heal',
+    'focus', 'mastery', 'enhanced', 'improved', 'critical', 'natural',
+    'weapon', 'spell', 'pet', 'companion', 'gift', 'blessing',
+  ];
+  const themes = new Map<string, number>();
+  for (const aa of aaAbilities.values()) {
+    const lowerName = aa.name.toLowerCase();
+    for (const kw of themeKeywords) {
+      if (lowerName.includes(kw)) {
+        themes.set(kw, (themes.get(kw) || 0) + 1);
+      }
+    }
+  }
+
+  if (themes.size > 0) {
+    lines.push('', '## AA Name Themes (Keyword Frequency)', '');
+    lines.push('| Theme | AAs |');
+    lines.push('|-------|-----|');
+    const sortedThemes = [...themes.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [theme, count] of sortedThemes) {
+      lines.push(`| ${theme} | ${count} |`);
+    }
+  }
+
+  // AA name length stats
+  const nameLengths = [...aaAbilities.values()].map(a => a.name.length);
+  nameLengths.sort((a, b) => a - b);
+  const avgLen = nameLengths.reduce((a, b) => a + b, 0) / nameLengths.length;
+  const medianLen = nameLengths[Math.floor(nameLengths.length / 2)];
+
+  lines.push('', '## AA Name Length Statistics', '');
+  lines.push(`- **Shortest name:** ${nameLengths[0]} chars`);
+  lines.push(`- **Longest name:** ${nameLengths[nameLengths.length - 1]} chars`);
+  lines.push(`- **Average name length:** ${avgLen.toFixed(1)} chars`);
+  lines.push(`- **Median name length:** ${medianLen} chars`);
+
+  return lines.join('\n');
+}

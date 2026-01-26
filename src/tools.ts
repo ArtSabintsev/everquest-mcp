@@ -181,6 +181,9 @@ import {
   getMercenaryTierAnalysis,
   getSpellRecourseOverview,
   getTributeBenefitAnalysis,
+  getSpellDurationFormulaAnalysis,
+  getMapPOILabelAnalysis,
+  getAANameGroupAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2479,6 +2482,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_duration_formula_analysis',
+    description: 'Deep analysis of spell duration formula × value interactions — value ranges and statistics per formula type, most common values, constant-value anomalies, beneficial vs detrimental patterns.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_map_poi_label_analysis',
+    description: 'Analysis of map POI labels — most common words, label prefix categories, color distribution, zones with most/fewest POIs, label coverage statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_aa_name_group_analysis',
+    description: 'AA ability name grouping analysis — rank distribution (single vs multi-rank lines), longest AA lines, common name prefixes, keyword themes, name length statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4116,6 +4146,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_tribute_benefit_analysis': {
         return getTributeBenefitAnalysis();
+      }
+
+      case 'get_spell_duration_formula_analysis': {
+        return getSpellDurationFormulaAnalysis();
+      }
+
+      case 'get_map_poi_label_analysis': {
+        return getMapPOILabelAnalysis();
+      }
+
+      case 'get_aa_name_group_analysis': {
+        return getAANameGroupAnalysis();
       }
 
       case 'search_help_topics': {

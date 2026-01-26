@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 173 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 176 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **173 tools** for querying EverQuest data
+- **176 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -165,6 +165,7 @@ Then restart Claude Desktop.
 | `get_spell_ae_analysis` | AE spell analysis — AE type breakdown (PB AE, targeted, directional, beam, ring), radius distribution, largest AE spells, class comparison |
 | `get_spell_pushback_overview` | Spell pushback/positioning overview — pushback and pushup value distributions, highest knockback spells, spells with both effects, class comparison |
 | `get_spell_recourse_overview` | Spell recourse system overview — recourse statistics, multi-step chains, most common recourse targets, category and class distributions |
+| `get_spell_duration_formula_analysis` | Duration formula × value interactions — value ranges per formula, most common values, constant-value anomalies, beneficial vs detrimental patterns |
 
 ### Local Data - Character
 | Tool | Description |
@@ -208,6 +209,7 @@ Then restart Claude Desktop.
 | `get_leveling_zones_guide` | Complete leveling guide — all zones grouped by level tier |
 | `get_zone_level_statistics` | Zone count statistics by level band with bar chart and peak level analysis |
 | `get_map_statistics` | Map POI statistics — zones with map data, total POI counts, density distribution |
+| `get_map_poi_label_analysis` | Map POI label analysis — common label words, prefix categories, color distribution, zones with most/fewest POIs |
 
 ### Local Data - Factions & Currencies
 | Tool | Description |
@@ -242,6 +244,7 @@ Then restart Claude Desktop.
 | `get_achievement_component_overview` | Achievement component/step analysis — step distribution, component types, most complex achievements |
 | `get_achievement_requirement_analysis` | Achievement requirement value analysis — value distributions by type, highest requirements, most demanding achievements |
 | `get_aa_overview` | AA system overview with keyword analysis, description stats, and rank distribution |
+| `get_aa_name_group_analysis` | AA name grouping — rank distribution, longest AA lines, common prefixes, keyword themes, name length stats |
 
 ### Local Data - Overseer System
 | Tool | Description |
@@ -330,7 +333,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (173 tools)
+├── tools.ts          # Tool definitions and handlers (176 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
