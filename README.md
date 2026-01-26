@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 191 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 194 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **191 tools** for querying EverQuest data
+- **194 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -171,6 +171,7 @@ Then restart Claude Desktop.
 | `get_resist_type_by_level_analysis` | Resist type distribution by level bracket — which resists dominate with gearing priority recommendations |
 | `get_spell_cost_efficiency_analysis` | Spell cost efficiency — mana/endurance costs vs resource pools per level bracket, casts per pool, efficiency trends |
 | `get_spell_target_type_matrix` | Spell target type matrix — class specialization by target type (Self, Single, Group, AE) with above-average highlights |
+| `get_spell_scaling_analysis` | Spell scaling analysis — find all versions/ranks of a spell line and show how effects, mana cost, and power scale across ranks |
 
 ### Local Data - Character
 | Tool | Description |
@@ -205,6 +206,7 @@ Then restart Claude Desktop.
 | `get_class_spell_diversity_index` | Class spell diversity — distinct SPA effects per class, class-exclusive effects, universal effects, overlap matrix |
 | `get_class_power_milestone_timeline` | Unified class power progression — spells, stats, and skill unlocks by level bracket with stat growth curve |
 | `get_class_role_analysis` | Class role analysis — each class classified by role (Tank/Healer/DPS/CC/Utility) based on spell effects and stat profile |
+| `get_class_comparison_radar` | Class comparison radar — all 16 classes scored 0-100 across 8 dimensions (Heal, Tank, Nuke, CC, Utility, Buff, Pets, Mobility) |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -242,6 +244,7 @@ Then restart Claude Desktop.
 | `get_faction_starting_value_analysis` | Faction starting value analysis — race/class/deity impact tables with positive/negative counts and net balance, most modified factions |
 | `get_faction_network_analysis` | Faction relationship network — factions connected through shared race/class/deity modifiers, most connected nodes, faction pairs |
 | `get_deity_faction_impact_analysis` | Deity faction impact — how each deity affects faction standing, best/worst factions per deity, accessibility ranking |
+| `get_race_deity_optimizer` | Race-deity optimizer — for each of 16 playable races, rank deities by net faction benefit with best/worst per race |
 
 ### Local Data - Achievements & AA
 | Tool | Description |
@@ -348,7 +351,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (191 tools)
+├── tools.ts          # Tool definitions and handlers (194 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

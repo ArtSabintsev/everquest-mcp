@@ -16553,3 +16553,340 @@ export async function getLevelContentGuide(level: number): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ SPELL SCALING ANALYSIS ============
+
+export async function getSpellScalingAnalysis(spellName: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Find all spells matching the base name pattern (strip rank suffixes)
+  const baseName = spellName.replace(/\s+(Rk\.\s*(II|III|IV|V|VI|VII|VIII|IX|X))\s*$/i, '').trim();
+  const matches: { id: number; name: string; level: number; classId: number; mana: number; endurance: number; castTime: number; recast: number; duration: string; effects: { spaId: number; name: string; base1: number }[]; beneficial: boolean }[] = [];
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const spellNameLower = spell.name.toLowerCase();
+    const baseNameLower = baseName.toLowerCase();
+    if (!spellNameLower.startsWith(baseNameLower)) continue;
+
+    // The rest should be empty or a rank suffix
+    const suffix = spell.name.substring(baseName.length).trim();
+    if (suffix && !/^(Rk\.\s*(II|III|IV|V|VI|VII|VIII|IX|X)|I{1,3}|IV|V|VI|VII|VIII|IX|X|\d+)$/i.test(suffix)) continue;
+
+    // Find the lowest class level
+    let minLevel = 255;
+    let minClassId = 0;
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level > 0 && level < minLevel) { minLevel = level; minClassId = i; }
+    }
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    const durFormula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const durValue = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const duration = `F${durFormula}:${durValue}`;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    // Parse effects
+    const effects: { spaId: number; name: string; base1: number }[] = [];
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base1 = parseInt(parts[2]) || 0;
+          if (!isNaN(spaId) && spaId > 0) {
+            effects.push({ spaId, name: SPA_NAMES[spaId] || `SPA ${spaId}`, base1 });
+          }
+        }
+      }
+    }
+
+    matches.push({
+      id: spell.id, name: spell.name, level: minLevel < 255 ? minLevel : 0,
+      classId: minClassId, mana, endurance, castTime, recast, duration,
+      effects, beneficial
+    });
+  }
+
+  if (matches.length === 0) return `No spells found matching "${spellName}".`;
+
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# Spell Scaling: ${baseName}`, ''];
+  lines.push(`*${matches.length} versions found — how the spell scales across levels.*`, '');
+
+  // Overview table
+  lines.push('## Version Overview', '');
+  lines.push('| Spell Name | Level | Mana | Cast | Recast | Duration |');
+  lines.push('|-----------|------:|-----:|-----:|-------:|----------|');
+  for (const m of matches) {
+    const castStr = (m.castTime / 1000).toFixed(1) + 's';
+    const recastStr = m.recast > 0 ? (m.recast / 1000).toFixed(0) + 's' : '-';
+    const costStr = m.mana > 0 ? m.mana.toString() : m.endurance > 0 ? `${m.endurance}e` : '0';
+    lines.push(`| ${m.name} | ${m.level || '-'} | ${costStr} | ${castStr} | ${recastStr} | ${m.duration} |`);
+  }
+
+  // Effect scaling
+  if (matches.length > 1 && matches[0].effects.length > 0) {
+    lines.push('', '## Effect Value Scaling', '');
+
+    const allSpas = new Set<number>();
+    for (const m of matches) {
+      for (const e of m.effects) allSpas.add(e.spaId);
+    }
+
+    for (const spaId of allSpas) {
+      const spaName = SPA_NAMES[spaId] || `SPA ${spaId}`;
+      const values = matches.map(m => {
+        const eff = m.effects.find(e => e.spaId === spaId);
+        return { level: m.level, name: m.name, base1: eff ? eff.base1 : null };
+      }).filter(v => v.base1 !== null);
+
+      if (values.length >= 2) {
+        const first = values[0].base1!;
+        const last = values[values.length - 1].base1!;
+        const growth = first !== 0 ? (((last - first) / Math.abs(first)) * 100).toFixed(0) : 'N/A';
+        lines.push(`### ${spaName} (SPA ${spaId}) — Growth: ${growth}%`);
+        for (const v of values) {
+          lines.push(`- Level ${v.level}: ${v.base1}`);
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  // Mana cost growth
+  const manaValues = matches.filter(m => m.mana > 0);
+  if (manaValues.length >= 2) {
+    lines.push('## Mana Cost Growth', '');
+    for (const m of manaValues) {
+      const bar = '#'.repeat(Math.min(Math.round(m.mana / 100), 40));
+      lines.push(`- **${m.name}** (Lvl ${m.level}): ${m.mana} ${bar}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ RACE-DEITY OPTIMIZER ============
+
+export async function getRaceDeityOptimizer(): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const lines = ['# Race-Deity Faction Optimizer', ''];
+  lines.push('*For each playable race, ranks deities by net faction benefit.*', '');
+
+  // Get unique deities
+  const deities: { name: string; modId: number }[] = [];
+  const seenIds = new Set<number>();
+  for (const [name, modId] of Object.entries(DEITY_TO_FACTION_MODIFIER)) {
+    if (seenIds.has(modId)) continue;
+    seenIds.add(modId);
+    const capName = name.split(/[\s-]+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    deities.push({ name: capName, modId });
+  }
+
+  // Map race modifier IDs to race names
+  const raceModMap: { modId: number; name: string }[] = [
+    { modId: 51, name: 'Human' }, { modId: 52, name: 'Barbarian' },
+    { modId: 53, name: 'Erudite' }, { modId: 54, name: 'Wood Elf' },
+    { modId: 55, name: 'High Elf' }, { modId: 56, name: 'Dark Elf' },
+    { modId: 57, name: 'Half Elf' }, { modId: 58, name: 'Dwarf' },
+    { modId: 59, name: 'Troll' }, { modId: 60, name: 'Ogre' },
+    { modId: 61, name: 'Halfling' }, { modId: 62, name: 'Gnome' },
+    { modId: 178, name: 'Iksar' }, { modId: 180, name: 'Vah Shir' },
+    { modId: 661, name: 'Froglok' }, { modId: 1106, name: 'Drakkin' }
+  ];
+
+  // For each race-deity combo, calculate net faction impact
+  lines.push('## Best Deity by Race', '');
+  lines.push('| Race | Best Deity | Net | 2nd Best | Net | Worst Deity | Net |');
+  lines.push('|------|-----------|----:|----------|----:|------------|----:|');
+
+  for (const race of raceModMap) {
+    const deityScores: { name: string; net: number }[] = [];
+
+    for (const deity of deities) {
+      let netValue = 0;
+      for (const faction of factions.values()) {
+        if (!faction.startingValues) continue;
+        for (const sv of faction.startingValues) {
+          if (sv.modifierId === race.modId || sv.modifierId === deity.modId) {
+            netValue += sv.value;
+          }
+        }
+      }
+      deityScores.push({ name: deity.name, net: netValue });
+    }
+
+    deityScores.sort((a, b) => b.net - a.net);
+    const best = deityScores[0];
+    const second = deityScores[1];
+    const worst = deityScores[deityScores.length - 1];
+
+    lines.push(`| ${race.name} | ${best.name} | ${best.net > 0 ? '+' : ''}${best.net.toLocaleString()} | ${second.name} | ${second.net > 0 ? '+' : ''}${second.net.toLocaleString()} | ${worst.name} | ${worst.net.toLocaleString()} |`);
+  }
+
+  // Overall deity rankings
+  lines.push('', '## Overall Deity Rankings (Avg Net Across All Races)', '');
+  const deityAvgs: { name: string; avgNet: number }[] = [];
+  for (const deity of deities) {
+    let totalNet = 0;
+    for (const race of raceModMap) {
+      let netValue = 0;
+      for (const faction of factions.values()) {
+        if (!faction.startingValues) continue;
+        for (const sv of faction.startingValues) {
+          if (sv.modifierId === race.modId || sv.modifierId === deity.modId) {
+            netValue += sv.value;
+          }
+        }
+      }
+      totalNet += netValue;
+    }
+    deityAvgs.push({ name: deity.name, avgNet: Math.round(totalNet / raceModMap.length) });
+  }
+
+  deityAvgs.sort((a, b) => b.avgNet - a.avgNet);
+  lines.push('| Rank | Deity | Avg Net Faction |');
+  lines.push('|-----:|-------|----------------:|');
+  for (let i = 0; i < deityAvgs.length; i++) {
+    lines.push(`| ${i + 1} | ${deityAvgs[i].name} | ${deityAvgs[i].avgNet > 0 ? '+' : ''}${deityAvgs[i].avgNet.toLocaleString()} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ CLASS COMPARISON RADAR ============
+
+export async function getClassComparisonRadar(): Promise<string> {
+  await loadSpells();
+  await loadBaseStats();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Class Comparison Radar', ''];
+  lines.push('*All 16 classes compared across 8 dimensions — normalized scores (0-100).*', '');
+
+  const HEAL_SPAS = new Set([0, 147]);
+  const TANK_SPAS = new Set([1, 55, 69, 162, 172]);
+  const NUKE_SPAS = new Set([0, 79, 85, 119, 374, 413]);
+  const CC_SPAS = new Set([21, 22, 23, 31, 74]);
+  const UTIL_SPAS = new Set([3, 26, 57, 59, 106, 123]);
+  const PET_SPAS = new Set([33, 131, 167, 168]);
+  const MOBILITY_SPAS = new Set([3, 26, 57]);
+
+  interface ClassScores {
+    classId: number;
+    name: string;
+    short: string;
+    healing: number;
+    tanking: number;
+    nuking: number;
+    crowdControl: number;
+    utility: number;
+    buffing: number;
+    pets: number;
+    mobility: number;
+  }
+
+  const dimensions = ['healing', 'tanking', 'nuking', 'crowdControl', 'utility', 'buffing', 'pets', 'mobility'] as const;
+  const rawScores: ClassScores[] = [];
+
+  for (let cid = 1; cid <= 16; cid++) {
+    let healing = 0, tanking = 0, nuking = 0, crowdControl = 0;
+    let utility = 0, buffing = 0, pets = 0, mobility = 0;
+
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+      const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+      if (isBeneficial) buffing++;
+
+      let effectField = '';
+      for (let i = spell.fields.length - 1; i >= 0; i--) {
+        if (spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+      }
+      if (!effectField) continue;
+
+      const spas = new Set<number>();
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (!isNaN(spaId) && spaId > 0) spas.add(spaId);
+        }
+      }
+
+      for (const spa of spas) {
+        if (HEAL_SPAS.has(spa) && isBeneficial) healing++;
+        if (TANK_SPAS.has(spa)) tanking++;
+        if (NUKE_SPAS.has(spa) && !isBeneficial) nuking++;
+        if (CC_SPAS.has(spa)) crowdControl++;
+        if (UTIL_SPAS.has(spa)) utility++;
+        if (PET_SPAS.has(spa)) pets++;
+        if (MOBILITY_SPAS.has(spa)) mobility++;
+      }
+    }
+
+    rawScores.push({
+      classId: cid, name: CLASS_IDS[cid], short: CLASS_SHORT[cid],
+      healing, tanking, nuking, crowdControl, utility, buffing, pets, mobility
+    });
+  }
+
+  // Normalize to 0-100
+  const maxValues: Record<string, number> = {};
+  for (const dim of dimensions) {
+    maxValues[dim] = Math.max(...rawScores.map(s => s[dim]));
+  }
+
+  lines.push('## Normalized Scores (0-100)', '');
+  lines.push('| Class | Heal | Tank | Nuke | CC | Utility | Buff | Pets | Mobility | Total |');
+  lines.push('|-------|-----:|-----:|-----:|---:|--------:|-----:|-----:|---------:|------:|');
+
+  for (const s of rawScores) {
+    const norm = dimensions.map(d => maxValues[d] > 0 ? Math.round((s[d] / maxValues[d]) * 100) : 0);
+    const total = norm.reduce((sum, v) => sum + v, 0);
+    lines.push(`| ${s.name} (${s.short}) | ${norm.join(' | ')} | ${total} |`);
+  }
+
+  // Top class per dimension
+  lines.push('', '## Top Class Per Dimension', '');
+  for (const dim of dimensions) {
+    const sorted = [...rawScores].sort((a, b) => b[dim] - a[dim]);
+    const top3 = sorted.slice(0, 3).map(s => `${s.short} (${s[dim]})`).join(', ');
+    const dimLabel = dim.charAt(0).toUpperCase() + dim.slice(1).replace(/([A-Z])/g, ' $1');
+    lines.push(`- **${dimLabel}:** ${top3}`);
+  }
+
+  // Archetype summary
+  lines.push('', '## Archetype Summary', '');
+  for (const s of rawScores) {
+    const norm: Record<string, number> = {};
+    for (const d of dimensions) {
+      norm[d] = maxValues[d] > 0 ? Math.round((s[d] / maxValues[d]) * 100) : 0;
+    }
+    const topDims = dimensions
+      .map(d => ({ dim: d, score: norm[d] }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .filter(d => d.score > 20)
+      .map(d => d.dim.replace(/([A-Z])/g, ' $1').toLowerCase());
+    lines.push(`- **${s.name} (${s.short}):** ${topDims.join(', ')}`);
+  }
+
+  return lines.join('\n');
+}

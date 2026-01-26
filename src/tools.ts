@@ -199,6 +199,9 @@ import {
   getDeityFactionImpactAnalysis,
   getSpellTargetTypeMatrix,
   getLevelContentGuide,
+  getSpellScalingAnalysis,
+  getRaceDeityOptimizer,
+  getClassComparisonRadar,
 } from './sources/index.js';
 
 export const tools = [
@@ -2679,6 +2682,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_scaling_analysis',
+    description: 'Spell scaling analysis — find all versions/ranks of a spell line and show how effects, mana cost, and power scale across levels.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spell_name: {
+          type: 'string',
+          description: 'Base spell name (e.g., "Complete Heal", "Ice Comet", "Chloroplast")'
+        }
+      },
+      required: ['spell_name']
+    }
+  },
+  {
+    name: 'get_race_deity_optimizer',
+    description: 'Race-deity faction optimizer — for each playable race, ranks deities by net faction benefit. Shows best/worst deity per race and overall deity rankings.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_comparison_radar',
+    description: 'Class comparison radar — all 16 classes scored 0-100 across 8 dimensions (Heal, Tank, Nuke, CC, Utility, Buff, Pets, Mobility) with top class per dimension and archetype summaries.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4396,6 +4431,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const level = typeof args.level === 'number' ? args.level : parseInt(String(args.level));
         if (isNaN(level)) return 'Error: "level" parameter is required (1-125)';
         return getLevelContentGuide(level);
+      }
+
+      case 'get_spell_scaling_analysis': {
+        const spellName = typeof args.spell_name === 'string' ? args.spell_name.trim() : '';
+        if (!spellName) return 'Error: "spell_name" parameter is required (e.g., "Complete Heal", "Ice Comet")';
+        return getSpellScalingAnalysis(spellName);
+      }
+
+      case 'get_race_deity_optimizer': {
+        return getRaceDeityOptimizer();
+      }
+
+      case 'get_class_comparison_radar': {
+        return getClassComparisonRadar();
       }
 
       case 'search_help_topics': {
