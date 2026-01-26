@@ -5586,6 +5586,114 @@ export async function getRaceInfo(raceName: string): Promise<string> {
   return lines.join('\n');
 }
 
+export async function compareRaces(race1: string, race2: string): Promise<string> {
+  await loadRaceClassInfo();
+  if (!raceDescriptions) return 'Race data not available.';
+
+  const raceId1 = RACE_NAME_TO_ID[race1.toLowerCase()];
+  const raceId2 = RACE_NAME_TO_ID[race2.toLowerCase()];
+
+  if (!raceId1 && raceId1 !== 0) {
+    return `Unknown race: "${race1}". Valid: ${Object.values(RACE_IDS).join(', ')}`;
+  }
+  if (!raceId2 && raceId2 !== 0) {
+    return `Unknown race: "${race2}". Valid: ${Object.values(RACE_IDS).join(', ')}`;
+  }
+
+  const name1 = RACE_IDS[raceId1];
+  const name2 = RACE_IDS[raceId2];
+  const stats1 = RACE_BASE_STATS[raceId1];
+  const stats2 = RACE_BASE_STATS[raceId2];
+  const classes1 = new Set(RACE_CLASSES[raceId1] || []);
+  const classes2 = new Set(RACE_CLASSES[raceId2] || []);
+  const deities1 = new Set(RACE_DEITIES[raceId1] || []);
+  const deities2 = new Set(RACE_DEITIES[raceId2] || []);
+
+  const lines = [
+    `## Race Comparison: ${name1} vs ${name2}`,
+    '',
+  ];
+
+  // Stats comparison
+  if (stats1 && stats2) {
+    lines.push('### Base Stats');
+    lines.push(`| Stat | ${name1} | ${name2} | Diff |`);
+    lines.push('|------|' + '-'.repeat(name1.length + 2) + '|' + '-'.repeat(name2.length + 2) + '|------|');
+    let total1 = 0, total2 = 0;
+    for (let i = 0; i < STAT_NAMES.length; i++) {
+      const v1 = stats1[i];
+      const v2 = stats2[i];
+      const diff = v1 - v2;
+      const diffStr = diff > 0 ? `+${diff}` : diff < 0 ? `${diff}` : '—';
+      lines.push(`| **${STAT_NAMES[i]}** | ${v1} | ${v2} | ${diffStr} |`);
+      total1 += v1;
+      total2 += v2;
+    }
+    const totalDiff = total1 - total2;
+    const totalDiffStr = totalDiff > 0 ? `+${totalDiff}` : totalDiff < 0 ? `${totalDiff}` : '—';
+    lines.push(`| **Total** | **${total1}** | **${total2}** | **${totalDiffStr}** |`);
+    lines.push('');
+  }
+
+  // Classes comparison
+  const allClasses = new Set([...classes1, ...classes2]);
+  const sharedClasses: string[] = [];
+  const only1Classes: string[] = [];
+  const only2Classes: string[] = [];
+
+  for (const cid of [...allClasses].sort()) {
+    const cname = CLASS_IDS[cid];
+    if (classes1.has(cid) && classes2.has(cid)) {
+      sharedClasses.push(cname);
+    } else if (classes1.has(cid)) {
+      only1Classes.push(cname);
+    } else {
+      only2Classes.push(cname);
+    }
+  }
+
+  lines.push('### Available Classes');
+  if (sharedClasses.length > 0) {
+    lines.push(`**Both:** ${sharedClasses.join(', ')}`);
+  }
+  if (only1Classes.length > 0) {
+    lines.push(`**${name1} only:** ${only1Classes.join(', ')}`);
+  }
+  if (only2Classes.length > 0) {
+    lines.push(`**${name2} only:** ${only2Classes.join(', ')}`);
+  }
+  lines.push('');
+
+  // Deities comparison
+  const allDeities = new Set([...deities1, ...deities2]);
+  const sharedDeities: string[] = [];
+  const only1Deities: string[] = [];
+  const only2Deities: string[] = [];
+
+  for (const deity of [...allDeities].sort()) {
+    if (deities1.has(deity) && deities2.has(deity)) {
+      sharedDeities.push(deity);
+    } else if (deities1.has(deity)) {
+      only1Deities.push(deity);
+    } else {
+      only2Deities.push(deity);
+    }
+  }
+
+  lines.push('### Available Deities');
+  if (sharedDeities.length > 0) {
+    lines.push(`**Both:** ${sharedDeities.join(', ')}`);
+  }
+  if (only1Deities.length > 0) {
+    lines.push(`**${name1} only:** ${only1Deities.join(', ')}`);
+  }
+  if (only2Deities.length > 0) {
+    lines.push(`**${name2} only:** ${only2Deities.join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
 export async function getClassInfo(className: string): Promise<string> {
   await loadRaceClassInfo();
   if (!classDescriptions) return 'Class data not available.';

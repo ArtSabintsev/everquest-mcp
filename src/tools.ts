@@ -91,6 +91,7 @@ import {
   searchHelpTopics,
   getHelpTopic,
   compareSpells,
+  compareRaces,
 } from './sources/index.js';
 
 export const tools = [
@@ -1252,6 +1253,24 @@ export const tools = [
     }
   },
   {
+    name: 'compare_races',
+    description: 'Compare two EverQuest races side by side. Shows stat differences, shared and unique classes, and deity availability. Useful for character creation decisions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        race1: {
+          type: 'string',
+          description: 'First race name (e.g., "Dark Elf", "Human")'
+        },
+        race2: {
+          type: 'string',
+          description: 'Second race name (e.g., "High Elf", "Drakkin")'
+        }
+      },
+      required: ['race1', 'race2']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -2387,6 +2406,14 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const query = (args.query as string).trim();
         return searchCreatureTypes(query);
+      }
+
+      case 'compare_races': {
+        const race1 = typeof args.race1 === 'string' ? args.race1.trim() : '';
+        const race2 = typeof args.race2 === 'string' ? args.race2.trim() : '';
+        if (!race1) return 'Error: "race1" parameter is required';
+        if (!race2) return 'Error: "race2" parameter is required';
+        return compareRaces(race1, race2);
       }
 
       case 'search_help_topics': {
