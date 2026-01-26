@@ -328,6 +328,8 @@ interface OverseerQuest {
   description: string;
   difficulty: number;
   duration: number;
+  requiredSlots: number;
+  optionalSlots: number;
 }
 
 interface MercenaryEntry {
@@ -1442,12 +1444,48 @@ async function loadOverseerQuests(): Promise<void> {
       const rawDesc = questDescs.get(id) || '';
       const description = stripHtmlTags(rawDesc.replace(/<c\s+"[^"]*">/gi, '').replace(/<\/c>/gi, ''));
 
-      overseerQuests.set(id, { id, categoryId, name, description, difficulty, duration });
+      overseerQuests.set(id, { id, categoryId, name, description, difficulty, duration, requiredSlots: 0, optionalSlots: 0 });
 
       const lowerName = name.toLowerCase();
       const existing = overseerQuestNameIndex!.get(lowerName) || [];
       existing.push(id);
       overseerQuestNameIndex!.set(lowerName, existing);
+    }
+
+    // Load slot associations and slot data to count required/optional slots per quest
+    try {
+      const slotData = await readGameFile(join('Resources', 'OvrQstMinionSlotClient.txt'));
+      const slotRequired = new Map<number, boolean>(); // slotId -> required
+
+      for (const line of slotData.split('\n')) {
+        if (!line.trim() || line.startsWith('#')) continue;
+        const fields = line.split('^');
+        if (fields.length < 5) continue;
+        const slotId = parseInt(fields[0]);
+        const required = fields[4] === '1';
+        if (!isNaN(slotId)) slotRequired.set(slotId, required);
+      }
+
+      const assocData = await readGameFile(join('Resources', 'OvrQstMinionSlotAssoc.txt'));
+      for (const line of assocData.split('\n')) {
+        if (!line.trim() || line.startsWith('#')) continue;
+        const fields = line.split('^');
+        if (fields.length < 3) continue;
+        const questId = parseInt(fields[0]);
+        const slotId = parseInt(fields[1]);
+        if (isNaN(questId) || isNaN(slotId)) continue;
+
+        const quest = overseerQuests.get(questId);
+        if (quest) {
+          if (slotRequired.get(slotId)) {
+            quest.requiredSlots++;
+          } else {
+            quest.optionalSlots++;
+          }
+        }
+      }
+    } catch {
+      console.error('[LocalData] Could not load Overseer slot data');
     }
 
     console.error(`[LocalData] Loaded ${overseerQuests.size} Overseer quests`);
@@ -2814,6 +2852,7 @@ export async function getOverseerQuest(id: string): Promise<string> {
     `**Category:** ${categoryName}`,
     `**Difficulty:** ${difficultyName}`,
     `**Duration:** ${quest.duration}h`,
+    `**Agent Slots:** ${quest.requiredSlots} required${quest.optionalSlots > 0 ? `, ${quest.optionalSlots} optional` : ''}`,
   ];
 
   return lines.join('\n');
