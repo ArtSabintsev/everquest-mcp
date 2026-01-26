@@ -166,6 +166,9 @@ import {
   getDbStringTypeOverview,
   getSpellLevelDistribution,
   getSpellCastTimeAnalysis,
+  getSpellManaCostOverview,
+  getSpellSubcategoryOverview,
+  getClassUniqueSpellAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2319,6 +2322,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_mana_cost_overview',
+    description: 'Mana cost distribution analysis — cost brackets, average mana by level, zero-mana vs mana-costed, endurance-only abilities, most expensive spells. Optionally filtered by class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name to filter by (optional — omit for all spells)' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_subcategory_overview',
+    description: 'Spell category and subcategory tree — hierarchical breakdown showing spell counts, beneficial/detrimental split per category and subcategory. Optionally filtered by class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name to filter by (optional — omit for all spells)' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_class_unique_spell_analysis',
+    description: 'Analyze spells exclusive to a specific class — exclusive vs shared spell counts, exclusive spells by category, level distribution, and sharing distribution showing how many other classes share each spell.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g., "Wizard", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3890,6 +3926,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       case 'get_spell_cast_time_analysis': {
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : undefined;
         return getSpellCastTimeAnalysis(className || undefined);
+      }
+
+      case 'get_spell_mana_cost_overview': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : undefined;
+        return getSpellManaCostOverview(className || undefined);
+      }
+
+      case 'get_spell_subcategory_overview': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : undefined;
+        return getSpellSubcategoryOverview(className || undefined);
+      }
+
+      case 'get_class_unique_spell_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required';
+        return getClassUniqueSpellAnalysis(className);
       }
 
       case 'search_help_topics': {

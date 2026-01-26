@@ -12567,3 +12567,337 @@ export async function getSpellCastTimeAnalysis(className?: string): Promise<stri
 
   return lines.join('\n');
 }
+
+// ============ TOOL #159: SPELL MANA COST OVERVIEW ============
+
+export async function getSpellManaCostOverview(className?: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  let classFilter: number | undefined;
+  let classLabel = 'All Classes';
+  if (className) {
+    const classId = Object.entries(CLASS_IDS).find(([, name]) =>
+      name.toLowerCase() === className.toLowerCase()
+    )?.[0];
+    if (!classId) {
+      const validClasses = Object.values(CLASS_IDS).join(', ');
+      return `Unknown class "${className}". Valid classes: ${validClasses}`;
+    }
+    classFilter = parseInt(classId);
+    classLabel = CLASS_IDS[classFilter];
+  }
+
+  let totalSpells = 0;
+  let zeroMana = 0;
+  let enduranceOnly = 0;
+  const manaCosts: number[] = [];
+  const manaBuckets: Record<string, number> = {};
+  const manaByLevel: Record<number, number[]> = {}; // level bracket -> mana values
+
+  for (const spell of spells.values()) {
+    if (classFilter) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classFilter - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+    }
+
+    totalSpells++;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+
+    if (mana === 0 && endurance > 0) {
+      enduranceOnly++;
+      continue; // Skip endurance-only abilities for mana analysis
+    }
+    if (mana === 0) {
+      zeroMana++;
+      continue;
+    }
+
+    manaCosts.push(mana);
+
+    // Mana cost buckets
+    let bucket: string;
+    if (mana <= 10) bucket = '1-10';
+    else if (mana <= 50) bucket = '11-50';
+    else if (mana <= 100) bucket = '51-100';
+    else if (mana <= 250) bucket = '101-250';
+    else if (mana <= 500) bucket = '251-500';
+    else if (mana <= 1000) bucket = '501-1000';
+    else if (mana <= 5000) bucket = '1001-5000';
+    else if (mana <= 10000) bucket = '5001-10000';
+    else bucket = '10000+';
+    manaBuckets[bucket] = (manaBuckets[bucket] || 0) + 1;
+
+    // Mana by level bracket
+    if (classFilter) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classFilter - 1]) || 0;
+      const bracket = Math.floor((level - 1) / 10) * 10 + 1;
+      if (!manaByLevel[bracket]) manaByLevel[bracket] = [];
+      manaByLevel[bracket].push(mana);
+    }
+  }
+
+  const lines = [`# Spell Mana Cost Overview: ${classLabel}`, ''];
+  lines.push(`- **Total spells:** ${totalSpells}`);
+  lines.push(`- **Spells with mana cost:** ${manaCosts.length} (${((manaCosts.length / totalSpells) * 100).toFixed(1)}%)`);
+  lines.push(`- **Zero mana (free):** ${zeroMana}`);
+  lines.push(`- **Endurance-only (combat abilities):** ${enduranceOnly}`);
+
+  if (manaCosts.length > 0) {
+    const sorted = [...manaCosts].sort((a, b) => a - b);
+    const sum = sorted.reduce((s, v) => s + v, 0);
+    lines.push(`- **Average mana cost:** ${Math.round(sum / sorted.length)}`);
+    lines.push(`- **Median mana cost:** ${sorted[Math.floor(sorted.length / 2)]}`);
+    lines.push(`- **Range:** ${sorted[0]} to ${sorted[sorted.length - 1]}`);
+
+    // Distribution
+    lines.push('', '## Mana Cost Distribution', '');
+    const bucketOrder = ['1-10', '11-50', '51-100', '101-250', '251-500', '501-1000', '1001-5000', '5001-10000', '10000+'];
+    for (const bucket of bucketOrder) {
+      const count = manaBuckets[bucket] || 0;
+      if (count > 0) {
+        const pct = ((count / manaCosts.length) * 100).toFixed(1);
+        const bar = '#'.repeat(Math.min(Math.round(count / (manaCosts.length / 50)), 50));
+        lines.push(`- **${bucket} mana:** ${count} (${pct}%) ${bar}`);
+      }
+    }
+
+    // Mana by level bracket (class only)
+    if (classFilter && Object.keys(manaByLevel).length > 0) {
+      lines.push('', '## Average Mana Cost by Level', '');
+      lines.push('| Level Range | Spells | Avg Mana | Min | Max |');
+      lines.push('|------------|--------|---------|-----|-----|');
+      for (const bracket of Object.keys(manaByLevel).map(Number).sort((a, b) => a - b)) {
+        const values = manaByLevel[bracket];
+        const avg = Math.round(values.reduce((s, v) => s + v, 0) / values.length);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const end = bracket + 9;
+        lines.push(`| ${bracket}-${end} | ${values.length} | ${avg} | ${min} | ${max} |`);
+      }
+    }
+
+    // Most expensive spells
+    lines.push('', '## Most Mana-Expensive Spells (Top 15)', '');
+    const byMana = [...spells.values()]
+      .filter(s => {
+        if (!classFilter) return true;
+        const level = parseInt(s.fields[SF.CLASS_LEVEL_START + classFilter - 1]) || 255;
+        return level > 0 && level < 255;
+      })
+      .filter(s => (parseInt(s.fields[SF.MANA]) || 0) > 0)
+      .sort((a, b) => (parseInt(b.fields[SF.MANA]) || 0) - (parseInt(a.fields[SF.MANA]) || 0))
+      .slice(0, 15);
+    for (const spell of byMana) {
+      const mana = parseInt(spell.fields[SF.MANA]) || 0;
+      const ben = spell.fields[SF.BENEFICIAL] === '1' ? 'beneficial' : 'detrimental';
+      lines.push(`- **${spell.name}:** ${mana.toLocaleString()} mana (${ben})`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #160: SPELL SUBCATEGORY OVERVIEW ============
+
+export async function getSpellSubcategoryOverview(className?: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  let classFilter: number | undefined;
+  let classLabel = 'All Classes';
+  if (className) {
+    const classId = Object.entries(CLASS_IDS).find(([, name]) =>
+      name.toLowerCase() === className.toLowerCase()
+    )?.[0];
+    if (!classId) {
+      const validClasses = Object.values(CLASS_IDS).join(', ');
+      return `Unknown class "${className}". Valid classes: ${validClasses}`;
+    }
+    classFilter = parseInt(classId);
+    classLabel = CLASS_IDS[classFilter];
+  }
+
+  // Build category -> subcategory -> count tree
+  const tree: Record<string, Record<string, { total: number; beneficial: number; detrimental: number }>> = {};
+  let totalSpells = 0;
+
+  for (const spell of spells.values()) {
+    if (classFilter) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classFilter - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+    }
+
+    totalSpells++;
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const subId = parseInt(spell.fields[SF.SUBCATEGORY]) || 0;
+    const category = (catId > 0 && spellCategories?.get(catId)) || 'Uncategorized';
+    const subcategory = (subId > 0 && spellCategories?.get(subId)) || 'General';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    if (!tree[category]) tree[category] = {};
+    if (!tree[category][subcategory]) tree[category][subcategory] = { total: 0, beneficial: 0, detrimental: 0 };
+    tree[category][subcategory].total++;
+    if (beneficial) tree[category][subcategory].beneficial++;
+    else tree[category][subcategory].detrimental++;
+  }
+
+  const lines = [`# Spell Category & Subcategory Tree: ${classLabel}`, ''];
+  lines.push(`- **Total spells:** ${totalSpells}`);
+  lines.push(`- **Categories:** ${Object.keys(tree).length}`);
+
+  const totalSubcats = Object.values(tree).reduce((s, subs) => s + Object.keys(subs).length, 0);
+  lines.push(`- **Subcategories:** ${totalSubcats}`);
+
+  // Sort categories by total spell count
+  const sortedCats = Object.entries(tree).sort((a, b) => {
+    const totalA = Object.values(a[1]).reduce((s, v) => s + v.total, 0);
+    const totalB = Object.values(b[1]).reduce((s, v) => s + v.total, 0);
+    return totalB - totalA;
+  });
+
+  lines.push('', '## Category Tree', '');
+  for (const [category, subcats] of sortedCats) {
+    const catTotal = Object.values(subcats).reduce((s, v) => s + v.total, 0);
+    const catBen = Object.values(subcats).reduce((s, v) => s + v.beneficial, 0);
+    const catDet = Object.values(subcats).reduce((s, v) => s + v.detrimental, 0);
+    const pct = ((catTotal / totalSpells) * 100).toFixed(1);
+    lines.push(`### ${category} (${catTotal} spells, ${pct}%) — ${catBen} ben / ${catDet} det`);
+
+    const sortedSubs = Object.entries(subcats).sort((a, b) => b[1].total - a[1].total);
+    for (const [subcategory, counts] of sortedSubs) {
+      const subPct = ((counts.total / catTotal) * 100).toFixed(0);
+      lines.push(`  - ${subcategory}: ${counts.total} (${subPct}%) — ${counts.beneficial} ben / ${counts.detrimental} det`);
+    }
+    lines.push('');
+  }
+
+  // Largest subcategories across all categories
+  lines.push('## Largest Subcategories (Top 15)', '');
+  const allSubs: { category: string; subcategory: string; total: number }[] = [];
+  for (const [category, subcats] of Object.entries(tree)) {
+    for (const [subcategory, counts] of Object.entries(subcats)) {
+      allSubs.push({ category, subcategory, total: counts.total });
+    }
+  }
+  allSubs.sort((a, b) => b.total - a.total);
+  for (const { category, subcategory, total } of allSubs.slice(0, 15)) {
+    lines.push(`- **${category} > ${subcategory}:** ${total} spells`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #161: CLASS UNIQUE SPELL ANALYSIS ============
+
+export async function getClassUniqueSpellAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = Object.entries(CLASS_IDS).find(([, name]) =>
+    name.toLowerCase() === className.toLowerCase()
+  )?.[0];
+  if (!classId) {
+    const validClasses = Object.values(CLASS_IDS).join(', ');
+    return `Unknown class "${className}". Valid classes: ${validClasses}`;
+  }
+  const cid = parseInt(classId);
+  const fieldIdx = SF.CLASS_LEVEL_START + cid - 1;
+
+  // Find spells exclusive to this class
+  const exclusiveSpells: { name: string; id: number; level: number; category: string; beneficial: boolean }[] = [];
+  const sharedSpells: { name: string; id: number; level: number; sharedWith: number }[] = [];
+  let totalClassSpells = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[fieldIdx]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalClassSpells++;
+
+    // Check how many other classes can use this spell
+    let otherClassCount = 0;
+    for (let i = 1; i <= 16; i++) {
+      if (i === cid) continue;
+      const otherLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (otherLevel > 0 && otherLevel < 255) otherClassCount++;
+    }
+
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = (catId > 0 && spellCategories?.get(catId)) || 'Uncategorized';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    if (otherClassCount === 0) {
+      exclusiveSpells.push({ name: spell.name, id: spell.id, level, category, beneficial });
+    } else {
+      sharedSpells.push({ name: spell.name, id: spell.id, level, sharedWith: otherClassCount });
+    }
+  }
+
+  const lines = [`# ${CLASS_IDS[cid]} Unique Spell Analysis`, ''];
+  lines.push(`- **Total class spells:** ${totalClassSpells}`);
+  lines.push(`- **Exclusive (only ${CLASS_IDS[cid]}):** ${exclusiveSpells.length} (${((exclusiveSpells.length / totalClassSpells) * 100).toFixed(1)}%)`);
+  lines.push(`- **Shared with others:** ${sharedSpells.length} (${((sharedSpells.length / totalClassSpells) * 100).toFixed(1)}%)`);
+
+  // Exclusive spell categories
+  const excCats: Record<string, number> = {};
+  const excByCat: Record<string, typeof exclusiveSpells> = {};
+  for (const spell of exclusiveSpells) {
+    excCats[spell.category] = (excCats[spell.category] || 0) + 1;
+    if (!excByCat[spell.category]) excByCat[spell.category] = [];
+    excByCat[spell.category].push(spell);
+  }
+
+  lines.push('', '## Exclusive Spells by Category', '');
+  const sortedExcCats = Object.entries(excCats).sort((a, b) => b[1] - a[1]);
+  for (const [cat, count] of sortedExcCats) {
+    lines.push(`### ${cat} (${count} exclusive spells)`);
+    const spellsInCat = excByCat[cat].sort((a, b) => a.level - b.level);
+    for (const spell of spellsInCat.slice(0, 10)) {
+      const type = spell.beneficial ? 'ben' : 'det';
+      lines.push(`  - Lv ${spell.level}: ${spell.name} (${type})`);
+    }
+    if (spellsInCat.length > 10) {
+      lines.push(`  - *(+${spellsInCat.length - 10} more)*`);
+    }
+    lines.push('');
+  }
+
+  // Level distribution of exclusive spells
+  lines.push('## Exclusive Spell Level Distribution', '');
+  const excByLevel: Record<number, number> = {};
+  for (const spell of exclusiveSpells) {
+    const bracket = Math.floor((spell.level - 1) / 10) * 10 + 1;
+    excByLevel[bracket] = (excByLevel[bracket] || 0) + 1;
+  }
+  for (const bracket of Object.keys(excByLevel).map(Number).sort((a, b) => a - b)) {
+    const count = excByLevel[bracket];
+    const bar = '#'.repeat(Math.min(Math.round(count / 2), 50));
+    lines.push(`- **${bracket}-${bracket + 9}:** ${count} exclusive spells ${bar}`);
+  }
+
+  // Sharing distribution
+  lines.push('', '## Shared Spell Distribution', '');
+  const sharingDist: Record<number, number> = {};
+  for (const spell of sharedSpells) {
+    sharingDist[spell.sharedWith] = (sharingDist[spell.sharedWith] || 0) + 1;
+  }
+  for (const [shared, count] of Object.entries(sharingDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    const pct = ((count / sharedSpells.length) * 100).toFixed(1);
+    lines.push(`- **Shared with ${shared} class${parseInt(shared) !== 1 ? 'es' : ''}:** ${count} spells (${pct}%)`);
+  }
+
+  // Most shared spells
+  const mostShared = [...sharedSpells].sort((a, b) => b.sharedWith - a.sharedWith).slice(0, 10);
+  if (mostShared.length > 0) {
+    lines.push('', '## Most Widely Shared Spells', '');
+    for (const spell of mostShared) {
+      lines.push(`- **${spell.name}** (Lv ${spell.level}): shared with ${spell.sharedWith} classes`);
+    }
+  }
+
+  return lines.join('\n');
+}
