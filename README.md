@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 122 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 125 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **122 tools** for querying EverQuest data
+- **125 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -174,6 +174,7 @@ Then restart Claude Desktop.
 | `search_teleport_spells` | Find all spells that teleport to a specific zone |
 | `get_leveling_zones_guide` | Complete leveling guide — all zones grouped by level tier |
 | `get_zone_level_statistics` | Zone count statistics by level band with bar chart and peak level analysis |
+| `get_map_statistics` | Map POI statistics — zones with map data, total POI counts, density distribution |
 
 ### Local Data - Factions & Currencies
 | Tool | Description |
@@ -189,6 +190,7 @@ Then restart Claude Desktop.
 | `get_tribute` | Get tribute item details |
 | `get_faction_overview` | Faction system overview with counts by expansion, value ranges, starting modifier stats |
 | `compare_factions` | Compare two factions side by side (expansion, value ranges, starting values by race) |
+| `get_currency_overview` | Alternate currency overview — total count, description stats, keyword analysis, complete listing |
 
 ### Local Data - Achievements & AA
 | Tool | Description |
@@ -235,6 +237,7 @@ Then restart Claude Desktop.
 |------|-------------|
 | `search_lore` | Search 50+ in-game lore stories |
 | `get_lore` | Read a lore story |
+| `get_lore_overview` | Lore overview — story count, word count stats, longest/shortest stories, complete listing |
 | `search_game_strings` | Search 7000+ game UI strings |
 | `search_game_events` | Search 550+ in-game event announcements |
 | `get_game_event` | Get event announcement details |
@@ -279,7 +282,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (122 tools)
+├── tools.ts          # Tool definitions and handlers (125 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

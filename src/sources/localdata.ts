@@ -9635,3 +9635,174 @@ export async function getGameEventOverview(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ LORE OVERVIEW ============
+
+export async function getLoreOverview(): Promise<string> {
+  await loadLore();
+  if (!loreEntries || loreEntries.length === 0) return 'Lore data not available.';
+
+  const lines = ['# EverQuest In-Game Lore Overview', ''];
+  lines.push(`**${loreEntries.length} lore stories** from game files`, '');
+
+  // Analyze content
+  let totalWords = 0;
+  let totalChars = 0;
+  let shortest = { title: '', words: Infinity };
+  let longest = { title: '', words: 0 };
+
+  const titleList: { title: string; words: number; filename: string }[] = [];
+
+  for (const entry of loreEntries) {
+    const words = entry.content.split(/\s+/).filter(w => w.length > 0).length;
+    totalWords += words;
+    totalChars += entry.content.length;
+
+    if (words < shortest.words) shortest = { title: entry.title || entry.filename, words };
+    if (words > longest.words) longest = { title: entry.title || entry.filename, words };
+
+    titleList.push({ title: entry.title || entry.filename, words, filename: entry.filename });
+  }
+
+  lines.push('## Statistics', '');
+  lines.push(`- **Total words:** ${totalWords.toLocaleString()}`);
+  lines.push(`- **Average story length:** ${Math.round(totalWords / loreEntries.length)} words`);
+  lines.push(`- **Longest story:** ${longest.title} (${longest.words.toLocaleString()} words)`);
+  lines.push(`- **Shortest story:** ${shortest.title} (${shortest.words} words)`);
+
+  // List all stories sorted by title
+  titleList.sort((a, b) => a.title.localeCompare(b.title));
+
+  lines.push('', '## All Lore Stories', '');
+  lines.push('| Title | Words |');
+  lines.push('|-------|-------|');
+  for (const entry of titleList) {
+    lines.push(`| ${entry.title} | ${entry.words.toLocaleString()} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ CURRENCY OVERVIEW ============
+
+export async function getCurrencyOverview(): Promise<string> {
+  await loadAltCurrencies();
+  if (!altCurrencies || altCurrencies.size === 0) return 'Currency data not available.';
+
+  const lines = ['# EverQuest Alternate Currency Overview', ''];
+  lines.push(`**${altCurrencies.size} alternate currencies**`, '');
+
+  // List all currencies
+  const sorted = [...altCurrencies.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+
+  lines.push('| ID | Currency | Description |');
+  lines.push('|----|----------|-------------|');
+
+  for (const [id, currency] of sorted) {
+    const desc = currency.description.length > 80
+      ? currency.description.substring(0, 77) + '...'
+      : currency.description;
+    lines.push(`| ${id} | ${currency.name} | ${desc} |`);
+  }
+
+  // Name analysis
+  const keywords = new Map<string, number>();
+  for (const currency of altCurrencies.values()) {
+    const lower = currency.name.toLowerCase();
+    for (const kw of ['coin', 'token', 'mark', 'medal', 'gem', 'crystal', 'seal', 'badge', 'shard', 'point']) {
+      if (lower.includes(kw)) {
+        keywords.set(kw, (keywords.get(kw) || 0) + 1);
+      }
+    }
+  }
+
+  if (keywords.size > 0) {
+    lines.push('', '## Currency Type Distribution', '');
+    const sortedKw = [...keywords.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [kw, count] of sortedKw) {
+      lines.push(`- **${kw}:** ${count} currencies`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ MAP POI STATISTICS ============
+
+export async function getMapStatistics(): Promise<string> {
+  await loadZones();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  const lines = ['# EverQuest Map POI Statistics', ''];
+
+  // Check map directory
+  const mapDir = gamePath('maps');
+  if (!existsSync(mapDir)) return 'Maps directory not found at ' + mapDir;
+
+  // Count map files and POIs
+  const allFiles = await readdir(mapDir);
+  const files = allFiles.filter((f: string) => f.endsWith('.txt') && !f.endsWith('_1.txt') && !f.endsWith('_2.txt') && !f.endsWith('_3.txt'));
+
+  let totalPOIs = 0;
+  let zonesWithPOIs = 0;
+  let maxPOIs = { zone: '', count: 0 };
+  const poiCounts: number[] = [];
+
+  for (const file of files) {
+    const content = await readFile(join(mapDir, file), 'utf-8');
+    const poiLines = content.split('\n').filter((l: string) => l.startsWith('P '));
+    if (poiLines.length > 0) {
+      zonesWithPOIs++;
+      totalPOIs += poiLines.length;
+      poiCounts.push(poiLines.length);
+      if (poiLines.length > maxPOIs.count) {
+        maxPOIs = { zone: file.replace('.txt', ''), count: poiLines.length };
+      }
+    }
+  }
+
+  lines.push(`**${totalPOIs.toLocaleString()} total POIs** across **${zonesWithPOIs} zone maps** (${files.length} map files total)`, '');
+
+  lines.push('## Summary', '');
+  lines.push(`- **Map files:** ${files.length}`);
+  lines.push(`- **Zones with POIs:** ${zonesWithPOIs}`);
+  lines.push(`- **Total POIs:** ${totalPOIs.toLocaleString()}`);
+  if (poiCounts.length > 0) {
+    const avg = Math.round(totalPOIs / zonesWithPOIs);
+    poiCounts.sort((a, b) => a - b);
+    const median = poiCounts[Math.floor(poiCounts.length / 2)];
+    lines.push(`- **Average POIs per zone:** ${avg}`);
+    lines.push(`- **Median POIs per zone:** ${median}`);
+    lines.push(`- **Most POIs:** ${maxPOIs.zone} (${maxPOIs.count})`);
+  }
+
+  // POI density distribution
+  const buckets = [
+    { label: '1-10', min: 1, max: 10, count: 0 },
+    { label: '11-50', min: 11, max: 50, count: 0 },
+    { label: '51-100', min: 51, max: 100, count: 0 },
+    { label: '101-200', min: 101, max: 200, count: 0 },
+    { label: '201-500', min: 201, max: 500, count: 0 },
+    { label: '501+', min: 501, max: 99999, count: 0 },
+  ];
+
+  for (const count of poiCounts) {
+    for (const bucket of buckets) {
+      if (count >= bucket.min && count <= bucket.max) {
+        bucket.count++;
+        break;
+      }
+    }
+  }
+
+  lines.push('', '## POI Density Distribution', '');
+  lines.push('| POIs per Zone | Zones |');
+  lines.push('|--------------|-------|');
+  for (const bucket of buckets) {
+    if (bucket.count > 0) {
+      lines.push(`| ${bucket.label} | ${bucket.count} |`);
+    }
+  }
+
+  return lines.join('\n');
+}

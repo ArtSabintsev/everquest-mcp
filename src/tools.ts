@@ -130,6 +130,9 @@ import {
   getAAOverview,
   searchOverseerAgentsByTrait,
   getGameEventOverview,
+  getLoreOverview,
+  getCurrencyOverview,
+  getMapStatistics,
 } from './sources/index.js';
 
 export const tools = [
@@ -1898,6 +1901,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_lore_overview',
+    description: 'Overview of EverQuest lore stories from game files — total story count, word count statistics, longest/shortest stories, and complete listing with word counts.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_currency_overview',
+    description: 'Overview of all EverQuest alternate currencies — total count, currencies with/without descriptions, keyword frequency analysis, and complete listing.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_map_statistics',
+    description: 'Statistics on EverQuest zone maps and points of interest (POIs) — zones with map data, total POI counts, density distribution, and top zones by POI count.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3295,6 +3325,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_game_event_overview': {
         return getGameEventOverview();
+      }
+
+      case 'get_lore_overview': {
+        return getLoreOverview();
+      }
+
+      case 'get_currency_overview': {
+        return getCurrencyOverview();
+      }
+
+      case 'get_map_statistics': {
+        return getMapStatistics();
       }
 
       case 'search_help_topics': {
