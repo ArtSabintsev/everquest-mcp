@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 206 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 209 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **206 tools** for querying EverQuest data
+- **209 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -211,6 +211,7 @@ Then restart Claude Desktop.
 | `get_class_comparison_radar` | Class comparison radar — all 16 classes scored 0-100 across 8 dimensions (Heal, Tank, Nuke, CC, Utility, Buff, Pets, Mobility) |
 | `get_group_composition_advisor` | Group composition advisor — optimal 6-person group compositions (Classic Trinity, Max DPS, Survival, Balanced) with class role scores and synergy notes |
 | `get_class_endgame_profile` | Class endgame profile at level 125 — base stats, AC mitigation, skill caps, spell book summary, role assessment, and resource profile |
+| `get_class_group_buff_contribution` | Class group buff contribution — what unique group/raid buffs each class brings, exclusive buff categories, and synergy value |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -287,7 +288,7 @@ Then restart Claude Desktop.
 ### Local Data - Mercenaries
 | Tool | Description |
 |------|-------------|
-| `search_mercenaries` | Search 4206+ mercenary templates |
+| `search_mercenaries` | Search 4209+ mercenary templates |
 | `get_mercenary` | Get mercenary details with abilities |
 | `get_mercenary_stances` | List mercenary stances and descriptions |
 | `get_mercenary_overview` | Mercenary system overview with types, tiers, races, and stances |
@@ -319,6 +320,7 @@ Then restart Claude Desktop.
 | `list_expansions` | List all 33 EverQuest expansions |
 | `compare_expansions` | Compare two expansions side by side (factions, achievements, faction lists) |
 | `get_game_event_overview` | Game event overview with category breakdown (seasonal, expansion, double XP, etc.) |
+| `get_game_event_calendar_analysis` | Game event calendar analysis — classify 573 events by type (Server, Double XP, Expansion, Seasonal, etc.) with scheduling patterns |
 | `get_expansion_timeline` | Timeline of all 33 expansions with faction and achievement counts per expansion |
 | `get_expansion_content_density` | Cross-system content density — factions by expansion, achievements by category, zones by level range, content ratios |
 | `get_expansion_impact_score` | Expansion impact score — each of 33 expansions scored by content volume (factions, achievements, achievement points, event mentions) |
@@ -329,6 +331,7 @@ Then restart Claude Desktop.
 | `get_local_data_status` | Show which local data files are loaded |
 | `get_level_content_guide` | Content guide for a specific level — matching zones, new spells per class, nearby spell activity |
 | `get_game_data_summary_dashboard` | One-stop summary dashboard of ALL loaded EQ data — entry counts for all 19 data systems with key metrics |
+| `search_all_local_data` | Unified search across ALL local data systems (spells, zones, factions, achievements, AAs, tributes, creatures, overseer, events, lore, item effects) |
 | `get_db_string_type_overview` | Meta overview of all 68 string data types in dbstr_us.txt with entry counts, names, and samples |
 
 ## Example Queries
@@ -363,7 +366,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (206 tools)
+├── tools.ts          # Tool definitions and handlers (209 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

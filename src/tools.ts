@@ -214,6 +214,9 @@ import {
   getAARoleThemeAnalysis,
   getAchievementCategoryDepthAnalysis,
   getMapPOIFunctionalClassification,
+  searchAllLocalData,
+  getGameEventCalendarAnalysis,
+  getClassGroupBuffContribution,
 } from './sources/index.js';
 
 export const tools = [
@@ -2839,6 +2842,38 @@ export const tools = [
     }
   },
   {
+    name: 'search_all_local_data',
+    description: 'Unified search across ALL local EQ data systems at once — spells, zones, factions, achievements, AAs, combat abilities, tributes, creature types, overseer agents/quests, game events, lore, item effects. Returns matches from every system.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search term (e.g., "fire", "cleric", "velious", "dragon")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_game_event_calendar_analysis',
+    description: 'Game event calendar analysis — classify 573 events by type (Double XP, Expansion Launch, Seasonal, Content Update, Marketplace, etc.) with expansion mentions and word frequency.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_group_buff_contribution',
+    description: 'Class group buff contribution — what unique group/raid buffs each class brings, exclusive buff categories, rare and universal group buffs.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4620,6 +4655,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_map_poi_functional_classification': {
         return getMapPOIFunctionalClassification();
+      }
+
+      case 'search_all_local_data': {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query) return 'Error: "query" parameter is required.';
+        return searchAllLocalData(query);
+      }
+
+      case 'get_game_event_calendar_analysis': {
+        return getGameEventCalendarAnalysis();
+      }
+
+      case 'get_class_group_buff_contribution': {
+        return getClassGroupBuffContribution();
       }
 
       case 'search_help_topics': {

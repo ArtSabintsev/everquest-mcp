@@ -18416,3 +18416,479 @@ export async function getMapPOIFunctionalClassification(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: UNIFIED LOCAL DATA SEARCH ============
+
+export async function searchAllLocalData(query: string): Promise<string> {
+  // Load all searchable data systems in parallel
+  await Promise.all([
+    loadSpells(), loadZones(), loadFactions(), loadAchievements(),
+    loadAAAbilities(), loadTributes(), loadCreatureTypes(), loadCombatAbilities(),
+    loadItemEffects(), loadOverseerMinions(), loadOverseerQuests(),
+    loadGameEvents(), loadExpansions(), loadLore(),
+  ]);
+
+  const lower = query.toLowerCase();
+  const lines = [`# Unified Search: "${query}"`, ''];
+  let totalMatches = 0;
+
+  // Search spells
+  if (spells && spells.size > 0) {
+    const matches: { id: number; name: string }[] = [];
+    for (const spell of spells.values()) {
+      if (spell.name.toLowerCase().includes(lower) && spell.name !== 'UNKNOWN DB STR' && !spell.name.startsWith('*')) {
+        matches.push({ id: spell.id, name: spell.name });
+        if (matches.length >= 15) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Spells (${matches.length}${matches.length >= 15 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search zones
+  if (zones && zones.size > 0) {
+    const matches: { id: number; name: string; level: string }[] = [];
+    for (const z of zones.values()) {
+      if (z.name.toLowerCase().includes(lower)) {
+        matches.push({ id: z.id, name: z.name, level: z.levelMin > 0 ? `${z.levelMin}-${z.levelMax}` : '' });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Zones (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name}${m.level ? ` (${m.level})` : ''}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search factions
+  if (factions && factions.size > 0) {
+    const matches: { id: number; name: string; category: string }[] = [];
+    for (const f of factions.values()) {
+      if (f.name.toLowerCase().includes(lower)) {
+        matches.push({ id: f.id, name: f.name, category: f.category || '' });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Factions (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name}${m.category ? ` (${m.category})` : ''}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search achievements
+  if (achievements && achievements.size > 0) {
+    const matches: { id: number; name: string; points: number }[] = [];
+    for (const a of achievements.values()) {
+      if (a.name.toLowerCase().includes(lower)) {
+        matches.push({ id: a.id, name: a.name, points: a.points });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Achievements (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name} (${m.points} pts)`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search AA abilities
+  if (aaAbilities && aaAbilities.size > 0) {
+    const matches: { id: number; name: string }[] = [];
+    for (const aa of aaAbilities.values()) {
+      if (aa.name.toLowerCase().includes(lower)) {
+        matches.push({ id: aa.id, name: aa.name });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## AA Abilities (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search combat abilities
+  if (combatAbilities && combatAbilities.size > 0) {
+    const matches: { id: number; name: string }[] = [];
+    for (const [id, name] of combatAbilities) {
+      if (name.toLowerCase().includes(lower)) {
+        matches.push({ id, name });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Combat Abilities (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search tributes
+  if (tributes && tributes.size > 0) {
+    const matches: { id: number; name: string }[] = [];
+    for (const t of tributes.values()) {
+      if (t.name.toLowerCase().includes(lower)) {
+        matches.push({ id: t.id, name: t.name });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Tributes (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search creature types
+  if (creatureTypes && creatureTypes.size > 0) {
+    const matches: { id: number; name: string }[] = [];
+    for (const [id, name] of creatureTypes) {
+      if (name.toLowerCase().includes(lower)) {
+        matches.push({ id, name });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Creature Types (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search overseer agents
+  if (overseerMinions && overseerMinions.size > 0) {
+    const matches: { id: number; name: string }[] = [];
+    for (const m of overseerMinions.values()) {
+      if (m.fullName.toLowerCase().includes(lower) || m.shortName.toLowerCase().includes(lower)) {
+        matches.push({ id: m.id, name: m.fullName });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Overseer Agents (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search overseer quests
+  if (overseerQuests && overseerQuests.size > 0) {
+    const matches: { id: number; name: string }[] = [];
+    for (const q of overseerQuests.values()) {
+      if (q.name.toLowerCase().includes(lower)) {
+        matches.push({ id: q.id, name: q.name });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Overseer Quests (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.name}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search game events
+  if (gameEvents && gameEvents.size > 0) {
+    const matches: { id: number; banner: string }[] = [];
+    for (const [id, evt] of gameEvents) {
+      if (evt.banner.toLowerCase().includes(lower) || evt.description.toLowerCase().includes(lower)) {
+        matches.push({ id, banner: evt.banner });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Game Events (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.banner}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search lore
+  if (loreEntries && loreEntries.length > 0) {
+    const matches: { title: string }[] = [];
+    for (const l of loreEntries) {
+      if (l.title.toLowerCase().includes(lower) || l.content.toLowerCase().includes(lower)) {
+        matches.push({ title: l.title });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Lore Entries (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- ${m.title}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  // Search item effects
+  if (itemEffectDescs && itemEffectDescs.size > 0) {
+    const matches: { id: number; desc: string }[] = [];
+    for (const [id, desc] of itemEffectDescs) {
+      if (desc.toLowerCase().includes(lower)) {
+        matches.push({ id, desc: desc.slice(0, 80) });
+        if (matches.length >= 10) break;
+      }
+    }
+    if (matches.length > 0) {
+      lines.push(`## Item Effects (${matches.length}${matches.length >= 10 ? '+' : ''})`, '');
+      for (const m of matches) lines.push(`- [${m.id}] ${m.desc}${m.desc.length >= 80 ? '...' : ''}`);
+      lines.push('');
+      totalMatches += matches.length;
+    }
+  }
+
+  if (totalMatches === 0) {
+    lines.push(`No results found for "${query}" across any local data system.`);
+  } else {
+    lines.push(`---`, `**Total matches:** ${totalMatches} across local data systems`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: GAME EVENT CALENDAR ANALYSIS ============
+
+export async function getGameEventCalendarAnalysis(): Promise<string> {
+  await loadGameEvents();
+  await loadExpansions();
+  if (!gameEvents || gameEvents.size === 0) return 'Game event data not available.';
+
+  const lines = ['# Game Event Calendar Analysis', ''];
+  lines.push('*573 game events classified by type and content.*', '');
+
+  // Classify events by keywords
+  const categories: Record<string, string[]> = {
+    'Double/Bonus XP': ['double', 'bonus', 'experience', 'rare spawn', 'rare loot'],
+    'Expansion Launch': ['expansion', 'launch', 'available now', 'now available', 'new expansion'],
+    'Seasonal/Holiday': ['frostfell', 'halloween', 'erollisi', 'bristlebane', 'anniversary', 'birthday', 'new year', 'valentine', 'feast'],
+    'Content Update': ['update', 'patch', 'new content', 'added', 'revamp', 'tuning'],
+    'Marketplace/Store': ['marketplace', 'store', 'sale', 'discount', 'free', 'claim', 'bundle'],
+    'Server/Maintenance': ['server', 'maintenance', 'downtime', 'merge', 'transfer'],
+    'Competition/Contest': ['contest', 'competition', 'challenge', 'race', 'tournament'],
+    'Community': ['community', 'player', 'guild', 'fanfaire', 'fan faire', 'event'],
+  };
+
+  const catCounts: Record<string, number> = {};
+  const catSamples: Record<string, string[]> = {};
+  let classified = 0;
+
+  for (const [, evt] of gameEvents) {
+    const text = (evt.banner + ' ' + evt.description).toLowerCase();
+    let found = false;
+
+    for (const [cat, keywords] of Object.entries(categories)) {
+      for (const kw of keywords) {
+        if (text.includes(kw)) {
+          catCounts[cat] = (catCounts[cat] || 0) + 1;
+          if (!catSamples[cat]) catSamples[cat] = [];
+          if (catSamples[cat].length < 3) catSamples[cat].push(evt.banner || evt.description.slice(0, 50));
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+
+    if (found) classified++;
+  }
+
+  // Category summary
+  const unclassified = gameEvents.size - classified;
+
+  lines.push('## Event Type Distribution', '');
+  lines.push('| Type | Count | % |');
+  lines.push('|------|------:|---:|');
+  const sortedCats = Object.entries(catCounts).sort((a, b) => b[1] - a[1]);
+  for (const [cat, count] of sortedCats) {
+    const pct = Math.round(count / gameEvents.size * 100);
+    lines.push(`| ${cat} | ${count} | ${pct}% |`);
+  }
+  lines.push(`| *Unclassified* | *${unclassified}* | *${Math.round(unclassified / gameEvents.size * 100)}%* |`);
+
+  // Visual distribution
+  lines.push('', '## Visual Distribution', '');
+  for (const [cat, count] of sortedCats) {
+    const pct = Math.round(count / gameEvents.size * 100);
+    const bar = '█'.repeat(Math.min(pct * 2, 40));
+    lines.push(`- **${cat}:** ${bar} ${pct}% (${count})`);
+  }
+
+  // Samples per category
+  lines.push('', '## Sample Events', '');
+  for (const [cat] of sortedCats) {
+    const samples = catSamples[cat] || [];
+    lines.push(`- **${cat}:** ${samples.join(' | ')}`);
+  }
+
+  // Expansion mentions in events
+  if (expansionNames && expansionNames.size > 0) {
+    lines.push('', '## Expansion Mentions in Events', '');
+    const expMentions: { name: string; count: number }[] = [];
+    for (const [, expName] of expansionNames) {
+      let count = 0;
+      const expLower = expName.toLowerCase();
+      for (const [, evt] of gameEvents) {
+        if ((evt.banner + ' ' + evt.description).toLowerCase().includes(expLower)) count++;
+      }
+      if (count > 0) expMentions.push({ name: expName, count });
+    }
+    expMentions.sort((a, b) => b.count - a.count);
+    for (const m of expMentions.slice(0, 15)) {
+      const bar = '#'.repeat(Math.min(m.count, 30));
+      lines.push(`- **${m.name}:** ${m.count} ${bar}`);
+    }
+  }
+
+  // Word frequency in event banners
+  lines.push('', '## Common Event Banner Words', '');
+  const wordFreq = new Map<string, number>();
+  const stopWords = new Set(['the', 'and', 'for', 'are', 'you', 'all', 'your', 'has', 'been', 'will', 'now', 'with', 'new', 'this', 'from', 'that', 'have', 'our']);
+  for (const [, evt] of gameEvents) {
+    const words = evt.banner.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+    for (const w of words) wordFreq.set(w, (wordFreq.get(w) || 0) + 1);
+  }
+  const topWords = [...wordFreq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+  lines.push(topWords.map(([w, c]) => `${w} (${c})`).join(', '));
+
+  lines.push('', `*${gameEvents.size} total events analyzed, ${classified} classified (${Math.round(classified / gameEvents.size * 100)}%).*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CLASS GROUP BUFF CONTRIBUTION ============
+
+export async function getClassGroupBuffContribution(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Class Group Buff Contribution', ''];
+  lines.push('*What unique group/raid buffs each class brings — the reason to invite them.*', '');
+
+  // Find group-target beneficial spells per class
+  // Target types: 3=Group, 41=Group v2, 6=Self, 14=Pet, etc.
+  const GROUP_TARGETS = new Set(['3', '41', '40']); // Group, Group v2, AE PC
+
+  interface BuffInfo {
+    name: string;
+    category: string;
+    level: number;
+    targetType: string;
+  }
+
+  const classBufs: Map<number, BuffInfo[]> = new Map();
+
+  for (let cid = 1; cid <= 16; cid++) {
+    classBufs.set(cid, []);
+  }
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue;
+
+    const targetType = spell.fields[SF.TARGET_TYPE] || '';
+    if (!GROUP_TARGETS.has(targetType)) continue;
+
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Category ${catId}`);
+
+    for (let cid = 1; cid <= 16; cid++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+      classBufs.get(cid)!.push({ name: spell.name, category: catName, level, targetType });
+    }
+  }
+
+  // Summary table
+  lines.push('## Group Buff Counts by Class', '');
+  lines.push('| Class | Group Buffs | Top Categories |');
+  lines.push('|-------|----------:|----------------|');
+
+  for (let cid = 1; cid <= 16; cid++) {
+    const bufs = classBufs.get(cid)!;
+    // Count by category
+    const catCounts = new Map<string, number>();
+    for (const b of bufs) {
+      catCounts.set(b.category, (catCounts.get(b.category) || 0) + 1);
+    }
+    const topCats = [...catCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const catStr = topCats.map(([c, n]) => `${c} (${n})`).join(', ');
+    lines.push(`| ${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}) | ${bufs.length} | ${catStr} |`);
+  }
+
+  // Find class-exclusive group buffs
+  lines.push('', '## Class-Exclusive Group Buffs', '');
+  lines.push('*Group buff categories that only one class provides.*', '');
+
+  // Map category to which classes provide it as a group buff
+  const categoryClasses = new Map<string, Set<number>>();
+  for (let cid = 1; cid <= 16; cid++) {
+    for (const b of classBufs.get(cid)!) {
+      if (!categoryClasses.has(b.category)) categoryClasses.set(b.category, new Set());
+      categoryClasses.get(b.category)!.add(cid);
+    }
+  }
+
+  // Exclusive categories
+  const exclusiveCats: { category: string; classId: number; count: number }[] = [];
+  for (const [cat, classes] of categoryClasses) {
+    if (classes.size === 1) {
+      const cid = [...classes][0];
+      const count = classBufs.get(cid)!.filter(b => b.category === cat).length;
+      exclusiveCats.push({ category: cat, classId: cid, count });
+    }
+  }
+  exclusiveCats.sort((a, b) => b.count - a.count);
+
+  if (exclusiveCats.length > 0) {
+    lines.push('| Category | Exclusive To | Group Buffs |');
+    lines.push('|----------|-------------|----------:|');
+    for (const e of exclusiveCats.slice(0, 20)) {
+      lines.push(`| ${e.category} | ${CLASS_IDS[e.classId]} (${CLASS_SHORT[e.classId]}) | ${e.count} |`);
+    }
+  }
+
+  // Rare group buff categories (2-3 classes)
+  const rareCats = [...categoryClasses.entries()]
+    .filter(([, c]) => c.size >= 2 && c.size <= 3)
+    .map(([cat, classes]) => ({
+      category: cat,
+      classes: [...classes].map(c => CLASS_SHORT[c]),
+      total: [...classes].reduce((s, c) => s + classBufs.get(c)!.filter(b => b.category === cat).length, 0)
+    }))
+    .sort((a, b) => a.classes.length - b.classes.length || b.total - a.total);
+
+  if (rareCats.length > 0) {
+    lines.push('', '## Rare Group Buff Categories (2-3 Classes)', '');
+    lines.push('| Category | Classes | Total Buffs |');
+    lines.push('|----------|---------|----------:|');
+    for (const r of rareCats.slice(0, 15)) {
+      lines.push(`| ${r.category} | ${r.classes.join(', ')} | ${r.total} |`);
+    }
+  }
+
+  // Universal categories (all 16 classes)
+  const universalCats = [...categoryClasses.entries()].filter(([, c]) => c.size === 16);
+  if (universalCats.length > 0) {
+    lines.push('', `## Universal Group Buff Categories (All 16 Classes): ${universalCats.length}`, '');
+    lines.push(universalCats.map(([c]) => c).join(', '));
+  }
+
+  return lines.join('\n');
+}
