@@ -76,6 +76,7 @@ import {
   searchZonesByName,
   searchLocalZonesByLevel,
   searchTeleportSpells,
+  searchSpellsByName,
 } from './sources/index.js';
 
 export const tools = [
@@ -406,6 +407,20 @@ export const tools = [
         }
       },
       required: ['class']
+    }
+  },
+  {
+    name: 'search_spells_by_name',
+    description: 'Search EverQuest spells by name from local game data. Returns multiple matches with class/level info. Useful for finding all ranks or versions of a spell line.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Spell name to search for (e.g., "Complete Heal", "Defensive Discipline", "Tash")'
+        }
+      },
+      required: ['query']
     }
   },
   {
@@ -1740,6 +1755,12 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
           return `Spell not found${id ? ` (ID: ${id})` : ''}${name ? ` (name: "${name}")` : ''}. Make sure local game data is available.`;
         }
         return formatSpell(spell);
+      }
+
+      case 'search_spells_by_name': {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query) return 'Error: "query" parameter is required';
+        return searchSpellsByName(query);
       }
 
       case 'get_spells_by_class': {

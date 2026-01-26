@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 68 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 69 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **68 tools** for querying EverQuest data
+- **69 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect-type search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -118,6 +118,7 @@ Then restart Claude Desktop.
 | `search_spells_by_effect` | Search spells by effect type (Stun, Haste, Charm, Root, etc.) |
 | `get_spell_stacking` | Check spell stacking conflicts and overwrite rules |
 | `list_spell_categories` | List all 176 spell categories for filtering |
+| `search_spells_by_name` | Search spells by name, find all ranks/versions of a spell line |
 | `search_combat_abilities` | Search combat abilities (disciplines) by name |
 
 ### Local Data - Character
@@ -225,7 +226,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (68 tools)
+├── tools.ts          # Tool definitions and handlers (69 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

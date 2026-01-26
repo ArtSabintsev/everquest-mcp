@@ -2854,6 +2854,69 @@ export async function searchLocalSpells(query: string): Promise<SearchResult[]> 
   return results;
 }
 
+export async function searchSpellsByName(query: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const normalized = query.toLowerCase();
+  const matches: { id: number; name: string; level: number; classes: string[] }[] = [];
+
+  // Search by name
+  for (const [id, spell] of spells) {
+    const f = spell.fields;
+    const spellName = spell.name;
+    const lowerName = spellName.toLowerCase();
+
+    let match = false;
+    if (lowerName === normalized) match = true;
+    else if (lowerName.startsWith(normalized)) match = true;
+    else if (lowerName.includes(normalized)) match = true;
+
+    if (match) {
+      // Get class info
+      const classes: string[] = [];
+      let minLevel = 255;
+      const CLASS_NAMES_SHORT = ['WAR','CLR','PAL','RNG','SHD','DRU','MNK','BRD','ROG','SHM','NEC','WIZ','MAG','ENC','BST','BER'];
+      for (let c = 0; c < 16; c++) {
+        const lvl = parseInt(f[SF.CLASS_LEVEL_START + c]);
+        if (!isNaN(lvl) && lvl > 0 && lvl < 255) {
+          classes.push(`${CLASS_NAMES_SHORT[c]}(${lvl})`);
+          if (lvl < minLevel) minLevel = lvl;
+        }
+      }
+      matches.push({ id, name: spellName, level: minLevel < 255 ? minLevel : 0, classes });
+    }
+
+    if (matches.length >= 50) break;
+  }
+
+  if (matches.length === 0) {
+    return `No spells found matching "${query}".`;
+  }
+
+  // Sort: exact match first, then by name, then by ID
+  matches.sort((a, b) => {
+    const aExact = a.name.toLowerCase() === normalized ? 0 : 1;
+    const bExact = b.name.toLowerCase() === normalized ? 0 : 1;
+    if (aExact !== bExact) return aExact - bExact;
+    return a.name.localeCompare(b.name) || a.id - b.id;
+  });
+
+  const lines = [`## Spells matching "${query}"`, '', `**Found:** ${matches.length} spell${matches.length !== 1 ? 's' : ''}`, ''];
+
+  for (const m of matches) {
+    const classStr = m.classes.length > 0 ? m.classes.join(', ') : 'No class';
+    lines.push(`- **${m.name}** [ID: ${m.id}] - ${classStr}`);
+  }
+
+  if (matches.length >= 50) {
+    lines.push('', '*Results limited to 50. Use a more specific search term.*');
+  }
+
+  return lines.join('\n');
+}
+
 export async function getLocalSpell(id: string): Promise<SpellData | null> {
   await loadSpells();
   await loadSpellStrings();
