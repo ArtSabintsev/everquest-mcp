@@ -91,6 +91,9 @@ export interface SpellData {
   expansion?: string;
   category?: string;
   subcategory?: string;
+  recourseId?: number;      // Recourse spell ID (cast on caster when landing)
+  recourseName?: string;    // Recourse spell name
+  teleportZone?: string;    // Teleport destination zone short name
   raw?: string;
 }
 

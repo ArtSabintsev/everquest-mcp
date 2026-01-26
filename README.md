@@ -7,7 +7,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that pr
 - **65 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
-- **Spell analysis** - Effects, categories, stacking groups, class lists, and effect-type search
+- **Spell analysis** - Effects, categories, stacking groups, class lists, effect-type search, recourse links, teleport zones, cast messages, and resolved descriptions
 - **Character data** - Race/class info with starting city lore and Drakkin heritages, skill caps, base stats, AC mitigation, deities
 - **Creature encyclopedia** - 980+ NPC/monster race types searchable by name
 - **Overseer system** - Agents with archetypes/traits/jobs, quests with slot details and success/failure outcomes
@@ -113,7 +113,7 @@ Then restart Claude Desktop.
 ### Local Data - Spells
 | Tool | Description |
 |------|-------------|
-| `get_spell_data` | Get complete spell data from game files (effects, classes, duration, resist) |
+| `get_spell_data` | Get complete spell data from game files (effects, classes, duration, resist, recourse links, teleport zone, cast messages) |
 | `get_spells_by_class` | List spells by class, optionally filtered by level and/or category |
 | `search_spells_by_effect` | Search spells by effect type (Stun, Haste, Charm, Root, etc.) |
 | `get_spell_stacking` | Check spell stacking conflicts and overwrite rules |

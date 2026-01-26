@@ -1067,6 +1067,10 @@ function formatSpell(spell: SpellData): string {
   if (spell.skill) lines.push(`**Skill:** ${spell.skill}`);
   if (spell.pushBack) lines.push(`**Push Back:** ${spell.pushBack}`);
   if (spell.pushUp) lines.push(`**Push Up:** ${spell.pushUp}`);
+  if (spell.teleportZone) lines.push(`**Teleport Zone:** ${spell.teleportZone}`);
+  if (spell.recourseName) {
+    lines.push(`**Recourse:** ${spell.recourseName} (ID: ${spell.recourseId})`);
+  }
 
   // Classes with levels
   if (spell.classes && typeof spell.classes === 'object') {
@@ -1074,6 +1078,14 @@ function formatSpell(spell: SpellData): string {
       .map(([cls, level]) => `${cls}(${level})`)
       .join(' ');
     lines.push(`**Classes:** ${classEntries}`);
+  }
+
+  // Cast messages
+  if (spell.raw) {
+    lines.push('', '## Cast Messages');
+    for (const msg of spell.raw.split('\n')) {
+      if (msg.trim()) lines.push(`- ${msg}`);
+    }
   }
 
   return lines.join('\n');

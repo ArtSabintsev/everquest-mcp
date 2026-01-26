@@ -170,6 +170,7 @@ const SF = {
   // Class order: WAR(36), CLR(37), PAL(38), RNG(39), SHD(40), DRU(41),
   //              MNK(42), BRD(43), ROG(44), SHM(45), NEC(46), WIZ(47),
   //              MAG(48), ENC(49), BST(50), BER(51)
+  RECOURSE: 81,     // Recourse spell ID (spell cast on caster when landing on target)
   CATEGORY: 87,     // Spell category ID (maps to dbstr type 5)
   SUBCATEGORY: 88,  // Spell subcategory ID (maps to dbstr type 5)
 };
@@ -710,6 +711,9 @@ let startingCityLore: Map<number, string> | null = null;
 // Overseer job class descriptions
 let overseerJobClassDescs: Map<number, string> | null = null;
 
+// Overseer incapacitation durations: entry ID -> { jobType, duration in seconds }
+let overseerIncapDurations: Map<number, { jobType: number; duration: number }> | null = null;
+
 // Drakkin heritage data
 interface DrakkinHeritage {
   id: number;
@@ -823,6 +827,41 @@ function formatEffectValue(base1: number, suffix: string = ''): string {
   return ` ${base1}${suffix}`;
 }
 
+function resolveSpellDescription(desc: string, fields: string[], duration?: string): string {
+  let resolved = desc;
+
+  // Replace %z with duration
+  if (duration) {
+    resolved = resolved.replace(/%z/g, duration);
+  }
+
+  // Replace #N (base value of slot N) and @N (max value of slot N)
+  // Effect data is in the last pipe-delimited field
+  for (let i = fields.length - 1; i >= 0; i--) {
+    if (fields[i].includes('|')) {
+      const slots = fields[i].split('$');
+      for (const slot of slots) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const slotNum = parseInt(parts[0]);
+          const base1 = parseInt(parts[2]);
+          const max = parts.length > 4 ? parseInt(parts[4]) : 0;
+          if (!isNaN(slotNum) && !isNaN(base1)) {
+            const absBase = Math.abs(base1);
+            resolved = resolved.replace(new RegExp(`#${slotNum}`, 'g'), absBase.toString());
+            if (!isNaN(max) && max !== 0) {
+              resolved = resolved.replace(new RegExp(`@${slotNum}`, 'g'), Math.abs(max).toString());
+            }
+          }
+        }
+      }
+      break;
+    }
+  }
+
+  return resolved;
+}
+
 function parseSpellEffects(fields: string[]): string[] {
   const effects: string[] = [];
 
@@ -901,12 +940,14 @@ function parseSpellEffects(fields: string[]): string[] {
           // Spell trigger/proc
           else if (spa === 85 || spa === 289 || spa === 339 || spa === 340 ||
                    spa === 350 || spa === 419 || spa === 420) {
-            desc += ` (spell ID: ${base1})`;
+            const refSpell = spells?.get(base1);
+            desc += refSpell ? ` → ${refSpell.name} [${base1}]` : ` (spell ID: ${base1})`;
             if (base2 > 0) desc += ` (${base2}% chance)`;
           }
           // Melee/range procs
           else if (spa === 119 || spa === 120) {
-            desc += ` (spell ID: ${base1})`;
+            const refSpell = spells?.get(base1);
+            desc += refSpell ? ` → ${refSpell.name} [${base1}]` : ` (spell ID: ${base1})`;
             if (base2 > 0) desc += ` +${base2} rate mod`;
           }
           // Damage mitigation
@@ -1082,6 +1123,22 @@ function buildLocalSpellData(spell: LocalSpell): SpellData {
   }
   if (!isNaN(subCatId) && subCatId > 0 && subCatId !== catId && spellCategories) {
     spellData.subcategory = spellCategories.get(subCatId) || undefined;
+  }
+
+  // Recourse spell (cast on caster when spell lands on target)
+  const recourseId = parseInt(f[SF.RECOURSE]);
+  if (!isNaN(recourseId) && recourseId > 0 && recourseId !== parseInt(f[SF.ID])) {
+    spellData.recourseId = recourseId;
+    const recourseSpell = spells?.get(recourseId);
+    if (recourseSpell) {
+      spellData.recourseName = recourseSpell.name;
+    }
+  }
+
+  // Teleport zone (for teleport/translocate spells; filter out pet model names)
+  const teleportZone = f[SF.TELEPORT_ZONE]?.trim();
+  if (teleportZone && /^[a-z_]+[a-z0-9_]*$/.test(teleportZone)) {
+    spellData.teleportZone = teleportZone;
   }
 
   return spellData;
@@ -2515,6 +2572,26 @@ async function loadOverseerEnhancements(): Promise<void> {
   for (const [id, name] of archNs) overseerArchetypeNames.set(id, name);
   for (const [id, desc] of jobCDs) overseerJobClassDescs.set(id, desc);
 
+  // Load incapacitation durations from OvrQstIncapClient.txt
+  overseerIncapDurations = new Map();
+  try {
+    const incapPath = join(EQ_GAME_PATH, 'Resources', 'OvrQstIncapClient.txt');
+    const incapData = await readFile(incapPath, 'latin1');
+    for (const line of incapData.split('\n')) {
+      const parts = line.trim().split('^');
+      if (parts.length >= 3) {
+        const entryId = parseInt(parts[0]);
+        const jobType = parseInt(parts[1]);
+        const duration = parseInt(parts[2]);
+        if (!isNaN(entryId) && !isNaN(jobType) && !isNaN(duration)) {
+          overseerIncapDurations.set(entryId, { jobType, duration });
+        }
+      }
+    }
+  } catch {
+    // File may not exist
+  }
+
   console.error(`[LocalData] Loaded ${overseerCategories.size} categories, ${overseerDifficulties.size} difficulties, ${overseerIncapNames.size} incapacitations, ${overseerJobNames.size} job types, ${overseerArchetypeNames.size} archetypes`);
 }
 
@@ -2780,10 +2857,10 @@ export async function getLocalSpell(id: string): Promise<SpellData | null> {
 
   const data = buildLocalSpellData(spell);
 
-  // Add spell description from dbstr_us.txt
+  // Add spell description from dbstr_us.txt with placeholder resolution
   const desc = spellDescriptions?.get(spellId);
   if (desc) {
-    data.description = desc;
+    data.description = resolveSpellDescription(desc, spell.fields, data.duration);
   }
 
   // Add spell strings if available
@@ -3920,15 +3997,60 @@ export async function getOverseerIncapacitations(): Promise<string> {
   await loadOverseerEnhancements();
   if (!overseerIncapNames || overseerIncapNames.size === 0) return 'Overseer incapacitation data not available.';
 
-  const lines = ['## Overseer Incapacitation Types', ''];
-  const seen = new Set<string>();
+  const JOB_TYPE_NAMES: Record<number, string> = {
+    1: 'Marauder (Plunder)', 2: 'Spy (Stealth)', 3: 'Soldier (Military)',
+    4: 'Artisan (Crafting)', 5: 'Harvester (Harvesting)', 6: 'Scholar (Research)',
+    7: 'Diplomat (Diplomacy)', 8: 'Merchant (Merchant)', 9: 'Explorer (Exploration)',
+  };
 
-  for (const [id, name] of overseerIncapNames) {
-    if (seen.has(name)) continue;
-    seen.add(name);
-    const desc = overseerIncapDescs?.get(id) || '';
+  const lines = ['## Overseer Incapacitation Types', ''];
+
+  // Group incapacitations by job type (1-9), showing unique types with durations
+  const seen = new Set<number>();
+  for (let jobType = 1; jobType <= 9; jobType++) {
+    if (seen.has(jobType)) continue;
+    seen.add(jobType);
+
+    // Find the first entry with this job type
+    const firstId = jobType; // IDs 1-9 are the first tier
+    const name = overseerIncapNames.get(firstId);
+    if (!name) continue;
+
+    const desc = overseerIncapDescs?.get(firstId) || '';
+    const jobName = JOB_TYPE_NAMES[jobType] || `Job ${jobType}`;
+
     lines.push(`### ${name}`);
+    lines.push(`**Job Type:** ${jobName}`);
     lines.push(stripHtmlTags(desc));
+
+    // Show durations across tiers
+    if (overseerIncapDurations && overseerIncapDurations.size > 0) {
+      const durations: number[] = [];
+      for (const [, entry] of overseerIncapDurations) {
+        if (entry.jobType === jobType && entry.duration > 0) {
+          durations.push(entry.duration);
+        }
+      }
+      if (durations.length > 0) {
+        const uniqueDurations = [...new Set(durations)].sort((a, b) => a - b);
+        const formatted = uniqueDurations.map(d => {
+          const hours = d / 3600;
+          if (hours >= 24) return `${(hours / 24).toFixed(1)}d`;
+          return `${hours.toFixed(1)}h`;
+        });
+        lines.push(`**Durations:** ${formatted.join(', ')}`);
+      }
+    }
+    lines.push('');
+  }
+
+  // Show "Released" if it exists (job type 10)
+  const releasedName = overseerIncapNames.get(10);
+  if (releasedName) {
+    const releasedDesc = overseerIncapDescs?.get(10) || '';
+    lines.push(`### ${releasedName}`);
+    lines.push(stripHtmlTags(releasedDesc));
+    lines.push('**Duration:** Instant (0)');
     lines.push('');
   }
 
