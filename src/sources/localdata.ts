@@ -21433,3 +21433,440 @@ export async function getClassDefensiveProfile(className: string): Promise<strin
   lines.push('', `*${defSpells.length} defensive spells analyzed for ${fullName}.*`);
   return lines.join('\n');
 }
+
+// ============ TOOL 231: Spell Category Co-occurrence ============
+export async function getSpellCategoryCooccurrence(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Spell Category Co-occurrence Analysis', '', '*Which spell categories tend to appear together in class spell books.*', ''];
+
+  // Build per-class category sets
+  const classCats = new Map<number, Map<string, number>>();
+  for (let cid = 1; cid <= 16; cid++) classCats.set(cid, new Map());
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    if (catId === 0) continue;
+    const catName = spellCategories?.get(catId) || `Cat ${catId}`;
+
+    for (let cid = 1; cid <= 16; cid++) {
+      const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (lv >= 1 && lv <= 254) {
+        const cats = classCats.get(cid)!;
+        cats.set(catName, (cats.get(catName) || 0) + 1);
+      }
+    }
+  }
+
+  // Find top categories across all classes
+  const globalCatCounts = new Map<string, number>();
+  for (const [, cats] of classCats) {
+    for (const [cat, count] of cats) {
+      globalCatCounts.set(cat, (globalCatCounts.get(cat) || 0) + count);
+    }
+  }
+  const topCats = [...globalCatCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([name]) => name);
+
+  // Co-occurrence matrix: count how many classes have BOTH categories
+  lines.push('## Category Co-occurrence Matrix (classes sharing both)', '');
+  const pairCounts = new Map<string, number>();
+  for (const cat1 of topCats) {
+    for (const cat2 of topCats) {
+      if (cat1 >= cat2) continue;
+      let shared = 0;
+      for (let cid = 1; cid <= 16; cid++) {
+        const cats = classCats.get(cid)!;
+        if (cats.has(cat1) && cats.has(cat2)) shared++;
+      }
+      if (shared > 0) {
+        pairCounts.set(`${cat1} + ${cat2}`, shared);
+      }
+    }
+  }
+
+  // Top co-occurring pairs
+  const sortedPairs = [...pairCounts.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('### Most Common Category Pairs', '');
+  lines.push('| Category Pair | Classes | Universality |');
+  lines.push('|---------------|--------:|:------------|');
+  for (const [pair, count] of sortedPairs.slice(0, 25)) {
+    const pct = Math.round(count / 16 * 100);
+    const label = pct === 100 ? 'Universal' : pct >= 75 ? 'Widespread' : pct >= 50 ? 'Common' : 'Specialized';
+    lines.push(`| ${pair} | ${count}/16 | ${label} |`);
+  }
+
+  // Rare pairs (only 1-2 classes)
+  const rarePairs = sortedPairs.filter(([, count]) => count <= 2 && count > 0);
+  if (rarePairs.length > 0) {
+    lines.push('', '### Rare Category Pairs (1-2 classes)', '');
+    lines.push('| Category Pair | Classes | Which Classes |');
+    lines.push('|---------------|--------:|:-------------|');
+    for (const [pair, count] of rarePairs.slice(0, 15)) {
+      const [cat1, cat2] = pair.split(' + ');
+      const which: string[] = [];
+      for (let cid = 1; cid <= 16; cid++) {
+        const cats = classCats.get(cid)!;
+        if (cats.has(cat1) && cats.has(cat2)) {
+          which.push(CLASS_SHORT[cid] || `C${cid}`);
+        }
+      }
+      lines.push(`| ${pair} | ${count}/16 | ${which.join(', ')} |`);
+    }
+  }
+
+  // Per-class category diversity
+  lines.push('', '## Class Category Diversity', '');
+  lines.push('| Class | Categories | Top 3 Categories |');
+  lines.push('|-------|----------:|:-----------------|');
+  for (let cid = 1; cid <= 16; cid++) {
+    const cats = classCats.get(cid)!;
+    const sortedCats = [...cats.entries()].sort((a, b) => b[1] - a[1]);
+    const top3 = sortedCats.slice(0, 3).map(([name, count]) => `${name} (${count})`).join(', ');
+    lines.push(`| ${CLASS_SHORT[cid] || `C${cid}`} | ${cats.size} | ${top3} |`);
+  }
+
+  // Exclusive categories (only 1 class has them)
+  const catToClasses = new Map<string, number[]>();
+  for (let cid = 1; cid <= 16; cid++) {
+    for (const cat of classCats.get(cid)!.keys()) {
+      if (!catToClasses.has(cat)) catToClasses.set(cat, []);
+      catToClasses.get(cat)!.push(cid);
+    }
+  }
+  const exclusiveCats = [...catToClasses.entries()].filter(([, cls]) => cls.length === 1);
+  if (exclusiveCats.length > 0) {
+    lines.push('', '## Class-Exclusive Categories', '');
+    lines.push('| Category | Class | Spells |');
+    lines.push('|----------|-------|------:|');
+    for (const [cat, cls] of exclusiveCats.sort((a, b) => {
+      const countA = classCats.get(a[1][0])!.get(a[0]) || 0;
+      const countB = classCats.get(b[1][0])!.get(b[0]) || 0;
+      return countB - countA;
+    }).slice(0, 20)) {
+      const count = classCats.get(cls[0])!.get(cat) || 0;
+      lines.push(`| ${cat} | ${CLASS_SHORT[cls[0]] || `C${cls[0]}`} | ${count} |`);
+    }
+  }
+
+  lines.push('', `*${topCats.length} top categories analyzed across 16 classes.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 232: Class Mana Profile ============
+export async function getClassManaProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  await loadBaseStats();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve class
+  const classNameUpper = className.toUpperCase().trim();
+  let classId = 0;
+  for (const [id, short] of Object.entries(CLASS_SHORT)) {
+    if (short === classNameUpper) { classId = parseInt(id); break; }
+  }
+  if (!classId) {
+    for (const [id, name] of Object.entries(CLASS_IDS)) {
+      if (name.toUpperCase() === classNameUpper) { classId = parseInt(id); break; }
+    }
+  }
+  if (!classId) return `Unknown class: "${className}". Use 3-letter code (WAR, CLR) or full name (Warrior, Cleric).`;
+
+  const fullName = CLASS_IDS[classId];
+  const lines = [`# Class Mana/Endurance Profile: ${fullName} (${CLASS_SHORT[classId]})`, '', '*Resource efficiency analysis — costs vs pools at various levels.*', ''];
+
+  // Gather spells with mana or endurance costs
+  interface CostSpell {
+    name: string;
+    level: number;
+    manaCost: number;
+    endCost: number;
+    beneficial: boolean;
+    category: string;
+  }
+
+  const costSpells: CostSpell[] = [];
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+    if (lv < 1 || lv > 254) continue;
+
+    const manaCost = parseInt(spell.fields[SF.MANA]) || 0;
+    const endCost = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    if (manaCost <= 0 && endCost <= 0) continue;
+
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Cat ${catId}`);
+
+    costSpells.push({ name: spell.name, level: lv, manaCost, endCost, beneficial, category: catName });
+  }
+
+  lines.push(`**Total spells/abilities with resource cost:** ${costSpells.length}`, '');
+
+  // Mana vs endurance split
+  const manaSpells = costSpells.filter(s => s.manaCost > 0);
+  const endSpells = costSpells.filter(s => s.endCost > 0);
+  lines.push(`- **Mana-cost spells:** ${manaSpells.length}`);
+  lines.push(`- **Endurance-cost abilities:** ${endSpells.length}`);
+
+  // Cost distribution by level bracket
+  const brackets = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 125];
+  lines.push('', '## Mana Cost by Level Bracket', '');
+  lines.push('| Level | Spells | Avg Mana | Max Mana | Pool | Casts at Max |');
+  lines.push('|------:|------:|--------:|--------:|-----:|------------:|');
+
+  for (let i = 0; i < brackets.length - 1; i++) {
+    const minLv = brackets[i];
+    const maxLv = brackets[i + 1] - 1;
+    const bracketSpells = manaSpells.filter(s => s.level >= minLv && s.level <= maxLv);
+    if (bracketSpells.length === 0) continue;
+
+    const avgMana = Math.round(bracketSpells.reduce((sum, s) => sum + s.manaCost, 0) / bracketSpells.length);
+    const maxMana = Math.max(...bracketSpells.map(s => s.manaCost));
+
+    // Find mana pool at max bracket level
+    let pool = 0;
+    if (baseStats && baseStats.length > 0) {
+      const stat = baseStats.filter(s => s.classId === classId && s.level === maxLv);
+      if (stat.length > 0) pool = stat[0].mana;
+    }
+    const casts = maxMana > 0 && pool > 0 ? Math.floor(pool / maxMana) : 0;
+
+    lines.push(`| ${minLv}-${maxLv} | ${bracketSpells.length} | ${avgMana} | ${maxMana.toLocaleString()} | ${pool > 0 ? pool.toLocaleString() : '-'} | ${casts > 0 ? casts : '-'} |`);
+  }
+
+  // Endurance cost analysis if applicable
+  if (endSpells.length > 0) {
+    lines.push('', '## Endurance Cost by Level Bracket', '');
+    lines.push('| Level | Abilities | Avg End | Max End | Pool | Casts at Max |');
+    lines.push('|------:|--------:|-------:|-------:|-----:|------------:|');
+
+    for (let i = 0; i < brackets.length - 1; i++) {
+      const minLv = brackets[i];
+      const maxLv = brackets[i + 1] - 1;
+      const bracketSpells = endSpells.filter(s => s.level >= minLv && s.level <= maxLv);
+      if (bracketSpells.length === 0) continue;
+
+      const avgEnd = Math.round(bracketSpells.reduce((sum, s) => sum + s.endCost, 0) / bracketSpells.length);
+      const maxEnd = Math.max(...bracketSpells.map(s => s.endCost));
+
+      let pool = 0;
+      if (baseStats && baseStats.length > 0) {
+        const stat = baseStats.filter(s => s.classId === classId && s.level === maxLv);
+        if (stat.length > 0) pool = stat[0].endurance;
+      }
+      const casts = maxEnd > 0 && pool > 0 ? Math.floor(pool / maxEnd) : 0;
+
+      lines.push(`| ${minLv}-${maxLv} | ${bracketSpells.length} | ${avgEnd} | ${maxEnd.toLocaleString()} | ${pool > 0 ? pool.toLocaleString() : '-'} | ${casts > 0 ? casts : '-'} |`);
+    }
+  }
+
+  // Most expensive spells
+  lines.push('', '## Most Expensive Spells (by mana)', '');
+  const topMana = [...manaSpells].sort((a, b) => b.manaCost - a.manaCost);
+  if (topMana.length > 0) {
+    lines.push('| Spell | Level | Mana | Category | Type |');
+    lines.push('|-------|------:|-----:|----------|------|');
+    const seenNames = new Set<string>();
+    let shown = 0;
+    for (const s of topMana) {
+      if (seenNames.has(s.name)) continue;
+      seenNames.add(s.name);
+      lines.push(`| ${s.name} | ${s.level} | ${s.manaCost.toLocaleString()} | ${s.category} | ${s.beneficial ? 'Buff' : 'Debuff'} |`);
+      shown++;
+      if (shown >= 15) break;
+    }
+  }
+
+  // Cost by category
+  lines.push('', '## Average Mana Cost by Category', '');
+  const catCosts = new Map<string, { total: number; count: number }>();
+  for (const s of manaSpells) {
+    if (!catCosts.has(s.category)) catCosts.set(s.category, { total: 0, count: 0 });
+    const c = catCosts.get(s.category)!;
+    c.total += s.manaCost;
+    c.count++;
+  }
+  const sortedCatCosts = [...catCosts.entries()]
+    .map(([cat, data]) => ({ cat, avg: Math.round(data.total / data.count), count: data.count }))
+    .sort((a, b) => b.avg - a.avg);
+
+  lines.push('| Category | Spells | Avg Mana |');
+  lines.push('|----------|------:|--------:|');
+  for (const { cat, avg, count } of sortedCatCosts.slice(0, 15)) {
+    lines.push(`| ${cat} | ${count} | ${avg.toLocaleString()} |`);
+  }
+
+  // Resource pool at key levels
+  if (baseStats && baseStats.length > 0) {
+    lines.push('', '## Resource Pool Milestones', '');
+    lines.push('| Level | HP | Mana | Endurance | Mana Regen |');
+    lines.push('|------:|---:|-----:|----------:|-----------:|');
+    for (const lv of [1, 10, 25, 50, 65, 75, 85, 100, 115, 125]) {
+      const stat = baseStats.filter(s => s.classId === classId && s.level === lv);
+      if (stat.length > 0) {
+        const s = stat[0];
+        lines.push(`| ${lv} | ${s.hp.toLocaleString()} | ${s.mana.toLocaleString()} | ${s.endurance.toLocaleString()} | ${s.manaRegen} |`);
+      }
+    }
+  }
+
+  lines.push('', `*${costSpells.length} spells with resource costs analyzed for ${fullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 233: Overseer Agent Job Coverage Optimizer ============
+export async function getOverseerAgentJobCoverageOptimizer(): Promise<string> {
+  await loadOverseerMinions();
+  await loadOverseerQuests();
+  await loadOverseerEnhancements();
+  if (!overseerMinions || overseerMinions.size === 0) return 'Overseer agent data not available.';
+  if (!overseerQuests || overseerQuests.size === 0) return 'Overseer quest data not available.';
+
+  const lines = ['# Overseer Agent Job Coverage Optimizer', '', '*Which agents cover the most quest slot requirements.*', ''];
+
+  // Count job demand across all quests
+  const jobDemand = new Map<number, { required: number; optional: number }>();
+  for (const quest of overseerQuests.values()) {
+    for (const slot of quest.slotDetails) {
+      if (!jobDemand.has(slot.jobTypeId)) {
+        jobDemand.set(slot.jobTypeId, { required: 0, optional: 0 });
+      }
+      const demand = jobDemand.get(slot.jobTypeId)!;
+      if (slot.isRequired) demand.required++;
+      else demand.optional++;
+    }
+  }
+
+  // Job demand ranking
+  const sortedJobs = [...jobDemand.entries()]
+    .map(([jobId, data]) => ({
+      jobId,
+      name: overseerJobNames?.get(jobId) || `Job ${jobId}`,
+      required: data.required,
+      optional: data.optional,
+      total: data.required + data.optional
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  lines.push('## Job Demand Ranking', '');
+  lines.push('| Rank | Job | Required | Optional | Total Demand |');
+  lines.push('|-----:|-----|--------:|--------:|------------:|');
+  let rank = 1;
+  for (const job of sortedJobs.slice(0, 20)) {
+    lines.push(`| ${rank} | ${job.name} | ${job.required} | ${job.optional} | ${job.total} |`);
+    rank++;
+  }
+
+  // Score each agent by how much demand they can fill
+  interface AgentScore {
+    id: number;
+    name: string;
+    jobs: { jobName: string; level: number }[];
+    totalDemand: number;
+    requiredDemand: number;
+    traits: string[];
+  }
+
+  const agentScores: AgentScore[] = [];
+  for (const agent of overseerMinions.values()) {
+    let totalDemand = 0;
+    let requiredDemand = 0;
+    const jobDetails: { jobName: string; level: number }[] = [];
+
+    for (const job of agent.jobs) {
+      const demand = jobDemand.get(job.jobTypeId);
+      if (demand) {
+        totalDemand += demand.required + demand.optional;
+        requiredDemand += demand.required;
+        jobDetails.push({
+          jobName: overseerJobNames?.get(job.jobTypeId) || `Job ${job.jobTypeId}`,
+          level: job.level
+        });
+      }
+    }
+
+    agentScores.push({
+      id: agent.id,
+      name: agent.shortName || agent.fullName,
+      jobs: jobDetails,
+      totalDemand,
+      requiredDemand,
+      traits: agent.traits
+    });
+  }
+
+  // Top agents by total demand coverage
+  agentScores.sort((a, b) => b.totalDemand - a.totalDemand);
+
+  lines.push('', '## Top Agents by Quest Coverage', '');
+  lines.push('| Rank | Agent | Jobs | Total Coverage | Required Coverage | Traits |');
+  lines.push('|-----:|-------|-----:|-------------:|------------------:|--------|');
+  const seenNames = new Set<string>();
+  let shown = 0;
+  for (const agent of agentScores) {
+    if (seenNames.has(agent.name)) continue;
+    seenNames.add(agent.name);
+    const jobStr = agent.jobs.map(j => `${j.jobName} L${j.level}`).join(', ');
+    const traitStr = agent.traits.slice(0, 3).join(', ');
+    lines.push(`| ${shown + 1} | ${agent.name} | ${agent.jobs.length} | ${agent.totalDemand} | ${agent.requiredDemand} | ${traitStr} |`);
+    shown++;
+    if (shown >= 20) break;
+  }
+
+  // Job coverage gaps — jobs with high demand but few agents
+  lines.push('', '## Job Coverage Analysis', '');
+  const jobAgentCount = new Map<number, number>();
+  for (const agent of overseerMinions.values()) {
+    for (const job of agent.jobs) {
+      jobAgentCount.set(job.jobTypeId, (jobAgentCount.get(job.jobTypeId) || 0) + 1);
+    }
+  }
+
+  lines.push('| Job | Demand | Agents Available | Demand/Agent Ratio |');
+  lines.push('|-----|------:|----------------:|---------:|');
+  const jobAnalysis = sortedJobs.map(job => ({
+    ...job,
+    agents: jobAgentCount.get(job.jobId) || 0,
+    ratio: (job.total / Math.max(1, jobAgentCount.get(job.jobId) || 0)).toFixed(1)
+  })).sort((a, b) => parseFloat(b.ratio) - parseFloat(a.ratio));
+
+  for (const job of jobAnalysis.slice(0, 15)) {
+    lines.push(`| ${job.name} | ${job.total} | ${job.agents} | ${job.ratio} |`);
+  }
+
+  // Multi-job agents (most versatile)
+  lines.push('', '## Most Versatile Agents (Most Jobs)', '');
+  const versatile = [...agentScores]
+    .sort((a, b) => b.jobs.length - a.jobs.length);
+
+  lines.push('| Agent | Jobs | Job List |');
+  lines.push('|-------|-----:|---------|');
+  const vSeen = new Set<string>();
+  let vShown = 0;
+  for (const agent of versatile) {
+    if (vSeen.has(agent.name)) continue;
+    vSeen.add(agent.name);
+    lines.push(`| ${agent.name} | ${agent.jobs.length} | ${agent.jobs.map(j => j.jobName).join(', ')} |`);
+    vShown++;
+    if (vShown >= 15) break;
+  }
+
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total agents:** ${overseerMinions.size}`);
+  lines.push(`- **Total quests:** ${overseerQuests.size}`);
+  lines.push(`- **Distinct jobs in demand:** ${jobDemand.size}`);
+  lines.push(`- **Highest demand job:** ${sortedJobs[0]?.name || '-'} (${sortedJobs[0]?.total || 0} slots)`);
+  lines.push(`- **Most versatile agent:** ${versatile[0]?.name || '-'} (${versatile[0]?.jobs.length || 0} jobs)`);
+
+  lines.push('', `*${overseerMinions.size} agents scored against ${overseerQuests.size} quests.*`);
+  return lines.join('\n');
+}

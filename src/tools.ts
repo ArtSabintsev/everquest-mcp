@@ -238,6 +238,9 @@ import {
   getSpellSchoolAnalysis,
   getAASpellCorrelation,
   getClassDefensiveProfile,
+  getSpellCategoryCooccurrence,
+  getClassManaProfile,
+  getOverseerAgentJobCoverageOptimizer,
 } from './sources/index.js';
 
 export const tools = [
@@ -3114,6 +3117,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_category_cooccurrence',
+    description: 'Spell category co-occurrence — which categories appear together in class spell books, universal vs specialized pairs, class-exclusive categories.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_mana_profile',
+    description: 'Class mana/endurance profile — resource cost vs pool analysis at various levels, most expensive spells, cost by category, resource milestones.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class name (3-letter code like WIZ, CLR or full name like Wizard, Cleric)'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_overseer_agent_job_coverage_optimizer',
+    description: 'Overseer agent job coverage optimizer — rank agents by quest slot coverage, job demand analysis, coverage gaps, most versatile agents.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5005,6 +5040,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassDefensiveProfile(className);
+      }
+
+      case 'get_spell_category_cooccurrence': {
+        return getSpellCategoryCooccurrence();
+      }
+
+      case 'get_class_mana_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassManaProfile(className);
+      }
+
+      case 'get_overseer_agent_job_coverage_optimizer': {
+        return getOverseerAgentJobCoverageOptimizer();
       }
 
       case 'search_help_topics': {

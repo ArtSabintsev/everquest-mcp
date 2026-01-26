@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 230 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 233 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **230 tools** for querying EverQuest data
+- **233 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -180,6 +180,7 @@ Then restart Claude Desktop.
 | `get_spell_resist_bar_chart` | Spell resist analysis — detailed breakdown of a specific resist type across classes with level distribution and comparison to other resists |
 | `get_spell_name_pattern_analysis` | Spell name pattern analysis — rank patterns (Rk. II/III distribution), most common first words (spell line indicators), roman numeral suffixes, name length distribution |
 | `get_spell_school_analysis` | Spell school analysis — group spells by resist type × beneficial/detrimental "school", class dominance per school, class specialization matrix |
+| `get_spell_category_cooccurrence` | Spell category co-occurrence — which categories appear together in class spell books, universal vs specialized pairs, class-exclusive categories |
 
 ### Local Data - Character
 | Tool | Description |
@@ -224,6 +225,7 @@ Then restart Claude Desktop.
 | `get_class_pet_comparison_matrix` | Class pet comparison — compare pet capabilities across all 16 classes (Summon, Charm, Swarm, Pet Buffs) with tier classification |
 | `get_class_identity_profile` | Class identity profile — comprehensive class card showing exclusive spells, spell categories, base stats at 125, role identity, and what makes the class unique |
 | `get_class_defensive_profile` | Class defensive profile — runes, heals, AC buffs, resist buffs, damage shields, crowd control, aggro management with defensive rating summary |
+| `get_class_mana_profile` | Class mana/endurance profile — resource cost vs pool at various levels, most expensive spells, cost by category, resource milestones |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -304,6 +306,7 @@ Then restart Claude Desktop.
 | `get_overseer_quest_efficiency_analysis` | Overseer quest efficiency analysis — difficulty-to-slot ratios, category efficiency, most/least demanding quests, job diversity |
 | `get_overseer_agent_trait_job_matrix` | Overseer agent trait-job matrix — cross-reference traits with jobs, trait+job rarity, most versatile agents, and optimal selection |
 | `get_overseer_quest_category_guide` | Overseer quest category guide — practical guide for each category with difficulty, top jobs needed, slot requirements, and sample quests |
+| `get_overseer_agent_job_coverage_optimizer` | Overseer agent job coverage optimizer — rank agents by quest slot coverage, job demand analysis, coverage gaps, most versatile agents |
 
 ### Local Data - Mercenaries
 | Tool | Description |
@@ -387,7 +390,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (230 tools)
+├── tools.ts          # Tool definitions and handlers (233 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
