@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 134 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 137 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **134 tools** for querying EverQuest data
+- **137 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -172,6 +172,8 @@ Then restart Claude Desktop.
 | `get_base_stat_overview` | All 16 classes' base HP/mana/endurance/regen at a specific level, ranked |
 | `get_skill_overview` | Skill-class matrix — which classes can use each combat/magic skill at level 125 |
 | `get_race_stat_comparison` | All 16 races' starting stats compared — sorted by total, per-stat rankings, stat spreads |
+| `get_deity_overview` | All 17 deities with race/class availability counts and accessibility rankings |
+| `get_class_comparison_matrix` | All 16 classes compared — spell count, beneficial %, skills, base stats, pet availability |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -253,6 +255,7 @@ Then restart Claude Desktop.
 | `list_expansions` | List all 33 EverQuest expansions |
 | `compare_expansions` | Compare two expansions side by side (factions, achievements, faction lists) |
 | `get_game_event_overview` | Game event overview with category breakdown (seasonal, expansion, double XP, etc.) |
+| `get_expansion_timeline` | Timeline of all 33 expansions with faction and achievement counts per expansion |
 | `get_expansion` | Expansion content summary with factions and achievements |
 | `get_banner_categories` | Guild banner and fellowship campsite types |
 | `search_help_topics` | Search 75 official in-game help topics on game mechanics |
@@ -291,7 +294,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (134 tools)
+├── tools.ts          # Tool definitions and handlers (137 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

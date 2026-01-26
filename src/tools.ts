@@ -142,6 +142,9 @@ import {
   getSkillOverview,
   getSpellGrowthCurve,
   getRaceStatComparison,
+  getDeityOverview,
+  getClassComparisonMatrix,
+  getExpansionTimeline,
 } from './sources/index.js';
 
 export const tools = [
@@ -2059,6 +2062,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_deity_overview',
+    description: 'Overview of all EverQuest deities — how many races and classes can worship each deity, race lists per deity, and accessibility rankings.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_comparison_matrix',
+    description: 'Compare all 16 classes side by side — spell count, beneficial spell %, skill count, base HP/mana at 125, pet availability, and rankings.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_expansion_timeline',
+    description: 'Timeline of all 33 EverQuest expansions with faction and achievement counts per expansion.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3519,6 +3549,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_race_stat_comparison': {
         return getRaceStatComparison();
+      }
+
+      case 'get_deity_overview': {
+        return getDeityOverview();
+      }
+
+      case 'get_class_comparison_matrix': {
+        return getClassComparisonMatrix();
+      }
+
+      case 'get_expansion_timeline': {
+        return getExpansionTimeline();
       }
 
       case 'search_help_topics': {

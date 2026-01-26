@@ -10443,3 +10443,219 @@ export async function getRaceStatComparison(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: DEITY OVERVIEW ============
+
+export async function getDeityOverview(): Promise<string> {
+  await loadRaceClassInfo();
+
+  const lines = ['# EverQuest Deity Overview', ''];
+
+  // Collect all unique deities
+  const deityRaces = new Map<string, Set<number>>();  // deity -> set of raceIds
+  const deityClasses = new Map<string, Set<number>>(); // deity -> set of classIds
+
+  for (const [raceIdStr, deities] of Object.entries(RACE_DEITIES)) {
+    const raceId = parseInt(raceIdStr);
+    const raceClasses = RACE_CLASSES[raceId] || [];
+    for (const deity of deities) {
+      if (!deityRaces.has(deity)) deityRaces.set(deity, new Set());
+      if (!deityClasses.has(deity)) deityClasses.set(deity, new Set());
+      deityRaces.get(deity)!.add(raceId);
+      for (const cls of raceClasses) {
+        deityClasses.get(deity)!.add(cls);
+      }
+    }
+  }
+
+  const sortedDeities = [...deityRaces.keys()].sort();
+  lines.push(`**${sortedDeities.length} deities** in EverQuest`, '');
+
+  lines.push('| Deity | Races | Classes | Race Names |');
+  lines.push('|-------|-------|---------|------------|');
+
+  for (const deity of sortedDeities) {
+    const races = deityRaces.get(deity)!;
+    const classes = deityClasses.get(deity)!;
+    const raceNames = [...races].map(id => RACE_IDS[id]).filter(Boolean).join(', ');
+    lines.push(`| ${deity} | ${races.size} | ${classes.size} | ${raceNames} |`);
+  }
+
+  // Most accessible deities
+  const byAccess = sortedDeities.sort((a, b) => deityRaces.get(b)!.size - deityRaces.get(a)!.size);
+  lines.push('', '## Most Accessible Deities', '');
+  lines.push(`- **Most races:** ${byAccess[0]} (${deityRaces.get(byAccess[0])!.size} races)`);
+  lines.push(`- **Fewest races:** ${byAccess[byAccess.length - 1]} (${deityRaces.get(byAccess[byAccess.length - 1])!.size} races)`);
+
+  // Agnostic info
+  if (deityRaces.has('Agnostic')) {
+    const agnosticRaces = [...deityRaces.get('Agnostic')!].map(id => RACE_IDS[id]).filter(Boolean);
+    lines.push('', `**Agnostic option available for:** ${agnosticRaces.join(', ')} (${agnosticRaces.length} races)`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CLASS COMPARISON MATRIX ============
+
+export async function getClassComparisonMatrix(): Promise<string> {
+  await loadSpells();
+  await loadSkillCaps();
+  await loadBaseStats();
+
+  const lines = ['# Class Comparison Matrix', ''];
+
+  const classData: {
+    id: number;
+    name: string;
+    spellCount: number;
+    beneficialPct: number;
+    skillCount: number;
+    maxHP: number;
+    maxMana: number;
+    hasPet: boolean;
+  }[] = [];
+
+  for (let classId = 1; classId <= 16; classId++) {
+    const classIndex = classId - 1;
+    let spellCount = 0;
+    let beneficial = 0;
+    // Known permanent pet classes
+    const PET_CLASS_IDS = new Set([5, 10, 11, 13, 14, 15]); // SK, SHA, NEC, MAG, ENC, BST
+    const hasPet = PET_CLASS_IDS.has(classId);
+
+    if (spells) {
+      for (const [, spell] of spells) {
+        const classLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+        if (isNaN(classLevel) || classLevel > 254 || classLevel <= 0) continue;
+        spellCount++;
+        if (spell.fields[SF.BENEFICIAL] === '1') beneficial++;
+      }
+    }
+
+    let skillCount = 0;
+    if (skillCaps) {
+      const caps = new Set<number>();
+      for (const entry of skillCaps) {
+        if (entry.classId === classId && entry.level === 125 && entry.cap > 0) caps.add(entry.skillId);
+      }
+      skillCount = caps.size;
+    }
+
+    let maxHP = 0;
+    let maxMana = 0;
+    if (baseStats) {
+      const entry = baseStats.find(e => e.classId === classId && e.level === 125);
+      if (entry) {
+        maxHP = entry.hp;
+        maxMana = entry.mana;
+      }
+    }
+
+    classData.push({
+      id: classId,
+      name: CLASS_IDS[classId],
+      spellCount,
+      beneficialPct: spellCount > 0 ? Math.round((beneficial / spellCount) * 100) : 0,
+      skillCount,
+      maxHP,
+      maxMana,
+      hasPet,
+    });
+  }
+
+  lines.push('| Class | Spells | Beneficial% | Skills | Base HP | Base Mana | Has Pet |');
+  lines.push('|-------|--------|------------|--------|---------|-----------|---------|');
+
+  for (const c of classData) {
+    lines.push(`| ${c.name} | ${c.spellCount.toLocaleString()} | ${c.beneficialPct}% | ${c.skillCount} | ${c.maxHP.toLocaleString()} | ${c.maxMana.toLocaleString()} | ${c.hasPet ? 'Yes' : 'No'} |`);
+  }
+
+  // Rankings
+  lines.push('', '## Rankings', '');
+
+  const bySpells = [...classData].sort((a, b) => b.spellCount - a.spellCount);
+  lines.push(`**Most spells:** ${bySpells[0].name} (${bySpells[0].spellCount.toLocaleString()})`);
+
+  const bySkills = [...classData].sort((a, b) => b.skillCount - a.skillCount);
+  lines.push(`**Most skills:** ${bySkills[0].name} (${bySkills[0].skillCount})`);
+
+  const byBeneficial = [...classData].filter(c => c.spellCount > 0).sort((a, b) => b.beneficialPct - a.beneficialPct);
+  lines.push(`**Most beneficial:** ${byBeneficial[0].name} (${byBeneficial[0].beneficialPct}%)`);
+  lines.push(`**Most detrimental:** ${byBeneficial[byBeneficial.length - 1].name} (${100 - byBeneficial[byBeneficial.length - 1].beneficialPct}% detrimental)`);
+
+  const byHP = [...classData].sort((a, b) => b.maxHP - a.maxHP);
+  lines.push(`**Highest base HP (125):** ${byHP[0].name} (${byHP[0].maxHP.toLocaleString()})`);
+
+  const petClasses = classData.filter(c => c.hasPet).map(c => c.name);
+  if (petClasses.length > 0) {
+    lines.push(`**Pet classes:** ${petClasses.join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: EXPANSION TIMELINE ============
+
+export async function getExpansionTimeline(): Promise<string> {
+  await loadExpansions();
+  await loadFactions();
+  await loadAchievementCategories();
+
+  if (!expansionNames || expansionNames.size === 0) return 'Expansion data not available.';
+
+  const lines = ['# EverQuest Expansion Timeline', ''];
+
+  const sorted = [...expansionNames.entries()].sort((a, b) => a[0] - b[0]);
+
+  lines.push('| # | Expansion | Factions | Achievements |');
+  lines.push('|---|-----------|----------|-------------|');
+
+  for (const [id, name] of sorted) {
+    // Count factions for this expansion
+    let factionCount = 0;
+    if (factions) {
+      const lowerName = name.toLowerCase();
+      for (const [, faction] of factions) {
+        if (faction.category && faction.category.toLowerCase().includes(lowerName)) {
+          factionCount++;
+        }
+      }
+    }
+
+    // Count achievements for this expansion
+    let achievementCount = 0;
+    if (achievementCategories) {
+      for (const [, cat] of achievementCategories) {
+        if (cat.name.toLowerCase().includes(name.toLowerCase())) {
+          // Count achievements in this category and subcategories
+          if (categoryToAchievements) {
+            const achIds = categoryToAchievements.get(cat.id);
+            if (achIds) achievementCount += achIds.length;
+            // Also count subcategory achievements
+            for (const [, subCat] of achievementCategories) {
+              if (subCat.parentId === cat.id) {
+                const subAchIds = categoryToAchievements.get(subCat.id);
+                if (subAchIds) achievementCount += subAchIds.length;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    lines.push(`| ${id} | ${name} | ${factionCount || '-'} | ${achievementCount || '-'} |`);
+  }
+
+  // Summary stats
+  let totalFactions = factions ? factions.size : 0;
+  let totalAchievements = 0;
+  if (achievements) totalAchievements = achievements.size;
+
+  lines.push('', '## Totals', '');
+  lines.push(`- **Expansions:** ${sorted.length}`);
+  if (totalFactions > 0) lines.push(`- **Total factions:** ${totalFactions.toLocaleString()}`);
+  if (totalAchievements > 0) lines.push(`- **Total achievements:** ${totalAchievements.toLocaleString()}`);
+
+  return lines.join('\n');
+}
