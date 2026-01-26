@@ -85,6 +85,7 @@ import {
   searchSpellsByDescription,
   searchTimerGroup,
   getFactionsByRace,
+  getFactionsByDeity,
 } from './sources/index.js';
 
 export const tools = [
@@ -688,6 +689,20 @@ export const tools = [
         }
       },
       required: ['race']
+    }
+  },
+  {
+    name: 'get_factions_by_deity',
+    description: 'Show all faction standings for followers of a specific deity. Shows which factions start hostile or friendly based on deity choice, useful for character creation decisions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        deity: {
+          type: 'string',
+          description: 'Deity name (e.g., "Tunare", "Innoruuk", "Cazic-Thule", "Bristlebane", "Agnostic")'
+        }
+      },
+      required: ['deity']
     }
   },
   {
@@ -2020,6 +2035,12 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const race = typeof args.race === 'string' ? args.race.trim() : '';
         if (!race) return 'Error: "race" parameter is required';
         return getFactionsByRace(race);
+      }
+
+      case 'get_factions_by_deity': {
+        const deity = typeof args.deity === 'string' ? args.deity.trim() : '';
+        if (!deity) return 'Error: "deity" parameter is required';
+        return getFactionsByDeity(deity);
       }
 
       case 'search_aa': {
