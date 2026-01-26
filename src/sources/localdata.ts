@@ -398,7 +398,21 @@ let deityNames: Map<number, string> | null = null;
 let deityDescriptions: Map<number, string> | null = null;
 
 // Alternate currencies
-let altCurrencies: Map<number, string> | null = null;
+let altCurrencies: Map<number, { name: string; description: string }> | null = null;
+
+// Tributes
+interface TributeEntry {
+  id: number;
+  name: string;
+  description: string;
+  isGuild: boolean;
+}
+let tributes: Map<number, TributeEntry> | null = null;
+let tributeNameIndex: Map<string, number[]> | null = null;
+
+// Overseer category/difficulty names
+let overseerCategories: Map<number, string> | null = null;
+let overseerDifficulties: Map<number, string> | null = null;
 
 let dataAvailable: boolean | null = null;
 
@@ -953,6 +967,13 @@ const DBSTR_TYPES = {
   CLASS_DESCRIPTION: 9,
   DEITY_DESCRIPTION: 14,
   ALT_CURRENCY: 17,
+  ALT_CURRENCY_DESC: 47,
+  TRIBUTE_NAME: 48,
+  TRIBUTE_DESC: 49,
+  GUILD_TRIBUTE_NAME: 50,
+  GUILD_TRIBUTE_DESC: 51,
+  OVERSEER_DIFFICULTY: 66,
+  OVERSEER_QUEST_CATEGORY: 67,
 };
 
 const OVERSEER_RARITIES: Record<number, string> = {
@@ -1652,14 +1673,77 @@ async function loadAltCurrencies(): Promise<void> {
   altCurrencies = new Map();
   if (!isGameDataAvailable()) return;
 
-  await loadDbStrings([DBSTR_TYPES.ALT_CURRENCY]);
-  const currencies = dbStrings?.get(DBSTR_TYPES.ALT_CURRENCY) || new Map();
+  await loadDbStrings([DBSTR_TYPES.ALT_CURRENCY, DBSTR_TYPES.ALT_CURRENCY_DESC]);
+  const names = dbStrings?.get(DBSTR_TYPES.ALT_CURRENCY) || new Map();
+  const descs = dbStrings?.get(DBSTR_TYPES.ALT_CURRENCY_DESC) || new Map();
 
-  for (const [id, name] of currencies) {
-    altCurrencies.set(id, name);
+  for (const [id, name] of names) {
+    altCurrencies.set(id, {
+      name,
+      description: stripHtmlTags(descs.get(id) || ''),
+    });
   }
 
   console.error(`[LocalData] Loaded ${altCurrencies.size} alternate currencies`);
+}
+
+// ============ TRIBUTE PARSER ============
+
+async function loadTributes(): Promise<void> {
+  if (tributes !== null) return;
+
+  tributes = new Map();
+  tributeNameIndex = new Map();
+  if (!isGameDataAvailable()) return;
+
+  await loadDbStrings([
+    DBSTR_TYPES.TRIBUTE_NAME, DBSTR_TYPES.TRIBUTE_DESC,
+    DBSTR_TYPES.GUILD_TRIBUTE_NAME, DBSTR_TYPES.GUILD_TRIBUTE_DESC,
+  ]);
+  const personalNames = dbStrings?.get(DBSTR_TYPES.TRIBUTE_NAME) || new Map();
+  const personalDescs = dbStrings?.get(DBSTR_TYPES.TRIBUTE_DESC) || new Map();
+  const guildNames = dbStrings?.get(DBSTR_TYPES.GUILD_TRIBUTE_NAME) || new Map();
+  const guildDescs = dbStrings?.get(DBSTR_TYPES.GUILD_TRIBUTE_DESC) || new Map();
+
+  // Personal tributes (use IDs as-is)
+  for (const [id, name] of personalNames) {
+    const desc = stripHtmlTags(personalDescs.get(id) || '');
+    tributes.set(id, { id, name, description: desc, isGuild: false });
+    const lower = name.toLowerCase();
+    const existing = tributeNameIndex.get(lower) || [];
+    existing.push(id);
+    tributeNameIndex.set(lower, existing);
+  }
+
+  // Guild tributes (offset IDs by 100000 to avoid collisions)
+  for (const [id, name] of guildNames) {
+    const offsetId = 100000 + id;
+    const desc = stripHtmlTags(guildDescs.get(id) || '');
+    tributes.set(offsetId, { id: offsetId, name, description: desc, isGuild: true });
+    const lower = name.toLowerCase();
+    const existing = tributeNameIndex.get(lower) || [];
+    existing.push(offsetId);
+    tributeNameIndex.set(lower, existing);
+  }
+
+  console.error(`[LocalData] Loaded ${tributes.size} tributes (${personalNames.size} personal, ${guildNames.size} guild)`);
+}
+
+// ============ OVERSEER ENHANCEMENT LOADER ============
+
+async function loadOverseerEnhancements(): Promise<void> {
+  if (overseerCategories !== null) return;
+
+  overseerCategories = new Map();
+  overseerDifficulties = new Map();
+  if (!isGameDataAvailable()) return;
+
+  await loadDbStrings([DBSTR_TYPES.OVERSEER_QUEST_CATEGORY, DBSTR_TYPES.OVERSEER_DIFFICULTY]);
+  const cats = dbStrings?.get(DBSTR_TYPES.OVERSEER_QUEST_CATEGORY) || new Map();
+  const diffs = dbStrings?.get(DBSTR_TYPES.OVERSEER_DIFFICULTY) || new Map();
+
+  for (const [id, name] of cats) overseerCategories.set(id, name);
+  for (const [id, name] of diffs) overseerDifficulties.set(id, name);
 }
 
 // ============ MAP POI PARSER (On-Demand) ============
@@ -2712,18 +2796,23 @@ export async function searchOverseerQuests(query: string): Promise<SearchResult[
 
 export async function getOverseerQuest(id: string): Promise<string> {
   await loadOverseerQuests();
+  await loadOverseerEnhancements();
   if (!overseerQuests) return 'Overseer quest data not available.';
 
   const questId = parseInt(id);
   const quest = overseerQuests.get(questId);
   if (!quest) return `Overseer quest with ID ${id} not found.`;
 
+  const categoryName = overseerCategories?.get(quest.categoryId) || `Category ${quest.categoryId}`;
+  const difficultyName = overseerDifficulties?.get(quest.difficulty) || `${quest.difficulty}`;
+
   const lines = [
     `## ${quest.name}`,
     '',
     quest.description,
     '',
-    `**Difficulty:** ${quest.difficulty}`,
+    `**Category:** ${categoryName}`,
+    `**Difficulty:** ${difficultyName}`,
     `**Duration:** ${quest.duration}h`,
   ];
 
@@ -2985,16 +3074,17 @@ export async function searchAltCurrencies(query: string): Promise<SearchResult[]
   const normalized = query.toLowerCase();
   const results: SearchResult[] = [];
 
-  for (const [id, name] of altCurrencies) {
+  for (const [id, currency] of altCurrencies) {
     if (results.length >= 25) break;
-    if (name.toLowerCase().includes(normalized)) {
+    if (currency.name.toLowerCase().includes(normalized) ||
+        currency.description.toLowerCase().includes(normalized)) {
       results.push({
-        name,
+        name: currency.name,
         type: 'unknown' as const,
         id: id.toString(),
         url: `local://currency/${id}`,
         source: 'Local Game Data',
-        description: `Alternate Currency (ID: ${id})`,
+        description: currency.description ? currency.description.substring(0, 120) + '...' : `Currency ID: ${id}`,
       });
     }
   }
@@ -3017,10 +3107,65 @@ export async function listAltCurrencies(): Promise<string> {
 
   const lines = ['## EverQuest Alternate Currencies', ''];
   const sorted = [...altCurrencies.entries()].sort((a, b) => a[0] - b[0]);
-  for (const [id, name] of sorted) {
-    lines.push(`- **${name}** (ID: ${id})`);
+  for (const [id, currency] of sorted) {
+    lines.push(`- **${currency.name}** (ID: ${id})${currency.description ? ` - ${currency.description}` : ''}`);
   }
   lines.push('', `*${altCurrencies.size} currencies total*`);
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: TRIBUTES ============
+
+export async function searchTributes(query: string): Promise<SearchResult[]> {
+  await loadTributes();
+  if (!tributes || tributes.size === 0) return [];
+
+  const normalized = query.toLowerCase();
+  const results: SearchResult[] = [];
+
+  for (const [id, tribute] of tributes) {
+    if (results.length >= 25) break;
+    if (tribute.name.toLowerCase().includes(normalized) ||
+        tribute.description.toLowerCase().includes(normalized)) {
+      results.push({
+        name: `${tribute.name}${tribute.isGuild ? ' (Guild)' : ''}`,
+        type: 'unknown' as const,
+        id: id.toString(),
+        url: `local://tribute/${id}`,
+        source: 'Local Game Data',
+        description: tribute.description.substring(0, 120) + (tribute.description.length > 120 ? '...' : ''),
+      });
+    }
+  }
+
+  // Sort: exact > starts-with > contains
+  results.sort((a, b) => {
+    const aName = a.name.toLowerCase();
+    const bName = b.name.toLowerCase();
+    const aScore = aName === normalized ? 3 : aName.startsWith(normalized) ? 2 : 1;
+    const bScore = bName === normalized ? 3 : bName.startsWith(normalized) ? 2 : 1;
+    return bScore - aScore;
+  });
+
+  return results;
+}
+
+export async function getTribute(id: string): Promise<string> {
+  await loadTributes();
+  if (!tributes) return 'Tribute data not available.';
+
+  const tributeId = parseInt(id);
+  const tribute = tributes.get(tributeId);
+  if (!tribute) return `Tribute with ID ${id} not found.`;
+
+  const lines = [
+    `## ${tribute.name}`,
+    '',
+    `**Type:** ${tribute.isGuild ? 'Guild Tribute' : 'Personal Tribute'}`,
+    '',
+    tribute.description,
+  ];
+
   return lines.join('\n');
 }
 
@@ -3066,6 +3211,7 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Class Descriptions:** ${classDescriptions ? classDescriptions.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Deity Descriptions:** ${deityDescriptions ? deityDescriptions.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Alternate Currencies:** ${altCurrencies ? altCurrencies.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Tributes:** ${tributes ? tributes.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Map Cache:** ${mapCache.size} zones loaded`);
 
   return lines.join('\n');

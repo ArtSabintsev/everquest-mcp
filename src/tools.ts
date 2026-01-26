@@ -57,6 +57,8 @@ import {
   getStatInfo,
   searchAltCurrencies,
   listAltCurrencies,
+  searchTributes,
+  getTribute,
 } from './sources/index.js';
 
 export const tools = [
@@ -748,6 +750,34 @@ export const tools = [
         }
       },
       required: ['query']
+    }
+  },
+  {
+    name: 'search_tributes',
+    description: 'Search EverQuest tribute abilities (personal and guild). Tributes provide passive bonuses like mana regen, attack, stats, etc.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Tribute name or keyword (e.g., "mana", "attack", "health", "armor")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_tribute',
+    description: 'Get detailed information about an EverQuest tribute ability by ID. Use search_tributes first to find the ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The tribute ID (from search results)'
+        }
+      },
+      required: ['id']
     }
   },
   {
@@ -1617,6 +1647,19 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!query || query === '*') return listAltCurrencies();
         const results = await searchAltCurrencies(query);
         return formatSearchResults(results, query);
+      }
+
+      case 'search_tributes': {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query) return 'Error: "query" parameter is required';
+        const results = await searchTributes(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_tribute': {
+        const id = typeof args.id === 'string' ? args.id.trim() : '';
+        if (!id) return 'Error: "id" parameter is required';
+        return getTribute(id);
       }
 
       case 'get_local_data_status': {
