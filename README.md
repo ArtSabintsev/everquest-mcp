@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 80 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 82 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **80 tools** for querying EverQuest data
+- **82 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (80)
+## Available Tools (82)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -203,6 +203,8 @@ Then restart Claude Desktop.
 | `get_game_event` | Get event announcement details |
 | `list_expansions` | List all 33 EverQuest expansions |
 | `get_banner_categories` | Guild banner and fellowship campsite types |
+| `search_help_topics` | Search 75 official in-game help topics on game mechanics |
+| `get_help_topic` | Read a specific help topic (augments, combat, mercenaries, etc.) |
 | `get_local_data_status` | Show which local data files are loaded |
 
 ## Example Queries
@@ -237,7 +239,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (80 tools)
+├── tools.ts          # Tool definitions and handlers (82 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
@@ -279,6 +281,7 @@ When `EQ_GAME_PATH` is set, the server parses these game files on demand:
 | `Resources/campsitecategories.txt` | Fellowship campsite categories |
 | `Resources/playercustomization.txt` | Drakkin heritage data (6 dragon lineages) |
 | `maps/` | Brewall/standard zone map files (34K+ POIs) |
+| `Help/` | 75 official in-game help topic HTML files |
 
 ## Adding New Sources
 

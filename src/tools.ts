@@ -88,6 +88,8 @@ import {
   getFactionsByDeity,
   getFactionsByClass,
   getCharacterFactions,
+  searchHelpTopics,
+  getHelpTopic,
 } from './sources/index.js';
 
 export const tools = [
@@ -1231,6 +1233,34 @@ export const tools = [
     }
   },
   {
+    name: 'search_help_topics',
+    description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Topic to search for (e.g., "augment", "combat", "mercenary", "guild"). Leave empty to list all topics.'
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_help_topic',
+    description: 'Read a specific EverQuest in-game help topic. Use search_help_topics to find available topics.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          description: 'Help topic name (e.g., "augments", "combatsystems", "experience", "mercenaries", "overseer")'
+        }
+      },
+      required: ['topic']
+    }
+  },
+  {
     name: 'get_local_data_status',
     description: 'Show status of local EverQuest game data integration - which data files are loaded and available.',
     inputSchema: {
@@ -2330,6 +2360,17 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const query = (args.query as string).trim();
         return searchCreatureTypes(query);
+      }
+
+      case 'search_help_topics': {
+        const query = typeof args.query === 'string' ? args.query.trim() : undefined;
+        return searchHelpTopics(query);
+      }
+
+      case 'get_help_topic': {
+        const topic = typeof args.topic === 'string' ? args.topic.trim() : '';
+        if (!topic) return 'Error: "topic" parameter is required';
+        return getHelpTopic(topic);
       }
 
       case 'get_local_data_status': {

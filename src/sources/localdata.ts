@@ -6219,6 +6219,164 @@ async function loadDrakkinHeritages(): Promise<void> {
 
 
 
+// ============ PUBLIC API: HELP TOPICS ============
+
+let helpTopics: Map<string, { title: string; filename: string }> | null = null;
+
+async function loadHelpTopics(): Promise<void> {
+  if (helpTopics !== null) return;
+  helpTopics = new Map();
+
+  if (!isGameDataAvailable()) return;
+
+  const helpDir = join(EQ_GAME_PATH, 'Help');
+  if (!existsSync(helpDir)) return;
+
+  try {
+    const files = await readdir(helpDir);
+    for (const file of files) {
+      if (!file.endsWith('.html')) continue;
+      const topic = file.replace('.html', '');
+      try {
+        const content = await readFile(join(helpDir, file), 'utf8');
+        // Extract title from <c "#ffff00"> Title </c>
+        const titleMatch = content.match(/<c\s+"#ffff00">\s*(.+?)\s*<\/c>/i);
+        const title = titleMatch ? titleMatch[1].trim() : topic;
+        helpTopics!.set(topic, { title, filename: file });
+      } catch {
+        helpTopics!.set(topic, { title: topic, filename: file });
+      }
+    }
+    console.error(`[LocalData] Loaded ${helpTopics.size} help topics`);
+  } catch (error) {
+    console.error('[LocalData] Failed to load help topics:', error instanceof Error ? error.message : error);
+  }
+}
+
+function stripHelpHtml(html: string): string {
+  return html
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/<body[^>]*>/gi, '')
+    .replace(/<\/body>/gi, '')
+    .replace(/<c\s+"#ffff00">\s*(.+?)\s*<\/c>/gi, '## $1')
+    .replace(/<c\s+"#66CCFF">\s*(.+?)\s*<\/c>/gi, '**$1**')
+    .replace(/<c\s+"[^"]*">\s*(.+?)\s*<\/c>/gi, '$1')
+    .replace(/<a\s+href="file:\/\/\/help\/([^"]+)">\s*(.+?)\s*<\/a>/gi, '$2 [→ $1]')
+    .replace(/<a\s+href="[^"]*">\s*(.+?)\s*<\/a>/gi, '$1')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export async function searchHelpTopics(query?: string): Promise<string> {
+  await loadHelpTopics();
+  if (!helpTopics || helpTopics.size === 0) return 'Help topics not available.';
+
+  if (!query || query.trim() === '') {
+    // List all topics
+    const sorted = [...helpTopics.entries()].sort((a, b) => a[1].title.localeCompare(b[1].title));
+    const lines = [
+      `## EverQuest Help Topics (${sorted.length})`,
+      '',
+      ...sorted.map(([topic, { title }]) => `- **${title}** → \`${topic}\``),
+    ];
+    return lines.join('\n');
+  }
+
+  const normalized = query.toLowerCase();
+  const matches: { topic: string; title: string; relevance: number }[] = [];
+
+  for (const [topic, { title }] of helpTopics) {
+    const lTitle = title.toLowerCase();
+    const lTopic = topic.toLowerCase();
+    if (lTitle === normalized || lTopic === normalized) {
+      matches.push({ topic, title, relevance: 3 });
+    } else if (lTitle.startsWith(normalized) || lTopic.startsWith(normalized)) {
+      matches.push({ topic, title, relevance: 2 });
+    } else if (lTitle.includes(normalized) || lTopic.includes(normalized)) {
+      matches.push({ topic, title, relevance: 1 });
+    }
+  }
+
+  if (matches.length === 0) {
+    // Search within help file content
+    const helpDir = join(EQ_GAME_PATH, 'Help');
+    const contentMatches: { topic: string; title: string }[] = [];
+    for (const [topic, { title, filename }] of helpTopics) {
+      try {
+        const content = await readFile(join(helpDir, filename), 'utf8');
+        if (content.toLowerCase().includes(normalized)) {
+          contentMatches.push({ topic, title });
+        }
+      } catch { /* skip */ }
+    }
+    if (contentMatches.length > 0) {
+      const lines = [
+        `## Help Topics mentioning "${query}" (${contentMatches.length})`,
+        '',
+        ...contentMatches.map(m => `- **${m.title}** → \`${m.topic}\``),
+      ];
+      return lines.join('\n');
+    }
+    return `No help topics found matching "${query}". Use search_help_topics without a query to list all topics.`;
+  }
+
+  matches.sort((a, b) => b.relevance - a.relevance);
+  const lines = [
+    `## Help Topics matching "${query}" (${matches.length})`,
+    '',
+    ...matches.map(m => `- **${m.title}** → \`${m.topic}\``),
+  ];
+  return lines.join('\n');
+}
+
+export async function getHelpTopic(topic: string): Promise<string> {
+  await loadHelpTopics();
+  if (!helpTopics || helpTopics.size === 0) return 'Help topics not available.';
+
+  // Try exact match first
+  const normalized = topic.toLowerCase().replace('.html', '');
+  let entry = helpTopics.get(normalized);
+
+  // Try fuzzy match
+  if (!entry) {
+    for (const [key, val] of helpTopics) {
+      if (key.toLowerCase() === normalized || val.title.toLowerCase() === normalized) {
+        entry = val;
+        break;
+      }
+    }
+  }
+
+  // Try partial match
+  if (!entry) {
+    for (const [key, val] of helpTopics) {
+      if (key.toLowerCase().includes(normalized) || val.title.toLowerCase().includes(normalized)) {
+        entry = val;
+        break;
+      }
+    }
+  }
+
+  if (!entry) {
+    return `Help topic "${topic}" not found. Use search_help_topics to list available topics.`;
+  }
+
+  const helpDir = join(EQ_GAME_PATH, 'Help');
+  try {
+    const content = await readFile(join(helpDir, entry.filename), 'utf8');
+    return stripHelpHtml(content);
+  } catch (error) {
+    return `Failed to read help topic: ${error instanceof Error ? error.message : error}`;
+  }
+}
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {
