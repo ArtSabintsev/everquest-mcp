@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 179 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 182 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **179 tools** for querying EverQuest data
+- **182 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -167,6 +167,7 @@ Then restart Claude Desktop.
 | `get_spell_recourse_overview` | Spell recourse system overview — recourse statistics, multi-step chains, most common recourse targets, category and class distributions |
 | `get_spell_duration_formula_analysis` | Duration formula × value interactions — value ranges per formula, most common values, constant-value anomalies, beneficial vs detrimental patterns |
 | `get_spell_effect_combination_analysis` | Spell effect co-occurrence — most common SPA pairs, effects per spell distribution, dominant effect by slot position |
+| `get_spell_progression_analysis` | Class spell progression across levels — new SPA effects per bracket, key effect milestones, peak spell levels, progression timeline |
 
 ### Local Data - Character
 | Tool | Description |
@@ -232,6 +233,7 @@ Then restart Claude Desktop.
 | `get_currency_overview` | Alternate currency overview — total count, description stats, keyword analysis, complete listing |
 | `get_faction_modifier_overview` | All faction modifiers (race, class, deity) — modifier IDs, usage frequency across factions, starting value distribution |
 | `get_faction_starting_value_analysis` | Faction starting value analysis — race/class/deity impact tables with positive/negative counts and net balance, most modified factions |
+| `get_faction_network_analysis` | Faction relationship network — factions connected through shared race/class/deity modifiers, most connected nodes, faction pairs |
 
 ### Local Data - Achievements & AA
 | Tool | Description |
@@ -302,6 +304,7 @@ Then restart Claude Desktop.
 | `search_help_topics` | Search 75 official in-game help topics on game mechanics |
 | `get_help_topic` | Read a specific help topic (augments, combat, mercenaries, etc.) |
 | `get_local_data_status` | Show which local data files are loaded |
+| `get_game_data_summary_dashboard` | One-stop summary dashboard of ALL loaded EQ data — entry counts for all 19 data systems with key metrics |
 | `get_db_string_type_overview` | Meta overview of all 68 string data types in dbstr_us.txt with entry counts, names, and samples |
 
 ## Example Queries
@@ -336,7 +339,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (179 tools)
+├── tools.ts          # Tool definitions and handlers (182 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

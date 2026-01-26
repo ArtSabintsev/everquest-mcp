@@ -15003,3 +15003,340 @@ export async function getClassSpellDiversityIndex(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: GAME DATA SUMMARY DASHBOARD ============
+
+export async function getGameDataSummaryDashboard(): Promise<string> {
+  // Load all data systems
+  await Promise.all([
+    loadSpells(), loadZones(), loadFactions(), loadAchievements(),
+    loadAAAbilities(), loadMercenaries(), loadTributes(),
+    loadCreatureTypes(), loadAltCurrencies(), loadCombatAbilities(),
+    loadItemEffects(), loadOverseerMinions(), loadOverseerQuests(),
+    loadSpellStacking(), loadGameEvents(), loadExpansions(),
+    loadLore(), loadHelpTopics(), loadBannerCategories(),
+  ]);
+
+  const lines = ['# EverQuest Game Data Summary Dashboard', ''];
+
+  const systems: { name: string; count: number | string; detail?: string }[] = [];
+
+  // Spells
+  if (spells) systems.push({ name: 'Spells', count: spells.size, detail: `${Object.keys(SPA_NAMES).length} effect types` });
+  // Zones
+  if (zones) systems.push({ name: 'Zones', count: zones.size });
+  // Factions
+  if (factions) {
+    const withMods = [...factions.values()].filter(f => f.startingValues && f.startingValues.length > 0).length;
+    systems.push({ name: 'Factions', count: factions.size, detail: `${withMods} with starting modifiers` });
+  }
+  // Achievements
+  if (achievements) systems.push({ name: 'Achievements', count: achievements.size });
+  if (achievementComponents) systems.push({ name: 'Achievement Components', count: `${achievementComponents.size} achievements` });
+  // AA
+  if (aaAbilities) systems.push({ name: 'AA Abilities', count: aaAbilities.size });
+  // Mercenaries
+  if (mercenaries) systems.push({ name: 'Mercenary Templates', count: mercenaries.size });
+  // Tributes
+  if (tributes) systems.push({ name: 'Tributes', count: tributes.size });
+  // Creature Types
+  if (creatureTypes) systems.push({ name: 'Creature Types', count: creatureTypes.size });
+  // Currencies
+  if (altCurrencies) systems.push({ name: 'Alternate Currencies', count: altCurrencies.size });
+  // Combat Abilities
+  if (combatAbilities) systems.push({ name: 'Combat Abilities', count: combatAbilities.size });
+  // Item Effects
+  if (itemEffectDescs) systems.push({ name: 'Item Effects', count: itemEffectDescs.size });
+  // Overseer
+  if (overseerMinions) systems.push({ name: 'Overseer Agents', count: overseerMinions.size });
+  if (overseerQuests) systems.push({ name: 'Overseer Quests', count: overseerQuests.size });
+  // Spell Stacking
+  if (spellStacking) systems.push({ name: 'Spell Stacking Groups', count: spellStacking.size });
+  // Game Events
+  if (gameEvents) systems.push({ name: 'Game Events', count: gameEvents.size });
+  // Expansions
+  if (expansionNames) systems.push({ name: 'Expansions', count: expansionNames.size });
+  // Lore
+  if (loreEntries) systems.push({ name: 'Lore Entries', count: loreEntries.length });
+  // Help Topics
+  if (helpTopics) systems.push({ name: 'Help Topics', count: helpTopics.size });
+
+  lines.push('## Data Systems Loaded', '');
+  lines.push('| System | Entries | Details |');
+  lines.push('|--------|---------|---------|');
+  let totalEntries = 0;
+  for (const sys of systems) {
+    const countNum = typeof sys.count === 'number' ? sys.count : 0;
+    totalEntries += countNum;
+    lines.push(`| ${sys.name} | ${typeof sys.count === 'number' ? sys.count.toLocaleString() : sys.count} | ${sys.detail || ''} |`);
+  }
+  lines.push(`| **Total** | **${totalEntries.toLocaleString()}** | |`);
+
+  // Key metrics
+  lines.push('', '## Key Metrics', '');
+  if (spells) {
+    let benCount = 0, detCount = 0;
+    for (const spell of spells.values()) {
+      if (spell.fields[SF.BENEFICIAL] === '1') benCount++;
+      else detCount++;
+    }
+    lines.push(`- **Spell balance:** ${benCount.toLocaleString()} beneficial / ${detCount.toLocaleString()} detrimental (${(benCount / spells.size * 100).toFixed(1)}% beneficial)`);
+  }
+  lines.push(`- **Playable races:** ${Object.keys(RACE_IDS).length}`);
+  lines.push(`- **Playable classes:** ${Object.keys(CLASS_IDS).length}`);
+  lines.push(`- **Resist types:** ${Object.keys(RESIST_TYPES).length}`);
+  lines.push(`- **Target types:** ${Object.keys(TARGET_TYPES).length}`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: FACTION NETWORK ANALYSIS ============
+
+export async function getFactionNetworkAnalysis(): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const lines = ['# Faction Relationship Network Analysis', ''];
+  lines.push('*Factions connected through shared race/class/deity starting modifiers.*', '');
+
+  // Build modifier → factions mapping
+  const modifierToFactions = new Map<number, { factionIds: number[]; factionNames: string[] }>();
+
+  for (const faction of factions.values()) {
+    if (!faction.startingValues) continue;
+    for (const sv of faction.startingValues) {
+      if (!modifierToFactions.has(sv.modifierId)) {
+        modifierToFactions.set(sv.modifierId, { factionIds: [], factionNames: [] });
+      }
+      const entry = modifierToFactions.get(sv.modifierId)!;
+      entry.factionIds.push(faction.id);
+      entry.factionNames.push(faction.name);
+    }
+  }
+
+  lines.push(`- **Modifiers connecting factions:** ${modifierToFactions.size}`);
+
+  // Find modifiers that connect the most factions
+  const sortedModifiers = [...modifierToFactions.entries()]
+    .filter(([, data]) => data.factionIds.length > 1)
+    .sort((a, b) => b[1].factionIds.length - a[1].factionIds.length);
+
+  lines.push(`- **Modifiers affecting multiple factions:** ${sortedModifiers.length}`);
+
+  // Highest connectivity modifiers
+  lines.push('', '## Most Connected Modifiers (Affecting Most Factions)', '');
+  lines.push('| Modifier | Factions Affected | Sample Factions |');
+  lines.push('|----------|-------------------|-----------------|');
+  for (const [modId, data] of sortedModifiers.slice(0, 20)) {
+    const modName = factionModifierNames?.get(modId) || `Modifier #${modId}`;
+    const sample = data.factionNames.slice(0, 3).join(', ');
+    lines.push(`| ${modName} | ${data.factionIds.length} | ${sample} |`);
+  }
+
+  // Faction co-occurrence: which factions are most often affected by the same modifier
+  const pairCounts = new Map<string, number>();
+  for (const [, data] of modifierToFactions) {
+    const ids = data.factionIds;
+    for (let i = 0; i < ids.length && i < 30; i++) {
+      for (let j = i + 1; j < ids.length && j < 30; j++) {
+        const key = ids[i] < ids[j] ? `${ids[i]}:${ids[j]}` : `${ids[j]}:${ids[i]}`;
+        pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+      }
+    }
+  }
+
+  const sortedPairs = [...pairCounts.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('', '## Most Connected Faction Pairs (Shared Modifiers)', '');
+  lines.push('| Faction 1 | Faction 2 | Shared Modifiers |');
+  lines.push('|-----------|-----------|-----------------|');
+  for (const [pair, count] of sortedPairs.slice(0, 20)) {
+    const [id1, id2] = pair.split(':').map(Number);
+    const name1 = factions.get(id1)?.name || `#${id1}`;
+    const name2 = factions.get(id2)?.name || `#${id2}`;
+    lines.push(`| ${name1} | ${name2} | ${count} |`);
+  }
+
+  // Faction clusters: group factions by how many modifiers they share
+  const factionConnections = new Map<number, number>();
+  for (const faction of factions.values()) {
+    if (!faction.startingValues) continue;
+    let connections = 0;
+    for (const sv of faction.startingValues) {
+      const entry = modifierToFactions.get(sv.modifierId);
+      if (entry) connections += entry.factionIds.length - 1; // Other factions sharing this modifier
+    }
+    factionConnections.set(faction.id, connections);
+  }
+
+  const sortedByConnections = [...factionConnections.entries()]
+    .sort((a, b) => b[1] - a[1]);
+
+  lines.push('', '## Most Connected Factions (Total Connections)', '');
+  lines.push('| Faction | Connections | Modifiers |');
+  lines.push('|---------|------------|-----------|');
+  for (const [factionId, connections] of sortedByConnections.slice(0, 15)) {
+    const faction = factions.get(factionId);
+    if (!faction) continue;
+    lines.push(`| ${faction.name} | ${connections} | ${faction.startingValues?.length || 0} |`);
+  }
+
+  // Isolated factions (no shared modifiers)
+  const isolatedFactions = [...factions.values()].filter(f => {
+    if (!f.startingValues || f.startingValues.length === 0) return false;
+    return !factionConnections.has(f.id) || factionConnections.get(f.id) === 0;
+  });
+
+  if (isolatedFactions.length > 0) {
+    lines.push('', `## Isolated Factions (Modifiers Not Shared): ${isolatedFactions.length}`, '');
+    for (const f of isolatedFactions.slice(0, 10)) {
+      lines.push(`- ${f.name} (${f.startingValues!.length} modifiers)`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL PROGRESSION ANALYSIS ============
+
+export async function getSpellProgressionAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const cn = className.toUpperCase().trim();
+  // Try short code first (WAR, CLR, etc.), then full name
+  let entry = Object.entries(CLASS_SHORT).find(([, short]) => short === cn);
+  if (!entry) {
+    entry = Object.entries(CLASS_IDS).find(([, name]) => name.toLowerCase() === className.toLowerCase().trim());
+  }
+  if (!entry) return `Unknown class: "${className}". Valid short codes: ${Object.values(CLASS_SHORT).join(', ')}. Full names: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classId = parseInt(entry[0]);
+  const classFullName = CLASS_IDS[classId];
+
+  const lines = [`# ${classFullName} Spell Progression Analysis`, ''];
+  lines.push(`*How ${classFullName} spells evolve across levels — new effects gained, power curve, and milestone levels.*`, '');
+
+  // Collect spells by level
+  const spellsByLevel = new Map<number, { name: string; beneficial: boolean; catId: number; spas: number[] }[]>();
+  const spaFirstSeen = new Map<number, number>(); // spa -> first level seen
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]);
+    if (isNaN(level) || level < 1 || level > 254) continue;
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+
+    // Parse SPA effects
+    const spas: number[] = [];
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+    if (effectField) {
+      const slots = effectField.split('$');
+      for (const slot of slots) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spa = parseInt(parts[1]);
+          if (!isNaN(spa) && spa > 0) {
+            spas.push(spa);
+            if (!spaFirstSeen.has(spa) || level < spaFirstSeen.get(spa)!) {
+              spaFirstSeen.set(spa, level);
+            }
+          }
+        }
+      }
+    }
+
+    if (!spellsByLevel.has(level)) spellsByLevel.set(level, []);
+    spellsByLevel.get(level)!.push({ name: spell.name, beneficial, catId, spas });
+  }
+
+  const totalSpells = [...spellsByLevel.values()].reduce((sum, arr) => sum + arr.length, 0);
+  const levels = [...spellsByLevel.keys()].sort((a, b) => a - b);
+  const distinctSPAs = spaFirstSeen.size;
+
+  lines.push(`- **Total spells:** ${totalSpells.toLocaleString()}`);
+  lines.push(`- **Level range:** ${levels[0]} to ${levels[levels.length - 1]}`);
+  lines.push(`- **Levels with new spells:** ${levels.length}`);
+  lines.push(`- **Distinct effect types gained:** ${distinctSPAs}`);
+
+  // Spells per level bracket
+  const brackets = [
+    { label: '1-10', min: 1, max: 10 },
+    { label: '11-20', min: 11, max: 20 },
+    { label: '21-30', min: 21, max: 30 },
+    { label: '31-40', min: 31, max: 40 },
+    { label: '41-50', min: 41, max: 50 },
+    { label: '51-60', min: 51, max: 60 },
+    { label: '61-70', min: 61, max: 70 },
+    { label: '71-80', min: 71, max: 80 },
+    { label: '81-90', min: 81, max: 90 },
+    { label: '91-100', min: 91, max: 100 },
+    { label: '101-110', min: 101, max: 110 },
+    { label: '111+', min: 111, max: 999 },
+  ];
+
+  lines.push('', '## Spell Gain by Level Bracket', '');
+  lines.push('| Bracket | New Spells | New Effects | Ben/Det |');
+  lines.push('|---------|-----------|-------------|---------|');
+
+  for (const bracket of brackets) {
+    let spellCount = 0, newEffects = 0, ben = 0, det = 0;
+    const bracketSPAs = new Set<number>();
+    for (const [level, spellList] of spellsByLevel) {
+      if (level >= bracket.min && level <= bracket.max) {
+        spellCount += spellList.length;
+        for (const s of spellList) {
+          if (s.beneficial) ben++;
+          else det++;
+          for (const spa of s.spas) {
+            if (spaFirstSeen.get(spa) === level && !bracketSPAs.has(spa)) {
+              bracketSPAs.add(spa);
+              newEffects++;
+            }
+          }
+        }
+      }
+    }
+    if (spellCount > 0) {
+      lines.push(`| ${bracket.label} | ${spellCount} | ${newEffects} | ${ben}/${det} |`);
+    }
+  }
+
+  // Milestone levels (first time gaining key effects)
+  const keyEffects = [0, 15, 34, 35, 57, 26, 80, 82, 21, 22, 23, 74, 31, 87, 33, 11, 85, 119, 200, 202, 140];
+  const milestones: { level: number; effect: string; spa: number }[] = [];
+  for (const spa of keyEffects) {
+    if (spaFirstSeen.has(spa)) {
+      milestones.push({ level: spaFirstSeen.get(spa)!, effect: SPA_NAMES[spa] || `SPA ${spa}`, spa });
+    }
+  }
+  milestones.sort((a, b) => a.level - b.level);
+
+  if (milestones.length > 0) {
+    lines.push('', '## Key Effect Milestones', '');
+    lines.push('| Level | Effect | SPA |');
+    lines.push('|-------|--------|-----|');
+    for (const m of milestones) {
+      lines.push(`| ${m.level} | ${m.effect} | ${m.spa} |`);
+    }
+  }
+
+  // Peak levels (most new spells)
+  const levelCounts = [...spellsByLevel.entries()]
+    .map(([level, list]) => ({ level, count: list.length }))
+    .sort((a, b) => b.count - a.count);
+
+  lines.push('', '## Peak Spell Levels (Most New Spells)', '');
+  for (const { level, count } of levelCounts.slice(0, 10)) {
+    const bar = '#'.repeat(Math.min(count, 30));
+    lines.push(`- **Level ${level}:** ${count} new spells ${bar}`);
+  }
+
+  return lines.join('\n');
+}

@@ -187,6 +187,9 @@ import {
   getSpellEffectCombinationAnalysis,
   getExpansionContentDensity,
   getClassSpellDiversityIndex,
+  getGameDataSummaryDashboard,
+  getFactionNetworkAnalysis,
+  getSpellProgressionAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2539,6 +2542,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_game_data_summary_dashboard',
+    description: 'One-stop summary dashboard of ALL loaded EverQuest data — entry counts for all 19 data systems (spells, items, AAs, factions, achievements, mercenaries, zones, maps, lore, overseer, tributes, help topics, etc.) with key metrics and highlights.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_faction_network_analysis',
+    description: 'Faction network connectivity analysis — which factions share modifiers (races, classes, deities), most connected modifier nodes, faction pairs linked through shared modifiers, and connection density metrics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_progression_analysis',
+    description: 'Analyze how a class\'s spell arsenal evolves across level brackets — new SPA effects introduced per bracket, key effect milestones, peak spell levels, and progression timeline.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class short name (WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER)'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4200,6 +4235,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_class_spell_diversity_index': {
         return getClassSpellDiversityIndex();
+      }
+
+      case 'get_game_data_summary_dashboard': {
+        return getGameDataSummaryDashboard();
+      }
+
+      case 'get_faction_network_analysis': {
+        return getFactionNetworkAnalysis();
+      }
+
+      case 'get_spell_progression_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required (e.g., WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER)';
+        return getSpellProgressionAnalysis(className);
       }
 
       case 'search_help_topics': {
