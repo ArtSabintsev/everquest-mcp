@@ -20269,3 +20269,318 @@ export async function getExpansionFactionTimeline(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: CLASS PET COMPARISON MATRIX ============
+
+export async function getClassPetComparisonMatrix(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Class Pet Comparison Matrix', ''];
+  lines.push('*Compare pet capabilities across all 16 classes.*', '');
+
+  // Pet-related SPAs: 33=Summon Pet, 106=Pet Power, 109=Pet HP, 367=Pet Flurry
+  // Also: SPA 22=Charm (temporary pet), SPA 71=Summon Swarm Pet
+  // Categories: "Pet", "Charm", or names containing "pet", "ward", "swarm"
+  const PET_SPAS = new Set([33, 106, 109, 367, 71, 150, 152, 162, 168, 169]);
+  // SPA 22 = Charm counts separately
+
+  interface PetInfo {
+    summon: number;
+    charm: number;
+    swarm: number;
+    buff: number;   // pet buffs (SPA 106, 109, etc.)
+    total: number;
+    minLevel: number;
+    maxLevel: number;
+  }
+
+  const classPets: Map<number, PetInfo> = new Map();
+  for (let cid = 1; cid <= 16; cid++) {
+    classPets.set(cid, { summon: 0, charm: 0, swarm: 0, buff: 0, total: 0, minLevel: 255, maxLevel: 0 });
+  }
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    // Parse effect slots
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        slotsField = i;
+        break;
+      }
+    }
+    if (slotsField < 0) continue;
+
+    const slots = spell.fields[slotsField].split('$');
+    let hasSummon = false, hasCharm = false, hasSwarm = false, hasPetBuff = false;
+
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spa = parseInt(parts[1]);
+        if (spa === 33) hasSummon = true;
+        else if (spa === 22) hasCharm = true;
+        else if (spa === 71) hasSwarm = true;
+        else if (PET_SPAS.has(spa)) hasPetBuff = true;
+      }
+    }
+
+    if (!hasSummon && !hasCharm && !hasSwarm && !hasPetBuff) continue;
+
+    for (let cid = 1; cid <= 16; cid++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+
+      const p = classPets.get(cid)!;
+      if (hasSummon) p.summon++;
+      if (hasCharm) p.charm++;
+      if (hasSwarm) p.swarm++;
+      if (hasPetBuff) p.buff++;
+      p.total++;
+      if (level < p.minLevel) p.minLevel = level;
+      if (level > p.maxLevel) p.maxLevel = level;
+    }
+  }
+
+  // Main comparison table
+  lines.push('## Pet Arsenal by Class', '');
+  lines.push('| Class | Summon | Charm | Swarm | Pet Buffs | Total | First Lv | Last Lv |');
+  lines.push('|-------|------:|------:|------:|----------:|------:|---------:|--------:|');
+  for (let cid = 1; cid <= 16; cid++) {
+    const p = classPets.get(cid)!;
+    const first = p.minLevel <= 254 ? String(p.minLevel) : '—';
+    const last = p.maxLevel > 0 ? String(p.maxLevel) : '—';
+    lines.push(`| ${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}) | ${p.summon} | ${p.charm} | ${p.swarm} | ${p.buff} | ${p.total} | ${first} | ${last} |`);
+  }
+
+  // Rankings
+  lines.push('', '## Pet Class Rankings', '');
+  const ranked = [...classPets.entries()].filter(([, p]) => p.total > 0).sort((a, b) => b[1].total - a[1].total);
+  for (let i = 0; i < ranked.length; i++) {
+    const [cid, p] = ranked[i];
+    const types: string[] = [];
+    if (p.summon > 0) types.push(`${p.summon} summon`);
+    if (p.charm > 0) types.push(`${p.charm} charm`);
+    if (p.swarm > 0) types.push(`${p.swarm} swarm`);
+    if (p.buff > 0) types.push(`${p.buff} pet buffs`);
+    lines.push(`${i + 1}. **${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}):** ${p.total} total — ${types.join(', ')}`);
+  }
+
+  // Pet class tier
+  lines.push('', '## Pet Class Tiers', '');
+  for (let cid = 1; cid <= 16; cid++) {
+    const p = classPets.get(cid)!;
+    let tier: string;
+    if (p.summon >= 20) tier = 'Primary Pet Class';
+    else if (p.summon >= 5 || p.charm >= 10) tier = 'Secondary Pet Class';
+    else if (p.total >= 5) tier = 'Pet Support';
+    else if (p.total > 0) tier = 'Minimal Pet Use';
+    else tier = 'No Pets';
+    lines.push(`- **${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}):** ${tier}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL RESIST BAR CHART ============
+
+export async function getSpellResistBarChart(resistType: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve resist type
+  let resistId = -1;
+  const lower = resistType.toLowerCase();
+  for (const [id, name] of Object.entries(RESIST_TYPES)) {
+    if (name.toLowerCase() === lower || name.toLowerCase().startsWith(lower)) {
+      resistId = parseInt(id);
+      break;
+    }
+  }
+  if (resistId < 0) {
+    resistId = parseInt(resistType);
+    if (isNaN(resistId) || !RESIST_TYPES[resistId]) {
+      return `Error: Unknown resist type "${resistType}". Valid: ${Object.values(RESIST_TYPES).join(', ')}`;
+    }
+  }
+
+  const resistName = RESIST_TYPES[resistId];
+  const lines = [`# Spell Resist Analysis: ${resistName}`, ''];
+  lines.push(`*All ${resistName} spells analyzed across classes and levels.*`, '');
+
+  // Count spells per class
+  interface ResistInfo {
+    total: number;
+    beneficial: number;
+    detrimental: number;
+    levels: number[];
+  }
+
+  const classInfo: Map<number, ResistInfo> = new Map();
+  for (let cid = 1; cid <= 16; cid++) {
+    classInfo.set(cid, { total: 0, beneficial: 0, detrimental: 0, levels: [] });
+  }
+  let totalSpells = 0;
+  let totalBen = 0;
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const rt = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    if (rt !== resistId) continue;
+
+    const isBen = spell.fields[SF.BENEFICIAL] === '1';
+    totalSpells++;
+    if (isBen) totalBen++;
+
+    for (let cid = 1; cid <= 16; cid++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+      const info = classInfo.get(cid)!;
+      info.total++;
+      if (isBen) info.beneficial++;
+      else info.detrimental++;
+      info.levels.push(level);
+    }
+  }
+
+  lines.push(`**Total ${resistName} spells:** ${totalSpells} (${totalBen} beneficial, ${totalSpells - totalBen} detrimental)`, '');
+
+  // Class distribution table
+  lines.push('## Spells by Class', '');
+  lines.push('| Class | Total | Beneficial | Detrimental | Min Lv | Max Lv | Avg Lv |');
+  lines.push('|-------|------:|-----------:|----------:|-------:|-------:|-------:|');
+  for (let cid = 1; cid <= 16; cid++) {
+    const info = classInfo.get(cid)!;
+    if (info.total === 0) {
+      lines.push(`| ${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}) | 0 | — | — | — | — | — |`);
+    } else {
+      const avg = Math.round(info.levels.reduce((s, l) => s + l, 0) / info.levels.length);
+      lines.push(`| ${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}) | ${info.total} | ${info.beneficial} | ${info.detrimental} | ${Math.min(...info.levels)} | ${Math.max(...info.levels)} | ${avg} |`);
+    }
+  }
+
+  // Visual bar chart
+  lines.push('', '## Visual Distribution', '');
+  const maxCount = Math.max(...[...classInfo.values()].map(i => i.total));
+  const sortedClasses = [...classInfo.entries()].sort((a, b) => b[1].total - a[1].total);
+  for (const [cid, info] of sortedClasses) {
+    if (info.total === 0) continue;
+    const barLen = maxCount > 0 ? Math.round(info.total / maxCount * 40) : 0;
+    const bar = '█'.repeat(barLen);
+    lines.push(`- **${CLASS_SHORT[cid]}:** ${bar} ${info.total}`);
+  }
+
+  // Level distribution across brackets
+  lines.push('', '## Level Distribution', '');
+  const brackets = [[1, 20], [21, 40], [41, 60], [61, 80], [81, 100], [101, 125]];
+  lines.push('| Bracket | Spells | % |');
+  lines.push('|---------|------:|---:|');
+  for (const [lo, hi] of brackets) {
+    let count = 0;
+    for (const spell of spells.values()) {
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+      if ((parseInt(spell.fields[SF.RESIST_TYPE]) || 0) !== resistId) continue;
+      for (let cid = 1; cid <= 16; cid++) {
+        const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+        if (level >= lo && level <= hi) { count++; break; }
+      }
+    }
+    const pct = totalSpells > 0 ? Math.round(count / totalSpells * 100) : 0;
+    lines.push(`| ${lo}-${hi} | ${count} | ${pct}% |`);
+  }
+
+  // Comparison to other resist types
+  lines.push('', '## This Resist vs Others', '');
+  const otherCounts: { name: string; count: number }[] = [];
+  for (const [id, name] of Object.entries(RESIST_TYPES)) {
+    let count = 0;
+    for (const spell of spells.values()) {
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+      if ((parseInt(spell.fields[SF.RESIST_TYPE]) || 0) === parseInt(id)) count++;
+    }
+    otherCounts.push({ name, count });
+  }
+  otherCounts.sort((a, b) => b.count - a.count);
+  for (const r of otherCounts) {
+    const marker = r.name === resistName ? ' ◄' : '';
+    lines.push(`- **${r.name}:** ${r.count}${marker}`);
+  }
+
+  lines.push('', `*${totalSpells} ${resistName} spells analyzed.*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: OVERSEER QUEST CATEGORY GUIDE ============
+
+export async function getOverseerQuestCategoryGuide(): Promise<string> {
+  await loadOverseerQuests();
+  await loadOverseerEnhancements();
+  if (!overseerQuests || overseerQuests.size === 0) return 'Overseer quest data not available.';
+
+  const lines = ['# Overseer Quest Category Guide', ''];
+  lines.push('*Practical guide for each quest category with difficulty, slots, and job requirements.*', '');
+
+  // Group quests by category
+  const categories = new Map<string, { quests: OverseerQuest[]; name: string }>();
+  for (const quest of overseerQuests.values()) {
+    const catName = overseerCategories?.get(quest.categoryId) || `Category ${quest.categoryId}`;
+    if (!categories.has(catName)) categories.set(catName, { quests: [], name: catName });
+    categories.get(catName)!.quests.push(quest);
+  }
+
+  // Summary table
+  const sortedCats = [...categories.entries()].sort((a, b) => b[1].quests.length - a[1].quests.length);
+  lines.push('## Category Overview', '');
+  lines.push('| Category | Quests | Avg Difficulty | Avg Required | Avg Optional | Avg Duration |');
+  lines.push('|----------|------:|:-------------:|:-----------:|:-----------:|:-----------:|');
+
+  for (const [catName, data] of sortedCats) {
+    const qs = data.quests;
+    const avgDiff = (qs.reduce((s, q) => s + q.difficulty, 0) / qs.length).toFixed(1);
+    const avgReq = (qs.reduce((s, q) => s + q.requiredSlots, 0) / qs.length).toFixed(1);
+    const avgOpt = (qs.reduce((s, q) => s + q.optionalSlots, 0) / qs.length).toFixed(1);
+    const avgDur = (qs.reduce((s, q) => s + q.duration, 0) / qs.length).toFixed(0);
+    lines.push(`| ${catName} | ${qs.length} | ${avgDiff} | ${avgReq} | ${avgOpt} | ${avgDur}s |`);
+  }
+
+  // Detailed per-category
+  lines.push('', '## Category Details', '');
+  for (const [catName, data] of sortedCats) {
+    const qs = data.quests;
+    lines.push(`### ${catName} (${qs.length} quests)`, '');
+
+    // Difficulty distribution
+    const diffCounts = new Map<number, number>();
+    for (const q of qs) diffCounts.set(q.difficulty, (diffCounts.get(q.difficulty) || 0) + 1);
+    const diffStr = [...diffCounts.entries()].sort((a, b) => a[0] - b[0]).map(([d, c]) => {
+      const name = overseerDifficulties?.get(d) || `D${d}`;
+      return `${name}: ${c}`;
+    }).join(', ');
+    lines.push(`- **Difficulties:** ${diffStr}`);
+
+    // Most needed job types
+    const jobCounts = new Map<string, number>();
+    for (const q of qs) {
+      for (const slot of q.slotDetails) {
+        const jobName = overseerJobNames?.get(slot.jobTypeId) || `Job ${slot.jobTypeId}`;
+        jobCounts.set(jobName, (jobCounts.get(jobName) || 0) + 1);
+      }
+    }
+    const topJobs = [...jobCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    lines.push(`- **Top jobs needed:** ${topJobs.map(([j, c]) => `${j} (${c})`).join(', ')}`);
+
+    // Sample quests
+    const samples = qs.slice(0, 3).map(q => q.name).join(', ');
+    lines.push(`- **Sample quests:** ${samples}`);
+    lines.push('');
+  }
+
+  lines.push(`*${overseerQuests.size} quests across ${categories.size} categories analyzed.*`);
+
+  return lines.join('\n');
+}

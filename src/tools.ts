@@ -229,6 +229,9 @@ import {
   getSpellDamageEfficiency,
   searchAAByDescription,
   getExpansionFactionTimeline,
+  getClassPetComparisonMatrix,
+  getSpellResistBarChart,
+  getOverseerQuestCategoryGuide,
 } from './sources/index.js';
 
 export const tools = [
@@ -3009,6 +3012,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_pet_comparison_matrix',
+    description: 'Class pet comparison — compare pet capabilities across all 16 classes (Summon, Charm, Swarm, Pet Buffs) with tier classification.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_resist_bar_chart',
+    description: 'Spell resist analysis — detailed breakdown of a specific resist type across classes with level distribution, beneficial/detrimental split, and comparison to other resist types.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        resist_type: {
+          type: 'string',
+          description: 'Resist type name (Magic, Fire, Cold, Poison, Disease, Chromatic, Prismatic, Physical, Corruption, Unresistable)'
+        }
+      },
+      required: ['resist_type']
+    }
+  },
+  {
+    name: 'get_overseer_quest_category_guide',
+    description: 'Overseer quest category guide — practical guide for each category with difficulty distribution, top jobs needed, slot requirements, and sample quests.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4858,6 +4893,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_expansion_faction_timeline': {
         return getExpansionFactionTimeline();
+      }
+
+      case 'get_class_pet_comparison_matrix': {
+        return getClassPetComparisonMatrix();
+      }
+
+      case 'get_spell_resist_bar_chart': {
+        const resistType = typeof args.resist_type === 'string' ? args.resist_type.trim() : '';
+        if (!resistType) return 'Error: "resist_type" parameter is required. Valid: Magic, Fire, Cold, Poison, Disease, Chromatic, Prismatic, Physical, Corruption, Unresistable';
+        return getSpellResistBarChart(resistType);
+      }
+
+      case 'get_overseer_quest_category_guide': {
+        return getOverseerQuestCategoryGuide();
       }
 
       case 'search_help_topics': {

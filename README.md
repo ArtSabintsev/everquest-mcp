@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 221 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 224 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **221 tools** for querying EverQuest data
+- **224 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -177,6 +177,7 @@ Then restart Claude Desktop.
 | `get_spell_debuff_comparison_by_class` | Spell debuff comparison — compare all 16 classes' debuff arsenals (Slow, Root, Stun, Mez, Charm, Snare, DoT, etc.) with rankings and diversity |
 | `get_spell_buff_duration_tier_list` | Spell buff duration tier list — beneficial spells grouped by duration tier (Instant, Short, Medium, Long, Very Long, Permanent) per class |
 | `get_spell_damage_efficiency` | Spell damage efficiency — rank a class's damage spells by damage-per-mana (DPM), DD vs DoT comparison, level bracket analysis |
+| `get_spell_resist_bar_chart` | Spell resist analysis — detailed breakdown of a specific resist type across classes with level distribution and comparison to other resists |
 
 ### Local Data - Character
 | Tool | Description |
@@ -218,6 +219,7 @@ Then restart Claude Desktop.
 | `get_class_group_buff_contribution` | Class group buff contribution — what unique group/raid buffs each class brings, exclusive buff categories, and synergy value |
 | `get_class_synergy_matrix` | Class synergy matrix — 16×16 class pair synergy scored by exclusive buff category coverage, best/worst partners, and redundancy analysis |
 | `get_class_healing_comparison_matrix` | Class healing comparison — compare healing capabilities across all 16 classes (Direct, HoT, Group, Cure, Resurrect) with role classification |
+| `get_class_pet_comparison_matrix` | Class pet comparison — compare pet capabilities across all 16 classes (Summon, Charm, Swarm, Pet Buffs) with tier classification |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -295,6 +297,7 @@ Then restart Claude Desktop.
 | `get_overseer_minion_rarity_analysis` | Overseer agent rarity analysis — rarity distribution, traits/jobs per rarity tier, job levels by rarity, most common traits and jobs at each tier |
 | `get_overseer_quest_efficiency_analysis` | Overseer quest efficiency analysis — difficulty-to-slot ratios, category efficiency, most/least demanding quests, job diversity |
 | `get_overseer_agent_trait_job_matrix` | Overseer agent trait-job matrix — cross-reference traits with jobs, trait+job rarity, most versatile agents, and optimal selection |
+| `get_overseer_quest_category_guide` | Overseer quest category guide — practical guide for each category with difficulty, top jobs needed, slot requirements, and sample quests |
 
 ### Local Data - Mercenaries
 | Tool | Description |
@@ -378,7 +381,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (221 tools)
+├── tools.ts          # Tool definitions and handlers (224 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
