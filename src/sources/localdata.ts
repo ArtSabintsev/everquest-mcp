@@ -14627,3 +14627,379 @@ export async function getAANameGroupAnalysis(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SPELL EFFECT COMBINATION ANALYSIS ============
+
+export async function getSpellEffectCombinationAnalysis(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Spell Effect Combination Analysis', ''];
+  lines.push('*Which spell effects (SPA types) most often appear together on the same spell.*', '');
+
+  // Parse effect slots from all spells
+  const pairCounts = new Map<string, number>();
+  const effectsPerSpell: number[][] = [];
+  const slotPositionSPA = new Map<number, Map<number, number>>(); // position -> spa -> count
+  let totalWithEffects = 0;
+  let totalSlots = 0;
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+    if (!effectField) continue;
+
+    const slots = effectField.split('$');
+    const spas: number[] = [];
+    let slotPos = 0;
+
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spa = parseInt(parts[1]);
+      if (isNaN(spa) || spa <= 0) continue;
+      spas.push(spa);
+      totalSlots++;
+      slotPos++;
+
+      // Track SPA by slot position
+      if (!slotPositionSPA.has(slotPos)) slotPositionSPA.set(slotPos, new Map());
+      const posMap = slotPositionSPA.get(slotPos)!;
+      posMap.set(spa, (posMap.get(spa) || 0) + 1);
+    }
+
+    if (spas.length > 0) {
+      totalWithEffects++;
+      effectsPerSpell.push(spas);
+
+      // Count pairs
+      const unique = [...new Set(spas)].sort((a, b) => a - b);
+      for (let i = 0; i < unique.length; i++) {
+        for (let j = i + 1; j < unique.length; j++) {
+          const key = `${unique[i]}:${unique[j]}`;
+          pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  // Effect count distribution
+  const slotCounts = new Map<number, number>();
+  for (const spas of effectsPerSpell) {
+    const count = spas.length;
+    const bucket = count <= 5 ? count : count <= 10 ? 10 : count <= 15 ? 15 : 20;
+    slotCounts.set(bucket, (slotCounts.get(bucket) || 0) + 1);
+  }
+
+  lines.push(`- **Spells with effect data:** ${totalWithEffects.toLocaleString()}`);
+  lines.push(`- **Total effect slots:** ${totalSlots.toLocaleString()}`);
+  lines.push(`- **Average effects per spell:** ${(totalSlots / totalWithEffects).toFixed(1)}`);
+  lines.push(`- **Unique effect pairs observed:** ${pairCounts.size.toLocaleString()}`);
+
+  lines.push('', '## Effects Per Spell Distribution', '');
+  lines.push('| Effect Count | Spells |');
+  lines.push('|-------------|--------|');
+  for (const bucket of [1, 2, 3, 4, 5, 10, 15, 20]) {
+    const count = slotCounts.get(bucket) || 0;
+    if (count > 0) {
+      const label = bucket <= 5 ? `${bucket}` : bucket === 10 ? '6-10' : bucket === 15 ? '11-15' : '16+';
+      lines.push(`| ${label} | ${count.toLocaleString()} |`);
+    }
+  }
+
+  // Most common pairs
+  const sortedPairs = [...pairCounts.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('', '## Most Common Effect Combinations (Top 25)', '');
+  lines.push('| Effect 1 | Effect 2 | Co-occurrence |');
+  lines.push('|----------|----------|--------------|');
+  for (const [pair, count] of sortedPairs.slice(0, 25)) {
+    const [spa1, spa2] = pair.split(':').map(Number);
+    const name1 = SPA_NAMES[spa1] || `SPA ${spa1}`;
+    const name2 = SPA_NAMES[spa2] || `SPA ${spa2}`;
+    lines.push(`| ${name1} (${spa1}) | ${name2} (${spa2}) | ${count.toLocaleString()} |`);
+  }
+
+  // Slot position analysis (what effects are most common in slot 1, 2, 3...)
+  lines.push('', '## Most Common Effect by Slot Position', '');
+  lines.push('| Slot | Most Common SPA | Name | Count |');
+  lines.push('|------|----------------|------|-------|');
+  const sortedPositions = [...slotPositionSPA.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [pos, spaMap] of sortedPositions.slice(0, 12)) {
+    const sorted = [...spaMap.entries()].sort((a, b) => b[1] - a[1]);
+    if (sorted.length > 0) {
+      const [topSPA, topCount] = sorted[0];
+      const name = SPA_NAMES[topSPA] || `SPA ${topSPA}`;
+      lines.push(`| ${pos} | ${topSPA} | ${name} | ${topCount.toLocaleString()} |`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: EXPANSION CONTENT DENSITY ============
+
+export async function getExpansionContentDensity(): Promise<string> {
+  await loadFactions();
+  await loadAchievements();
+  await loadAchievementCategories();
+  await loadZones();
+  await loadSpells();
+
+  const lines = ['# Expansion Content Density Analysis', ''];
+  lines.push('*Cross-reference of content across major game systems by expansion.*', '');
+
+  // Factions by expansion
+  const factionsByExpansion = new Map<string, number>();
+  if (factions) {
+    for (const faction of factions.values()) {
+      const exp = faction.category || 'Uncategorized';
+      factionsByExpansion.set(exp, (factionsByExpansion.get(exp) || 0) + 1);
+    }
+  }
+
+  // Achievements by top-level category
+  const achievementsByCat = new Map<string, number>();
+  if (achievementCategories && categoryToAchievements) {
+    // Count achievements under each top-level category
+    const topLevelCats: { id: number; name: string }[] = [];
+    for (const [, cat] of achievementCategories) {
+      if (cat.parentId === 0 || cat.parentId === -1) {
+        topLevelCats.push({ id: cat.id, name: cat.name });
+      }
+    }
+
+    // For each top-level category, count all achievements (including sub-categories)
+    const countForCategory = (catId: number): number => {
+      let count = (categoryToAchievements!.get(catId) || []).length;
+      for (const [, cat] of achievementCategories!) {
+        if (cat.parentId === catId) {
+          count += countForCategory(cat.id);
+        }
+      }
+      return count;
+    };
+
+    for (const cat of topLevelCats) {
+      const count = countForCategory(cat.id);
+      if (count > 0) {
+        achievementsByCat.set(cat.name, count);
+      }
+    }
+  }
+
+  // Zone level ranges distribution
+  const zoneLevelBuckets = new Map<string, number>();
+  if (zones) {
+    for (const zone of zones.values()) {
+      if (zone.levelMin <= 0 && zone.levelMax <= 0) {
+        zoneLevelBuckets.set('No Level', (zoneLevelBuckets.get('No Level') || 0) + 1);
+      } else {
+        const avgLevel = (zone.levelMin + zone.levelMax) / 2;
+        const bucket = avgLevel <= 20 ? '1-20' : avgLevel <= 40 ? '21-40' : avgLevel <= 60 ? '41-60' : avgLevel <= 80 ? '61-80' : avgLevel <= 100 ? '81-100' : '101+';
+        zoneLevelBuckets.set(bucket, (zoneLevelBuckets.get(bucket) || 0) + 1);
+      }
+    }
+  }
+
+  // Summary counts
+  lines.push('## Content Summary', '');
+  lines.push(`- **Total factions:** ${factions?.size.toLocaleString() || 0}`);
+  lines.push(`- **Faction expansion categories:** ${factionsByExpansion.size}`);
+  lines.push(`- **Total achievements:** ${achievements?.size.toLocaleString() || 0}`);
+  lines.push(`- **Achievement categories:** ${achievementsByCat.size}`);
+  lines.push(`- **Total zones:** ${zones?.size.toLocaleString() || 0}`);
+  lines.push(`- **Total spells:** ${spells?.size.toLocaleString() || 0}`);
+
+  // Factions by expansion
+  if (factionsByExpansion.size > 0) {
+    lines.push('', '## Factions by Expansion', '');
+    lines.push('| Expansion | Factions |');
+    lines.push('|-----------|---------|');
+    const sortedFactions = [...factionsByExpansion.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [exp, count] of sortedFactions) {
+      const bar = '#'.repeat(Math.min(Math.round(count / 2), 30));
+      lines.push(`| ${exp} | ${count} ${bar} |`);
+    }
+  }
+
+  // Achievements by category
+  if (achievementsByCat.size > 0) {
+    lines.push('', '## Achievements by Top-Level Category', '');
+    lines.push('| Category | Achievements |');
+    lines.push('|----------|-------------|');
+    const sortedAch = [...achievementsByCat.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [cat, count] of sortedAch) {
+      const bar = '#'.repeat(Math.min(Math.round(count / 10), 30));
+      lines.push(`| ${cat} | ${count} ${bar} |`);
+    }
+  }
+
+  // Zone level distribution
+  if (zoneLevelBuckets.size > 0) {
+    lines.push('', '## Zones by Level Range', '');
+    lines.push('| Level Range | Zones |');
+    lines.push('|-------------|-------|');
+    for (const bucket of ['1-20', '21-40', '41-60', '61-80', '81-100', '101+', 'No Level']) {
+      const count = zoneLevelBuckets.get(bucket) || 0;
+      if (count > 0) {
+        const bar = '#'.repeat(Math.min(count, 30));
+        lines.push(`| ${bucket} | ${count} ${bar} |`);
+      }
+    }
+  }
+
+  // Content ratio analysis
+  if (factions && zones && achievements && spells) {
+    lines.push('', '## Content Ratios', '');
+    lines.push(`- **Spells per zone:** ${(spells.size / zones.size).toFixed(1)}`);
+    lines.push(`- **Factions per zone:** ${(factions.size / zones.size).toFixed(2)}`);
+    lines.push(`- **Achievements per zone:** ${(achievements.size / zones.size).toFixed(1)}`);
+    lines.push(`- **Spells per faction:** ${(spells.size / factions.size).toFixed(1)}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CLASS SPELL DIVERSITY INDEX ============
+
+export async function getClassSpellDiversityIndex(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Class Spell Diversity Index', ''];
+  lines.push('*Measures each class\'s breadth of spell effects: how many distinct SPA effect types they can access.*', '');
+
+  // For each class, collect distinct SPA effects
+  const classData: {
+    classId: number; name: string; short: string;
+    totalSpells: number; distinctSPAs: Set<number>;
+    benCount: number; detCount: number;
+  }[] = [];
+
+  for (let cid = 1; cid <= 16; cid++) {
+    const distinctSPAs = new Set<number>();
+    let totalSpells = 0;
+    let benCount = 0;
+    let detCount = 0;
+
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]);
+      if (isNaN(level) || level < 1 || level > 254) continue;
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+      totalSpells++;
+
+      if (spell.fields[SF.BENEFICIAL] === '1') benCount++;
+      else detCount++;
+
+      // Parse effect slots
+      let effectField = '';
+      for (let i = spell.fields.length - 1; i >= 0; i--) {
+        if (spell.fields[i].includes('|')) {
+          effectField = spell.fields[i];
+          break;
+        }
+      }
+      if (!effectField) continue;
+
+      const slots = effectField.split('$');
+      for (const slot of slots) {
+        const parts = slot.split('|');
+        if (parts.length < 3) continue;
+        const spa = parseInt(parts[1]);
+        if (!isNaN(spa) && spa > 0) distinctSPAs.add(spa);
+      }
+    }
+
+    classData.push({
+      classId: cid,
+      name: CLASS_IDS[cid],
+      short: CLASS_SHORT[cid],
+      totalSpells,
+      distinctSPAs,
+      benCount,
+      detCount,
+    });
+  }
+
+  // Sort by diversity (distinct SPAs)
+  classData.sort((a, b) => b.distinctSPAs.size - a.distinctSPAs.size);
+
+  lines.push('## Class Diversity Rankings', '');
+  lines.push('| Rank | Class | Total Spells | Distinct Effects | Ben/Det | Diversity Score |');
+  lines.push('|------|-------|-------------|-----------------|---------|----------------|');
+  for (let i = 0; i < classData.length; i++) {
+    const c = classData[i];
+    const diversityScore = c.totalSpells > 0 ? (c.distinctSPAs.size / c.totalSpells * 100).toFixed(2) : '0';
+    lines.push(`| ${i + 1} | ${c.name} (${c.short}) | ${c.totalSpells.toLocaleString()} | ${c.distinctSPAs.size} | ${c.benCount}/${c.detCount} | ${diversityScore}% |`);
+  }
+
+  // Find class-exclusive effects (SPAs only available to one class)
+  const spaToClasses = new Map<number, Set<number>>();
+  for (const c of classData) {
+    for (const spa of c.distinctSPAs) {
+      if (!spaToClasses.has(spa)) spaToClasses.set(spa, new Set());
+      spaToClasses.get(spa)!.add(c.classId);
+    }
+  }
+
+  const exclusiveEffects = new Map<number, number[]>(); // classId -> [spa ids]
+  for (const [spa, classes] of spaToClasses) {
+    if (classes.size === 1) {
+      const classId = [...classes][0];
+      if (!exclusiveEffects.has(classId)) exclusiveEffects.set(classId, []);
+      exclusiveEffects.get(classId)!.push(spa);
+    }
+  }
+
+  if (exclusiveEffects.size > 0) {
+    lines.push('', '## Class-Exclusive Effects (SPA Available to Only One Class)', '');
+    lines.push('| Class | Exclusive Effects | Sample Effects |');
+    lines.push('|-------|-------------------|----------------|');
+    const sortedExcl = [...exclusiveEffects.entries()].sort((a, b) => b[1].length - a[1].length);
+    for (const [classId, spas] of sortedExcl) {
+      const sample = spas.slice(0, 5).map(s => SPA_NAMES[s] || `SPA ${s}`).join(', ');
+      lines.push(`| ${CLASS_IDS[classId]} | ${spas.length} | ${sample} |`);
+    }
+  }
+
+  // Universal effects (available to ALL classes)
+  const universalSPAs: number[] = [];
+  for (const [spa, classes] of spaToClasses) {
+    if (classes.size === 16) universalSPAs.push(spa);
+  }
+
+  lines.push('', `## Universal Effects (Available to All 16 Classes): ${universalSPAs.length}`, '');
+  const sortedUniversal = universalSPAs.sort((a, b) => a - b);
+  for (const spa of sortedUniversal.slice(0, 30)) {
+    lines.push(`- ${SPA_NAMES[spa] || `SPA ${spa}`} (${spa})`);
+  }
+  if (sortedUniversal.length > 30) {
+    lines.push(`- *(+${sortedUniversal.length - 30} more)*`);
+  }
+
+  // Effect overlap matrix (top 5 classes)
+  lines.push('', '## Effect Overlap Between Top Classes', '');
+  const top5 = classData.slice(0, 5);
+  lines.push(`| | ${top5.map(c => c.short).join(' | ')} |`);
+  lines.push(`|---|${top5.map(() => '---').join('|')}|`);
+  for (const c1 of top5) {
+    const cells = top5.map(c2 => {
+      if (c1.classId === c2.classId) return `**${c1.distinctSPAs.size}**`;
+      let shared = 0;
+      for (const spa of c1.distinctSPAs) {
+        if (c2.distinctSPAs.has(spa)) shared++;
+      }
+      return `${shared}`;
+    });
+    lines.push(`| ${c1.short} | ${cells.join(' | ')} |`);
+  }
+
+  return lines.join('\n');
+}

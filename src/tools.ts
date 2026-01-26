@@ -184,6 +184,9 @@ import {
   getSpellDurationFormulaAnalysis,
   getMapPOILabelAnalysis,
   getAANameGroupAnalysis,
+  getSpellEffectCombinationAnalysis,
+  getExpansionContentDensity,
+  getClassSpellDiversityIndex,
 } from './sources/index.js';
 
 export const tools = [
@@ -2509,6 +2512,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_effect_combination_analysis',
+    description: 'Analysis of which spell effects (SPA types) most often appear together — top co-occurring effect pairs, effects per spell distribution, dominant effect by slot position.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_expansion_content_density',
+    description: 'Cross-system content density analysis — factions by expansion, achievements by category, zones by level range, and content ratio metrics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_spell_diversity_index',
+    description: 'Class spell diversity ranking — distinct SPA effect types per class, class-exclusive effects, universal effects, and effect overlap matrix between top classes.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4158,6 +4188,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_aa_name_group_analysis': {
         return getAANameGroupAnalysis();
+      }
+
+      case 'get_spell_effect_combination_analysis': {
+        return getSpellEffectCombinationAnalysis();
+      }
+
+      case 'get_expansion_content_density': {
+        return getExpansionContentDensity();
+      }
+
+      case 'get_class_spell_diversity_index': {
+        return getClassSpellDiversityIndex();
       }
 
       case 'search_help_topics': {

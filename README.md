@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 176 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 179 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **176 tools** for querying EverQuest data
+- **179 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -166,6 +166,7 @@ Then restart Claude Desktop.
 | `get_spell_pushback_overview` | Spell pushback/positioning overview — pushback and pushup value distributions, highest knockback spells, spells with both effects, class comparison |
 | `get_spell_recourse_overview` | Spell recourse system overview — recourse statistics, multi-step chains, most common recourse targets, category and class distributions |
 | `get_spell_duration_formula_analysis` | Duration formula × value interactions — value ranges per formula, most common values, constant-value anomalies, beneficial vs detrimental patterns |
+| `get_spell_effect_combination_analysis` | Spell effect co-occurrence — most common SPA pairs, effects per spell distribution, dominant effect by slot position |
 
 ### Local Data - Character
 | Tool | Description |
@@ -197,6 +198,7 @@ Then restart Claude Desktop.
 | `get_race_stat_comparison` | All 16 races' starting stats compared — sorted by total, per-stat rankings, stat spreads |
 | `get_deity_overview` | All 17 deities with race/class availability counts and accessibility rankings |
 | `get_class_comparison_matrix` | All 16 classes compared — spell count, beneficial %, skills, base stats, pet availability |
+| `get_class_spell_diversity_index` | Class spell diversity — distinct SPA effects per class, class-exclusive effects, universal effects, overlap matrix |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -294,6 +296,7 @@ Then restart Claude Desktop.
 | `compare_expansions` | Compare two expansions side by side (factions, achievements, faction lists) |
 | `get_game_event_overview` | Game event overview with category breakdown (seasonal, expansion, double XP, etc.) |
 | `get_expansion_timeline` | Timeline of all 33 expansions with faction and achievement counts per expansion |
+| `get_expansion_content_density` | Cross-system content density — factions by expansion, achievements by category, zones by level range, content ratios |
 | `get_expansion` | Expansion content summary with factions and achievements |
 | `get_banner_categories` | Guild banner and fellowship campsite types |
 | `search_help_topics` | Search 75 official in-game help topics on game mechanics |
@@ -333,7 +336,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (176 tools)
+├── tools.ts          # Tool definitions and handlers (179 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
