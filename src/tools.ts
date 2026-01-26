@@ -70,6 +70,7 @@ import {
   listExpansions,
   searchGameEvents,
   getGameEvent,
+  listSpellCategories,
 } from './sources/index.js';
 
 export const tools = [
@@ -382,7 +383,7 @@ export const tools = [
   },
   {
     name: 'get_spells_by_class',
-    description: 'List all spells available to a specific class, optionally filtered by level. Uses local game data for complete, authoritative spell lists.',
+    description: 'List all spells available to a specific class, optionally filtered by level and/or spell category. Uses local game data for complete, authoritative spell lists.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -393,6 +394,10 @@ export const tools = [
         level: {
           type: 'number',
           description: 'Optional: filter to spells gained at this specific level'
+        },
+        category: {
+          type: 'string',
+          description: 'Optional: filter by spell category (e.g., "Heals", "Fire", "Cold", "Direct Damage", "DoT", "Charm", "Fear")'
         }
       },
       required: ['class']
@@ -886,6 +891,14 @@ export const tools = [
   {
     name: 'list_expansions',
     description: 'List all EverQuest expansions with their numeric IDs, from Classic EverQuest through the latest expansion.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'list_spell_categories',
+    description: 'List all EverQuest spell categories (Heals, Fire, Cold, Direct Damage, DoT, Charm, Fear, etc.). Use these category names with get_spells_by_class for filtered spell lists.',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -1621,7 +1634,8 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class === 'string' ? args.class.trim() : '';
         if (!className) return 'Error: "class" parameter is required';
         const level = typeof args.level === 'number' ? args.level : undefined;
-        return getSpellsByClass(className, level);
+        const category = typeof args.category === 'string' ? args.category.trim() : undefined;
+        return getSpellsByClass(className, level, category);
       }
 
       case 'get_skill_caps': {
@@ -1864,6 +1878,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'list_expansions': {
         return listExpansions();
+      }
+
+      case 'list_spell_categories': {
+        return listSpellCategories();
       }
 
       case 'search_game_events': {

@@ -3116,8 +3116,9 @@ export async function getSpellStackingInfo(spellId: string): Promise<string> {
 
 // ============ PUBLIC API: SPELLS BY CLASS ============
 
-export async function getSpellsByClass(className: string, level?: number): Promise<string> {
+export async function getSpellsByClass(className: string, level?: number, category?: string): Promise<string> {
   await loadSpells();
+  await loadSpellDescriptions(); // For category data
   if (!spells || spells.size === 0) return 'Spell data not available.';
 
   const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
@@ -3126,7 +3127,10 @@ export async function getSpellsByClass(className: string, level?: number): Promi
   }
 
   const classIndex = classId - 1; // 0-based index into class level fields
-  const matchingSpells: { id: number; name: string; level: number }[] = [];
+  const matchingSpells: { id: number; name: string; level: number; category?: string }[] = [];
+
+  // Normalize category filter
+  const lowerCategory = category?.toLowerCase();
 
   for (const [id, spell] of spells) {
     const classLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
@@ -3134,17 +3138,33 @@ export async function getSpellsByClass(className: string, level?: number): Promi
 
     if (level !== undefined && classLevel !== level) continue;
 
-    matchingSpells.push({ id, name: spell.name, level: classLevel });
+    // Category filter
+    let spellCat: string | undefined;
+    let spellSubCat: string | undefined;
+    if (spellCategories) {
+      const catId = parseInt(spell.fields[SF.CATEGORY]);
+      const subCatId = parseInt(spell.fields[SF.SUBCATEGORY]);
+      if (!isNaN(catId) && catId > 0) spellCat = spellCategories.get(catId);
+      if (!isNaN(subCatId) && subCatId > 0 && subCatId !== catId) spellSubCat = spellCategories.get(subCatId);
+    }
+
+    if (lowerCategory) {
+      const catMatch = spellCat?.toLowerCase().includes(lowerCategory) || spellSubCat?.toLowerCase().includes(lowerCategory);
+      if (!catMatch) continue;
+    }
+
+    matchingSpells.push({ id, name: spell.name, level: classLevel, category: spellCat });
   }
 
   matchingSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
 
   if (matchingSpells.length === 0) {
-    return `No spells found for ${CLASS_IDS[classId]}${level ? ` at level ${level}` : ''}.`;
+    return `No spells found for ${CLASS_IDS[classId]}${level ? ` at level ${level}` : ''}${category ? ` in category "${category}"` : ''}.`;
   }
 
+  const catLabel = category ? ` - ${category}` : '';
   const lines = [
-    `## ${CLASS_IDS[classId]} Spells${level ? ` (Level ${level})` : ''}`,
+    `## ${CLASS_IDS[classId]} Spells${level ? ` (Level ${level})` : ''}${catLabel}`,
     `*${matchingSpells.length} spells found*`,
     '',
   ];
@@ -3152,7 +3172,8 @@ export async function getSpellsByClass(className: string, level?: number): Promi
   if (level) {
     // Show all spells at that level
     for (const s of matchingSpells) {
-      lines.push(`- **${s.name}** (ID: ${s.id})`);
+      const catSuffix = s.category && !category ? ` [${s.category}]` : '';
+      lines.push(`- **${s.name}** (ID: ${s.id})${catSuffix}`);
     }
   } else {
     // Group by level
@@ -3167,7 +3188,8 @@ export async function getSpellsByClass(className: string, level?: number): Promi
         currentLevel = s.level;
         lines.push(`\n### Level ${currentLevel}`);
       }
-      lines.push(`- ${s.name} (ID: ${s.id})`);
+      const catSuffix = s.category && !category ? ` [${s.category}]` : '';
+      lines.push(`- ${s.name} (ID: ${s.id})${catSuffix}`);
       count++;
     }
   }
@@ -4266,6 +4288,21 @@ export async function getBannerCategories(): Promise<string> {
     return 'Banner/campsite category data not available.';
   }
 
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL CATEGORIES ============
+
+export async function listSpellCategories(): Promise<string> {
+  await loadSpellDescriptions();
+  if (!spellCategories || spellCategories.size === 0) return 'Spell category data not available.';
+
+  const lines = ['## Spell Categories', ''];
+  const sorted = [...spellCategories.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  for (const [id, name] of sorted) {
+    lines.push(`- ${name} (ID: ${id})`);
+  }
+  lines.push('', `*${sorted.length} categories total — use with get_spells_by_class category filter*`);
   return lines.join('\n');
 }
 
