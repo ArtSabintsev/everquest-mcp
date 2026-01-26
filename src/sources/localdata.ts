@@ -16241,3 +16241,315 @@ export async function getSpellCostEfficiencyAnalysis(className: string): Promise
 
   return lines.join('\n');
 }
+
+// ============ DEITY FACTION IMPACT ANALYSIS ============
+
+export async function getDeityFactionImpactAnalysis(): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const lines = ['# Deity Faction Impact Analysis', ''];
+  lines.push('*How each deity choice affects faction standing across all factions with starting modifiers.*', '');
+
+  // Get unique deity names and their modifier IDs
+  const deityEntries: { name: string; modId: number }[] = [];
+  const seenModIds = new Set<number>();
+  for (const [name, modId] of Object.entries(DEITY_TO_FACTION_MODIFIER)) {
+    if (seenModIds.has(modId)) continue;
+    seenModIds.add(modId);
+    // Use the shortest name for each mod ID
+    const existingIdx = deityEntries.findIndex(d => d.modId === modId);
+    if (existingIdx >= 0) continue;
+    // Capitalize name
+    const capName = name.split(/[\s-]+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    deityEntries.push({ name: capName, modId });
+  }
+
+  // For each deity, count positive/negative/neutral impacts
+  interface DeityImpact {
+    name: string;
+    modId: number;
+    positive: number;
+    negative: number;
+    neutral: number;
+    totalAffected: number;
+    totalPositiveValue: number;
+    totalNegativeValue: number;
+    bestFaction: string;
+    bestValue: number;
+    worstFaction: string;
+    worstValue: number;
+  }
+
+  const impacts: DeityImpact[] = [];
+
+  for (const deity of deityEntries) {
+    let positive = 0, negative = 0, neutral = 0;
+    let totalPositiveValue = 0, totalNegativeValue = 0;
+    let bestFaction = '', bestValue = -Infinity;
+    let worstFaction = '', worstValue = Infinity;
+
+    for (const faction of factions.values()) {
+      if (!faction.startingValues) continue;
+      const sv = faction.startingValues.find(s => s.modifierId === deity.modId);
+      if (!sv) continue;
+
+      if (sv.value > 0) {
+        positive++;
+        totalPositiveValue += sv.value;
+        if (sv.value > bestValue) { bestValue = sv.value; bestFaction = faction.name; }
+      } else if (sv.value < 0) {
+        negative++;
+        totalNegativeValue += sv.value;
+        if (sv.value < worstValue) { worstValue = sv.value; worstFaction = faction.name; }
+      } else {
+        neutral++;
+      }
+    }
+
+    impacts.push({
+      name: deity.name, modId: deity.modId,
+      positive, negative, neutral,
+      totalAffected: positive + negative + neutral,
+      totalPositiveValue, totalNegativeValue,
+      bestFaction, bestValue: bestValue === -Infinity ? 0 : bestValue,
+      worstFaction, worstValue: worstValue === Infinity ? 0 : worstValue
+    });
+  }
+
+  // Sort by net impact (positive - negative counts)
+  impacts.sort((a, b) => (b.positive - b.negative) - (a.positive - a.negative));
+
+  lines.push('## Deity Faction Impact Summary', '');
+  lines.push('| Deity | Positive | Negative | Net | Total Affected | Avg Pos | Avg Neg |');
+  lines.push('|-------|--------:|---------:|----:|--------------:|--------:|--------:|');
+  for (const d of impacts) {
+    const avgPos = d.positive > 0 ? Math.round(d.totalPositiveValue / d.positive) : 0;
+    const avgNeg = d.negative > 0 ? Math.round(d.totalNegativeValue / d.negative) : 0;
+    lines.push(`| ${d.name} | ${d.positive} | ${d.negative} | ${d.positive - d.negative} | ${d.totalAffected} | +${avgPos} | ${avgNeg} |`);
+  }
+
+  // Best/worst faction per deity
+  lines.push('', '## Strongest Faction Ties', '');
+  lines.push('| Deity | Best Faction | Value | Worst Faction | Value |');
+  lines.push('|-------|-------------|------:|--------------|------:|');
+  for (const d of impacts) {
+    if (d.totalAffected > 0) {
+      lines.push(`| ${d.name} | ${d.bestFaction || '-'} | ${d.bestValue > 0 ? '+' : ''}${d.bestValue} | ${d.worstFaction || '-'} | ${d.worstValue} |`);
+    }
+  }
+
+  // Deity accessibility ranking
+  lines.push('', '## Deity Accessibility Ranking', '');
+  lines.push('*Ranked by fewest hostile factions — lower negative count = easier start.*', '');
+  const byAccessibility = [...impacts].sort((a, b) => a.negative - b.negative);
+  for (const d of byAccessibility) {
+    const bar = '#'.repeat(Math.min(d.negative, 40));
+    lines.push(`- **${d.name}:** ${d.negative} hostile factions ${bar}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ SPELL TARGET TYPE MATRIX ============
+
+export async function getSpellTargetTypeMatrix(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Spell Target Type Matrix', ''];
+  lines.push('*Class specialization patterns based on spell target type distribution.*', '');
+
+  // For each class, count spells by target type, split by beneficial/detrimental
+  const classTargets: Record<number, Record<number, { ben: number; det: number }>> = {};
+
+  for (let cid = 1; cid <= 16; cid++) {
+    classTargets[cid] = {};
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+      const targetType = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+      if (!classTargets[cid][targetType]) classTargets[cid][targetType] = { ben: 0, det: 0 };
+      if (spell.fields[SF.BENEFICIAL] === '1') {
+        classTargets[cid][targetType].ben++;
+      } else {
+        classTargets[cid][targetType].det++;
+      }
+    }
+  }
+
+  // Find all active target types
+  const activeTargets = new Set<number>();
+  for (const ct of Object.values(classTargets)) {
+    for (const tt of Object.keys(ct)) activeTargets.add(parseInt(tt));
+  }
+  const sortedTargets = [...activeTargets].sort((a, b) => a - b);
+
+  // Main matrix (total per target type per class)
+  lines.push('## Total Spells by Target Type per Class', '');
+  const header = ['Class', ...sortedTargets.map(t => TARGET_TYPES[t] || `T${t}`)];
+  lines.push('| ' + header.join(' | ') + ' |');
+  lines.push('|' + header.map(() => '---').join('|') + '|');
+
+  for (let cid = 1; cid <= 16; cid++) {
+    const cells = [CLASS_SHORT[cid]];
+    for (const tt of sortedTargets) {
+      const data = classTargets[cid][tt];
+      cells.push(data ? (data.ben + data.det).toString() : '0');
+    }
+    lines.push('| ' + cells.join(' | ') + ' |');
+  }
+
+  // Specialization analysis: which target types each class uses disproportionately
+  lines.push('', '## Class Target Specializations', '');
+  lines.push('*Target types where a class uses significantly more spells than average.*', '');
+
+  // Calculate averages per target type
+  const targetAverages: Record<number, number> = {};
+  for (const tt of sortedTargets) {
+    let sum = 0;
+    for (let cid = 1; cid <= 16; cid++) {
+      const data = classTargets[cid][tt];
+      sum += data ? data.ben + data.det : 0;
+    }
+    targetAverages[tt] = sum / 16;
+  }
+
+  for (let cid = 1; cid <= 16; cid++) {
+    const specializations: { target: string; count: number; avg: number }[] = [];
+    for (const tt of sortedTargets) {
+      const data = classTargets[cid][tt];
+      const count = data ? data.ben + data.det : 0;
+      const avg = targetAverages[tt];
+      if (count > avg * 1.5 && count > 10) { // 50% above average and meaningful count
+        specializations.push({ target: TARGET_TYPES[tt] || `T${tt}`, count, avg: Math.round(avg) });
+      }
+    }
+    if (specializations.length > 0) {
+      const specs = specializations.map(s => `${s.target} (${s.count} vs avg ${s.avg})`).join(', ');
+      lines.push(`- **${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}):** ${specs}`);
+    }
+  }
+
+  // Self vs Group vs Single breakdown
+  lines.push('', '## Self vs Group vs Single vs AE', '');
+  lines.push('| Class | Self | Single | Group | PB AE | Targeted AE | Other |');
+  lines.push('|-------|-----:|-------:|------:|------:|------------:|------:|');
+  for (let cid = 1; cid <= 16; cid++) {
+    const self = classTargets[cid][6] || { ben: 0, det: 0 };
+    const single = classTargets[cid][5] || { ben: 0, det: 0 };
+    const group1 = classTargets[cid][3] || { ben: 0, det: 0 };
+    const group2 = classTargets[cid][41] || { ben: 0, det: 0 };
+    const pbae = classTargets[cid][4] || { ben: 0, det: 0 };
+    const tae = classTargets[cid][8] || { ben: 0, det: 0 };
+
+    const selfTotal = self.ben + self.det;
+    const singleTotal = single.ben + single.det;
+    const groupTotal = (group1.ben + group1.det) + (group2.ben + group2.det);
+    const pbaeTotal = pbae.ben + pbae.det;
+    const taeTotal = tae.ben + tae.det;
+
+    let totalAll = 0;
+    for (const data of Object.values(classTargets[cid])) totalAll += data.ben + data.det;
+    const other = totalAll - selfTotal - singleTotal - groupTotal - pbaeTotal - taeTotal;
+
+    lines.push(`| ${CLASS_SHORT[cid]} | ${selfTotal} | ${singleTotal} | ${groupTotal} | ${pbaeTotal} | ${taeTotal} | ${other} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ LEVEL CONTENT GUIDE ============
+
+export async function getLevelContentGuide(level: number): Promise<string> {
+  await loadZones();
+  await loadSpells();
+  await loadAchievements();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  if (level < 1 || level > 125) return 'Level must be between 1 and 125.';
+
+  const lines = [`# Content Guide for Level ${level}`, ''];
+  lines.push(`*All available content at level ${level} — zones, spells, and achievements.*`, '');
+
+  // Zones for this level
+  const matchingZones = [...zones.values()]
+    .filter(z => z.levelMin > 0 && level >= z.levelMin && level <= z.levelMax)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  lines.push(`## Zones (Level ${level})`, '');
+  if (matchingZones.length > 0) {
+    lines.push(`Found ${matchingZones.length} zones for level ${level}.`, '');
+    lines.push('| Zone | Level Range |');
+    lines.push('|------|------------|');
+    for (const z of matchingZones) {
+      lines.push(`| ${z.name} | ${z.levelMin}-${z.levelMax} |`);
+    }
+  } else {
+    lines.push('No zones found for this level range.');
+  }
+
+  // Spells gained at this exact level
+  if (spells && spells.size > 0) {
+    lines.push('', `## Spells Available at Level ${level}`, '');
+    const classSpells: Record<string, string[]> = {};
+
+    for (const spell of spells.values()) {
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+      for (let cid = 1; cid <= 16; cid++) {
+        const spellLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+        if (spellLevel === level) {
+          const cls = CLASS_SHORT[cid];
+          if (!classSpells[cls]) classSpells[cls] = [];
+          if (classSpells[cls].length < 15) classSpells[cls].push(spell.name);
+        }
+      }
+    }
+
+    const classCount = Object.keys(classSpells).length;
+    if (classCount > 0) {
+      lines.push(`${classCount} classes gain new spells at level ${level}.`, '');
+      for (const [cls, spellList] of Object.entries(classSpells).sort((a, b) => b[1].length - a[1].length)) {
+        const totalForClass = spellList.length;
+        const shown = spellList.slice(0, 10);
+        const suffix = totalForClass > 10 ? ` (+${totalForClass - 10} more)` : '';
+        lines.push(`- **${cls}** (${totalForClass}): ${shown.join(', ')}${suffix}`);
+      }
+    } else {
+      lines.push('No new spells are gained at this exact level.');
+    }
+  }
+
+  // Nearby level content summary
+  const range = 5;
+  const lo = Math.max(1, level - range);
+  const hi = Math.min(125, level + range);
+
+  if (spells) {
+    lines.push('', `## Spell Activity Near Level ${level} (${lo}-${hi})`, '');
+    const levelCounts = new Map<number, number>();
+    for (let l = lo; l <= hi; l++) levelCounts.set(l, 0);
+
+    for (const spell of spells.values()) {
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+      for (let cid = 1; cid <= 16; cid++) {
+        const sl = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+        if (sl >= lo && sl <= hi) {
+          levelCounts.set(sl, (levelCounts.get(sl) || 0) + 1);
+        }
+      }
+    }
+
+    for (let l = lo; l <= hi; l++) {
+      const count = levelCounts.get(l) || 0;
+      const marker = l === level ? ' <<<' : '';
+      const bar = '#'.repeat(Math.min(Math.round(count / 5), 40));
+      lines.push(`- **Level ${l}:** ${count} spells ${bar}${marker}`);
+    }
+  }
+
+  return lines.join('\n');
+}

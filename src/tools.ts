@@ -196,6 +196,9 @@ import {
   getResistTypeByLevelAnalysis,
   getClassRoleAnalysis,
   getSpellCostEfficiencyAnalysis,
+  getDeityFactionImpactAnalysis,
+  getSpellTargetTypeMatrix,
+  getLevelContentGuide,
 } from './sources/index.js';
 
 export const tools = [
@@ -2644,6 +2647,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_deity_faction_impact_analysis',
+    description: 'Deity faction impact analysis — how each deity choice affects faction standing across all factions, best/worst factions per deity, accessibility ranking.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_target_type_matrix',
+    description: 'Spell target type matrix — class specialization patterns based on target type distribution (Self, Single, Group, AE, etc.) with above-average highlights.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_level_content_guide',
+    description: 'Content guide for a specific level — matching zones, new spells per class, and nearby level spell activity. One-stop view of what content is available.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        level: {
+          type: 'number',
+          description: 'Character level (1-125)'
+        }
+      },
+      required: ['level']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4347,6 +4382,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required (e.g., WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER)';
         return getSpellCostEfficiencyAnalysis(className);
+      }
+
+      case 'get_deity_faction_impact_analysis': {
+        return getDeityFactionImpactAnalysis();
+      }
+
+      case 'get_spell_target_type_matrix': {
+        return getSpellTargetTypeMatrix();
+      }
+
+      case 'get_level_content_guide': {
+        const level = typeof args.level === 'number' ? args.level : parseInt(String(args.level));
+        if (isNaN(level)) return 'Error: "level" parameter is required (1-125)';
+        return getLevelContentGuide(level);
       }
 
       case 'search_help_topics': {
