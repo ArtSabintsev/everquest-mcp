@@ -6726,6 +6726,259 @@ export async function getHelpTopic(topic: string): Promise<string> {
   }
 }
 
+// ============ PUBLIC API: SHARED SPELLS ============
+
+export async function getSharedSpells(class1: string, class2: string, level?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId1 = CLASS_NAME_TO_ID[class1.toLowerCase()];
+  const classId2 = CLASS_NAME_TO_ID[class2.toLowerCase()];
+  if (!classId1) return `Unknown class: "${class1}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (!classId2) return `Unknown class: "${class2}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (classId1 === classId2) return `Please specify two different classes to compare.`;
+
+  const idx1 = classId1 - 1;
+  const idx2 = classId2 - 1;
+  const name1 = CLASS_IDS[classId1];
+  const name2 = CLASS_IDS[classId2];
+
+  const shared: { id: number; name: string; level1: number; level2: number; category?: string }[] = [];
+
+  for (const [id, spell] of spells) {
+    const lv1 = parseInt(spell.fields[SF.CLASS_LEVEL_START + idx1]);
+    const lv2 = parseInt(spell.fields[SF.CLASS_LEVEL_START + idx2]);
+    if (isNaN(lv1) || lv1 === 255 || lv1 <= 0) continue;
+    if (isNaN(lv2) || lv2 === 255 || lv2 <= 0) continue;
+
+    if (level !== undefined && (lv1 > level || lv2 > level)) continue;
+
+    let cat: string | undefined;
+    if (spellCategories) {
+      const catId = parseInt(spell.fields[SF.CATEGORY]);
+      if (!isNaN(catId) && catId > 0) cat = spellCategories.get(catId);
+    }
+
+    shared.push({ id, name: spell.name, level1: lv1, level2: lv2, category: cat });
+  }
+
+  shared.sort((a, b) => Math.min(a.level1, a.level2) - Math.min(b.level1, b.level2) || a.name.localeCompare(b.name));
+
+  if (shared.length === 0) {
+    return `No shared spells found between ${name1} and ${name2}${level ? ` at or below level ${level}` : ''}.`;
+  }
+
+  const lines = [
+    `## Shared Spells: ${name1} & ${name2}${level ? ` (≤ Level ${level})` : ''}`,
+    `*${shared.length} spells shared*`,
+    '',
+    `| Spell | ${name1} Lvl | ${name2} Lvl | Category |`,
+    `|-------|------------|------------|----------|`,
+  ];
+
+  const limit = 150;
+  for (let i = 0; i < Math.min(shared.length, limit); i++) {
+    const s = shared[i];
+    const lvDiff = s.level1 !== s.level2 ? ' ⚡' : '';
+    lines.push(`| ${s.name} (${s.id}) | ${s.level1} | ${s.level2}${lvDiff} | ${s.category || '-'} |`);
+  }
+
+  if (shared.length > limit) {
+    lines.push(`\n*...and ${shared.length - limit} more shared spells*`);
+  }
+
+  const sameLevelCount = shared.filter(s => s.level1 === s.level2).length;
+  const class1Earlier = shared.filter(s => s.level1 < s.level2).length;
+  const class2Earlier = shared.filter(s => s.level2 < s.level1).length;
+  lines.push('');
+  lines.push(`### Summary`);
+  lines.push(`- Same level: ${sameLevelCount}`);
+  lines.push(`- ${name1} gets earlier: ${class1Earlier}`);
+  lines.push(`- ${name2} gets earlier: ${class2Earlier}`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL LINE PROGRESSION ============
+
+export async function getSpellLine(spellName: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Strip rank suffixes to find base name
+  const baseName = spellName
+    .replace(/\s+Rk\.\s*(II|III|IV|V|VI|VII|VIII|IX|X)\s*$/i, '')
+    .replace(/\s+(II|III|IV|V|VI|VII|VIII|IX|X)\s*$/i, '')
+    .trim();
+
+  const lowerBase = baseName.toLowerCase();
+
+  // Find all spells whose name starts with the base name + rank/version pattern
+  const exactMatches: { id: number; name: string; classes: { className: string; level: number }[] }[] = [];
+
+  for (const [id, spell] of spells) {
+    const lowerName = spell.name.toLowerCase();
+    if (lowerName === lowerBase ||
+        lowerName.startsWith(lowerBase + ' rk.') ||
+        (lowerName.startsWith(lowerBase + ' ') && /^(ii|iii|iv|v|vi|vii|viii|ix|x)$/i.test(spell.name.substring(baseName.length + 1).trim()))) {
+      const classes: { className: string; level: number }[] = [];
+      for (let i = 0; i < 16; i++) {
+        const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + i]);
+        if (!isNaN(lv) && lv !== 255 && lv > 0) {
+          classes.push({ className: CLASS_IDS[i + 1], level: lv });
+        }
+      }
+      if (classes.length > 0) {
+        exactMatches.push({ id, name: spell.name, classes });
+      }
+    }
+  }
+
+  // If no exact matches, try broader substring search
+  let results = exactMatches;
+  if (results.length === 0) {
+    for (const [id, spell] of spells) {
+      if (spell.name.toLowerCase().includes(lowerBase)) {
+        const classes: { className: string; level: number }[] = [];
+        for (let i = 0; i < 16; i++) {
+          const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + i]);
+          if (!isNaN(lv) && lv !== 255 && lv > 0) {
+            classes.push({ className: CLASS_IDS[i + 1], level: lv });
+          }
+        }
+        if (classes.length > 0) {
+          results.push({ id, name: spell.name, classes });
+        }
+      }
+    }
+  }
+
+  if (results.length === 0) {
+    return `No spell line found for "${spellName}".`;
+  }
+
+  // Sort by minimum class level
+  results.sort((a, b) => {
+    const minA = Math.min(...a.classes.map(c => c.level));
+    const minB = Math.min(...b.classes.map(c => c.level));
+    return minA - minB || a.name.localeCompare(b.name);
+  });
+
+  // Cap results
+  if (results.length > 100) results = results.slice(0, 100);
+
+  const lines = [
+    `## Spell Line: ${baseName}`,
+    `*${results.length} versions found*`,
+    '',
+  ];
+
+  // Collect all classes that use this spell line
+  const allClasses = new Set<string>();
+  for (const r of results) {
+    for (const c of r.classes) allClasses.add(c.className);
+  }
+  const classOrder = Object.values(CLASS_IDS).filter(c => allClasses.has(c));
+
+  // Build table
+  const classHeaders = classOrder.map(c => c.substring(0, 3)).join(' | ');
+  const classDashes = classOrder.map(() => '---').join(' | ');
+  lines.push(`| Spell | ${classHeaders} |`);
+  lines.push(`|-------|${classDashes}|`);
+
+  for (const r of results) {
+    const classMap = new Map(r.classes.map(c => [c.className, c.level]));
+    const classLevels = classOrder.map(c => {
+      const lv = classMap.get(c);
+      return lv !== undefined ? String(lv) : '-';
+    }).join(' | ');
+    lines.push(`| ${r.name} (${r.id}) | ${classLevels} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: BENEFICIAL/DETRIMENTAL SPELL SEARCH ============
+
+export async function searchSpellsByBeneficial(className: string, beneficial: boolean, level?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+
+  const classIndex = classId - 1;
+  const typeLabel = beneficial ? 'Beneficial (Buff)' : 'Detrimental (Debuff)';
+  const matching: { id: number; name: string; level: number; category?: string; target: string }[] = [];
+
+  for (const [id, spell] of spells) {
+    const classLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+    if (isNaN(classLevel) || classLevel === 255 || classLevel <= 0) continue;
+    if (level !== undefined && classLevel > level) continue;
+
+    const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+    if (isBeneficial !== beneficial) continue;
+
+    let cat: string | undefined;
+    if (spellCategories) {
+      const catId = parseInt(spell.fields[SF.CATEGORY]);
+      if (!isNaN(catId) && catId > 0) cat = spellCategories.get(catId);
+    }
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]);
+    const target = TARGET_TYPES[targetId] || `Type ${targetId}`;
+
+    matching.push({ id, name: spell.name, level: classLevel, category: cat, target });
+  }
+
+  matching.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  if (matching.length === 0) {
+    return `No ${typeLabel.toLowerCase()} spells found for ${CLASS_IDS[classId]}${level ? ` at or below level ${level}` : ''}.`;
+  }
+
+  const lines = [
+    `## ${CLASS_IDS[classId]} — ${typeLabel} Spells${level ? ` (≤ Level ${level})` : ''}`,
+    `*${matching.length} spells found*`,
+    '',
+  ];
+
+  // Group by category for summary
+  const byCategory = new Map<string, number>();
+  for (const s of matching) {
+    const cat = s.category || 'Uncategorized';
+    byCategory.set(cat, (byCategory.get(cat) || 0) + 1);
+  }
+
+  const sortedCats = [...byCategory.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('### By Category');
+  for (const [cat, count] of sortedCats) {
+    lines.push(`- **${cat}**: ${count}`);
+  }
+  lines.push('');
+
+  // Show spells grouped by level
+  let currentLevel = -1;
+  let count = 0;
+  for (const s of matching) {
+    if (count >= 200) {
+      lines.push(`\n*... and ${matching.length - count} more*`);
+      break;
+    }
+    if (s.level !== currentLevel) {
+      currentLevel = s.level;
+      lines.push(`\n### Level ${currentLevel}`);
+    }
+    lines.push(`- **${s.name}** (${s.id}) — ${s.target}${s.category ? ` [${s.category}]` : ''}`);
+    count++;
+  }
+
+  return lines.join('\n');
+}
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {

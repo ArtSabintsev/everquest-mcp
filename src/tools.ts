@@ -93,6 +93,9 @@ import {
   compareSpells,
   compareRaces,
   getExpansionContent,
+  getSharedSpells,
+  getSpellLine,
+  searchSpellsByBeneficial,
 } from './sources/index.js';
 
 export const tools = [
@@ -531,6 +534,64 @@ export const tools = [
         }
       },
       required: ['spell1', 'spell2']
+    }
+  },
+  {
+    name: 'get_shared_spells',
+    description: 'Find spells shared between two EverQuest classes. Shows which spells both classes can use, with level comparison and category breakdown. Useful for understanding class overlap.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class1: {
+          type: 'string',
+          description: 'First class name (e.g., "Druid", "DRU")'
+        },
+        class2: {
+          type: 'string',
+          description: 'Second class name (e.g., "Ranger", "RNG")'
+        },
+        level: {
+          type: 'number',
+          description: 'Optional: max level filter (only show spells obtainable at or below this level)'
+        }
+      },
+      required: ['class1', 'class2']
+    }
+  },
+  {
+    name: 'get_spell_line',
+    description: 'Find all versions and ranks of a spell line. Shows the complete progression of a spell across levels and classes (e.g., "Complete Heal" finds Complete Heal, Complete Heal Rk. II, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spell: {
+          type: 'string',
+          description: 'Spell name (rank suffixes like "Rk. II" are automatically stripped to find the base line)'
+        }
+      },
+      required: ['spell']
+    }
+  },
+  {
+    name: 'search_beneficial_spells',
+    description: 'Search for beneficial (buff) or detrimental (debuff/nuke/DoT) spells for a class. Shows results grouped by category and level.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Cleric", "CLR")'
+        },
+        beneficial: {
+          type: 'boolean',
+          description: 'true = buffs/heals (beneficial), false = debuffs/nukes/DoTs (detrimental)'
+        },
+        level: {
+          type: 'number',
+          description: 'Optional: max level filter (only show spells obtainable at or below this level)'
+        }
+      },
+      required: ['class', 'beneficial']
     }
   },
   {
@@ -2072,6 +2133,29 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!spell1) return 'Error: "spell1" parameter is required';
         if (!spell2) return 'Error: "spell2" parameter is required';
         return compareSpells(spell1, spell2);
+      }
+
+      case 'get_shared_spells': {
+        const class1 = typeof args.class1 === 'string' ? args.class1.trim() : '';
+        const class2 = typeof args.class2 === 'string' ? args.class2.trim() : '';
+        if (!class1) return 'Error: "class1" parameter is required';
+        if (!class2) return 'Error: "class2" parameter is required';
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        return getSharedSpells(class1, class2, level);
+      }
+
+      case 'get_spell_line': {
+        const spell = typeof args.spell === 'string' ? args.spell.trim() : '';
+        if (!spell) return 'Error: "spell" parameter is required';
+        return getSpellLine(spell);
+      }
+
+      case 'search_beneficial_spells': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const beneficial = typeof args.beneficial === 'boolean' ? args.beneficial : true;
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        return searchSpellsByBeneficial(className, beneficial, level);
       }
 
       case 'get_spells_by_class': {
