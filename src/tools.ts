@@ -127,6 +127,9 @@ import {
   getAchievementOverview,
   compareExpansions,
   searchSpellsBySubcategory,
+  getAAOverview,
+  searchOverseerAgentsByTrait,
+  getGameEventOverview,
 } from './sources/index.js';
 
 export const tools = [
@@ -1863,6 +1866,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_aa_overview',
+    description: 'Overview of the EverQuest AA (Alternate Advancement) system — total AA count, description statistics, common keyword analysis, and rank distribution.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'search_overseer_agents_by_trait',
+    description: 'Search overseer agents by trait name (e.g., "Diplomat", "Scholar", "Soldier"). Shows matching agents with rarity, all traits, and jobs. If trait not found, lists all available traits.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        trait: {
+          type: 'string',
+          description: 'Trait name to search for (e.g., "Diplomat", "Scholar")'
+        }
+      },
+      required: ['trait']
+    }
+  },
+  {
+    name: 'get_game_event_overview',
+    description: 'Overview of EverQuest game events and announcements — event count, categorized breakdown (seasonal, expansion, double XP, etc.), and banner statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3246,6 +3281,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!className) return 'Error: "class" parameter is required';
         if (!subcategory) return 'Error: "subcategory" parameter is required';
         return searchSpellsBySubcategory(className, subcategory);
+      }
+
+      case 'get_aa_overview': {
+        return getAAOverview();
+      }
+
+      case 'search_overseer_agents_by_trait': {
+        const trait = typeof args.trait === 'string' ? args.trait.trim() : '';
+        if (!trait) return 'Error: "trait" parameter is required';
+        return searchOverseerAgentsByTrait(trait);
+      }
+
+      case 'get_game_event_overview': {
+        return getGameEventOverview();
       }
 
       case 'search_help_topics': {

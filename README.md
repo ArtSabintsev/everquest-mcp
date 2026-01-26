@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 119 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 122 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **119 tools** for querying EverQuest data
+- **122 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (119)
+## Available Tools (122)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -200,6 +200,7 @@ Then restart Claude Desktop.
 | `search_aa` | Search 2700+ AA abilities |
 | `get_aa` | Get AA ability details |
 | `get_achievement_overview` | Achievement system overview with point distribution and category counts |
+| `get_aa_overview` | AA system overview with keyword analysis, description stats, and rank distribution |
 
 ### Local Data - Overseer System
 | Tool | Description |
@@ -210,6 +211,7 @@ Then restart Claude Desktop.
 | `get_overseer_quest` | Quest details: slots, traits, risks, success/failure outcomes |
 | `get_overseer_incapacitations` | List incapacitation types and durations |
 | `get_overseer_quest_summary` | Overseer system overview with categories, difficulties, durations, agent stats |
+| `search_overseer_agents_by_trait` | Search overseer agents by trait (race/creature type) with auto-list of available traits |
 
 ### Local Data - Mercenaries
 | Tool | Description |
@@ -238,6 +240,7 @@ Then restart Claude Desktop.
 | `get_game_event` | Get event announcement details |
 | `list_expansions` | List all 33 EverQuest expansions |
 | `compare_expansions` | Compare two expansions side by side (factions, achievements, faction lists) |
+| `get_game_event_overview` | Game event overview with category breakdown (seasonal, expansion, double XP, etc.) |
 | `get_expansion` | Expansion content summary with factions and achievements |
 | `get_banner_categories` | Guild banner and fellowship campsite types |
 | `search_help_topics` | Search 75 official in-game help topics on game mechanics |
@@ -276,7 +279,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (119 tools)
+├── tools.ts          # Tool definitions and handlers (122 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

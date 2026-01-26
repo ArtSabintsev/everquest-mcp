@@ -9419,3 +9419,219 @@ export async function searchSpellsBySubcategory(className: string, subcategory: 
 
   return lines.join('\n');
 }
+
+// ============ AA OVERVIEW ============
+
+export async function getAAOverview(): Promise<string> {
+  await loadAAAbilities();
+  if (!aaAbilities || aaAbilities.size === 0) return 'AA ability data not available.';
+
+  const lines = ['# EverQuest AA System Overview', ''];
+  lines.push(`**${aaAbilities.size.toLocaleString()} total AA abilities**`, '');
+
+  // Analyze descriptions for common keywords
+  const keywords = new Map<string, number>();
+  const keywordPatterns = [
+    'damage', 'heal', 'hit points', 'mana', 'endurance', 'resist',
+    'critical', 'accuracy', 'avoidance', 'haste', 'attack',
+    'defense', 'shield', 'proc', 'stun', 'root', 'slow',
+    'fear', 'charm', 'mezz', 'snare', 'dot', 'nuke',
+    'pet', 'summon', 'gate', 'bind', 'invis', 'levitate',
+    'regenerat', 'buff', 'debuff', 'focus', 'passive',
+  ];
+
+  for (const aa of aaAbilities.values()) {
+    const lowerDesc = aa.description.toLowerCase();
+    for (const kw of keywordPatterns) {
+      if (lowerDesc.includes(kw)) {
+        keywords.set(kw, (keywords.get(kw) || 0) + 1);
+      }
+    }
+  }
+
+  // Description length stats
+  let totalLen = 0;
+  let hasDesc = 0;
+  let noDesc = 0;
+  for (const aa of aaAbilities.values()) {
+    if (aa.description && aa.description.length > 0) {
+      hasDesc++;
+      totalLen += aa.description.length;
+    } else {
+      noDesc++;
+    }
+  }
+
+  lines.push('## Description Statistics', '');
+  lines.push(`- **With descriptions:** ${hasDesc.toLocaleString()}`);
+  lines.push(`- **Without descriptions:** ${noDesc.toLocaleString()}`);
+  if (hasDesc > 0) {
+    lines.push(`- **Average description length:** ${Math.round(totalLen / hasDesc)} characters`);
+  }
+
+  // Keyword analysis
+  const sortedKw = [...keywords.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('', '## Common AA Keywords (by description frequency)', '');
+  lines.push('| Keyword | AAs Mentioning |');
+  lines.push('|---------|---------------|');
+  for (const [kw, count] of sortedKw.slice(0, 25)) {
+    const pct = ((count / aaAbilities.size) * 100).toFixed(1);
+    lines.push(`| ${kw} | ${count} (${pct}%) |`);
+  }
+
+  // Name patterns (ranks)
+  let withRank = 0;
+  const rankCounts = new Map<string, number>();
+  for (const aa of aaAbilities.values()) {
+    const rankMatch = aa.name.match(/\((\d+)\)$/);
+    if (rankMatch) {
+      withRank++;
+      const rank = rankMatch[1];
+      rankCounts.set(rank, (rankCounts.get(rank) || 0) + 1);
+    }
+  }
+  if (withRank > 0) {
+    lines.push('', '## AA Ranks', '');
+    lines.push(`- **AAs with rank numbers:** ${withRank.toLocaleString()}`);
+    lines.push(`- **Unique base abilities (estimated):** ~${(aaAbilities.size - withRank + rankCounts.size).toLocaleString()}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ OVERSEER AGENT TRAIT SEARCH ============
+
+export async function searchOverseerAgentsByTrait(trait: string): Promise<string> {
+  await loadOverseerMinions();
+  if (!overseerMinions || overseerMinions.size === 0) return 'Overseer agent data not available.';
+
+  const normalizedTrait = trait.toLowerCase();
+
+  const matches: { id: number; name: string; rarity: number; traits: string[]; jobs: string[] }[] = [];
+
+  for (const agent of overseerMinions.values()) {
+    const hasTrait = agent.traits.some(t => t.toLowerCase().includes(normalizedTrait));
+    if (!hasTrait) continue;
+
+    const jobNames = agent.jobs.map(j => {
+      const name = overseerJobNames?.get(j.jobTypeId) || `Job ${j.jobTypeId}`;
+      return `${name} (${j.level})`;
+    });
+
+    matches.push({
+      id: agent.id,
+      name: agent.shortName || agent.fullName,
+      rarity: agent.rarity,
+      traits: agent.traits,
+      jobs: jobNames,
+    });
+  }
+
+  if (matches.length === 0) {
+    // List available traits
+    const allTraits = new Map<string, number>();
+    for (const agent of overseerMinions.values()) {
+      for (const t of agent.traits) {
+        allTraits.set(t, (allTraits.get(t) || 0) + 1);
+      }
+    }
+    const sorted = [...allTraits.entries()].sort((a, b) => b[1] - a[1]);
+    const lines = [`No overseer agents with trait matching "${trait}".`, ''];
+    lines.push('**Available traits:**');
+    for (const [t, count] of sorted.slice(0, 40)) {
+      lines.push(`- ${t} (${count} agents)`);
+    }
+    return lines.join('\n');
+  }
+
+  const rarityNames: Record<number, string> = { 1: 'Common', 2: 'Uncommon', 3: 'Rare', 4: 'Elite', 5: 'Iconic' };
+
+  matches.sort((a, b) => b.rarity - a.rarity || a.name.localeCompare(b.name));
+
+  const lines = [`# Overseer Agents with Trait: "${trait}"`, ''];
+  lines.push(`**${matches.length} agents found**`, '');
+
+  const shown = matches.slice(0, 50);
+  lines.push('| Agent | Rarity | All Traits | Jobs |');
+  lines.push('|-------|--------|-----------|------|');
+
+  for (const m of shown) {
+    const rarity = rarityNames[m.rarity] || `Rarity ${m.rarity}`;
+    lines.push(`| ${m.name} | ${rarity} | ${m.traits.join(', ')} | ${m.jobs.join(', ')} |`);
+  }
+
+  if (matches.length > 50) {
+    lines.push('', `*Showing first 50 of ${matches.length}.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ GAME EVENT OVERVIEW ============
+
+export async function getGameEventOverview(): Promise<string> {
+  await loadGameEvents();
+  if (!gameEvents || gameEvents.size === 0) return 'Game event data not available.';
+
+  const lines = ['# EverQuest Game Event Overview', ''];
+  lines.push(`**${gameEvents.size} game events/announcements**`, '');
+
+  // Categorize events by keywords in banners
+  const categories = new Map<string, { count: number; examples: string[] }>();
+  const categoryPatterns: [string, RegExp][] = [
+    ['Expansion', /expansion|launch|release/i],
+    ['Seasonal', /frostfell|erollisi|bristlebane|anniversary|halloween|harvest|night of shadows/i],
+    ['Double XP', /double|bonus|experience|xp/i],
+    ['Server', /server|merge|maintenance|downtime/i],
+    ['Marketplace', /marketplace|sale|discount|free/i],
+    ['Membership', /member|subscription|all access/i],
+    ['Patch/Update', /patch|update|fix|hotfix/i],
+    ['Event', /event|raid|contest|competition/i],
+    ['Recruit', /recruit|returning|welcome back/i],
+  ];
+
+  for (const event of gameEvents.values()) {
+    const text = `${event.banner} ${event.description}`;
+    let categorized = false;
+    for (const [catName, pattern] of categoryPatterns) {
+      if (pattern.test(text)) {
+        const cat = categories.get(catName) || { count: 0, examples: [] };
+        cat.count++;
+        if (cat.examples.length < 3) cat.examples.push(event.banner);
+        categories.set(catName, cat);
+        categorized = true;
+        break;
+      }
+    }
+    if (!categorized) {
+      const cat = categories.get('Other') || { count: 0, examples: [] };
+      cat.count++;
+      if (cat.examples.length < 3) cat.examples.push(event.banner);
+      categories.set('Other', cat);
+    }
+  }
+
+  lines.push('## Events by Category', '');
+  lines.push('| Category | Count | Examples |');
+  lines.push('|----------|-------|----------|');
+
+  const sortedCats = [...categories.entries()].sort((a, b) => b[1].count - a[1].count);
+  for (const [name, data] of sortedCats) {
+    const examples = data.examples.slice(0, 2).join('; ');
+    lines.push(`| ${name} | ${data.count} | ${examples} |`);
+  }
+
+  // Banner length stats
+  let shortBanners = 0;
+  let longBanners = 0;
+  for (const event of gameEvents.values()) {
+    if (event.banner.length <= 30) shortBanners++;
+    else longBanners++;
+  }
+
+  lines.push('', '## Banner Statistics', '');
+  lines.push(`- **Short banners (≤30 chars):** ${shortBanners}`);
+  lines.push(`- **Long banners (>30 chars):** ${longBanners}`);
+
+  return lines.join('\n');
+}
