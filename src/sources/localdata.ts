@@ -11851,3 +11851,382 @@ export async function getResistTypeComparison(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ TOOL #153: SPELL REQUIREMENT OVERVIEW ============
+
+export async function getSpellRequirementOverview(): Promise<string> {
+  await loadSpellRequirements();
+  await loadSpells();
+
+  if (!spellRequirements || spellRequirements.size === 0) {
+    return 'Spell requirement data not available.';
+  }
+
+  const lines = ['# Spell Requirement Associations Overview', ''];
+
+  // Basic stats
+  let totalEntries = 0;
+  const reqIdFreq: Record<number, number> = {};
+  const reqsPerAssoc: Record<number, number> = {}; // count of requirements -> frequency
+  const subIdFreq: Record<number, number> = {};
+
+  for (const [assocId, reqs] of spellRequirements) {
+    totalEntries += reqs.length;
+    const count = reqs.length;
+    reqsPerAssoc[count] = (reqsPerAssoc[count] || 0) + 1;
+
+    for (const req of reqs) {
+      reqIdFreq[req.reqId] = (reqIdFreq[req.reqId] || 0) + 1;
+      subIdFreq[req.subId] = (subIdFreq[req.subId] || 0) + 1;
+    }
+  }
+
+  lines.push(`- **Total spell associations with requirements:** ${spellRequirements.size}`);
+  lines.push(`- **Total requirement entries:** ${totalEntries}`);
+  lines.push(`- **Unique requirement IDs:** ${Object.keys(reqIdFreq).length}`);
+  lines.push(`- **Unique sub-IDs:** ${Object.keys(subIdFreq).length}`);
+
+  // Requirements per association distribution
+  lines.push('', '## Requirements per Spell Association', '');
+  const sortedCounts = Object.entries(reqsPerAssoc).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+  for (const [count, freq] of sortedCounts) {
+    const pct = ((freq / spellRequirements.size) * 100).toFixed(1);
+    lines.push(`- **${count} requirement${parseInt(count) !== 1 ? 's' : ''}:** ${freq} spells (${pct}%)`);
+  }
+
+  // Most common requirement IDs
+  lines.push('', '## Most Common Requirement IDs', '');
+  lines.push('| Req ID | Occurrences | % of Total |');
+  lines.push('|--------|------------|------------|');
+  const sortedReqIds = Object.entries(reqIdFreq).sort((a, b) => b[1] - a[1]).slice(0, 25);
+  for (const [reqId, count] of sortedReqIds) {
+    const pct = ((count / totalEntries) * 100).toFixed(1);
+    lines.push(`| ${reqId} | ${count} | ${pct}% |`);
+  }
+
+  // Requirement ID ranges
+  const allReqIds = Object.keys(reqIdFreq).map(Number).sort((a, b) => a - b);
+  lines.push('', '## Requirement ID Range Analysis', '');
+  const ranges: Record<string, number> = {};
+  for (const id of allReqIds) {
+    let range: string;
+    if (id < 100) range = '1-99';
+    else if (id < 500) range = '100-499';
+    else if (id < 1000) range = '500-999';
+    else if (id < 5000) range = '1000-4999';
+    else if (id < 10000) range = '5000-9999';
+    else range = '10000+';
+    ranges[range] = (ranges[range] || 0) + 1;
+  }
+  for (const [range, count] of Object.entries(ranges)) {
+    lines.push(`- **${range}:** ${count} unique requirement IDs`);
+  }
+
+  // Try to match association IDs to spell names
+  lines.push('', '## Sample Spell-Requirement Mappings', '');
+  lines.push('| Association ID | Spell Name | # Requirements | Req IDs |');
+  lines.push('|---------------|-----------|---------------|---------|');
+  let shown = 0;
+  for (const [assocId, reqs] of spellRequirements) {
+    if (shown >= 20) break;
+    const spell = spells?.get(assocId);
+    const name = spell ? spell.name : `(Assoc ${assocId})`;
+    const reqIds = reqs.map(r => r.reqId).join(', ');
+    lines.push(`| ${assocId} | ${name} | ${reqs.length} | ${reqIds} |`);
+    shown++;
+  }
+
+  // Sub-ID distribution
+  lines.push('', '## Sub-ID Distribution', '');
+  const sortedSubIds = Object.entries(subIdFreq).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  for (const [subId, count] of sortedSubIds) {
+    const pct = ((count / totalEntries) * 100).toFixed(1);
+    lines.push(`- **Sub-ID ${subId}:** ${count} entries (${pct}%)`);
+  }
+
+  // Most complex spells (most requirements)
+  lines.push('', '## Spells with Most Requirements', '');
+  const byReqCount = [...spellRequirements.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 10);
+  for (const [assocId, reqs] of byReqCount) {
+    const spell = spells?.get(assocId);
+    const name = spell ? spell.name : `Association ${assocId}`;
+    lines.push(`- **${name}** (ID ${assocId}): ${reqs.length} requirements — IDs: ${reqs.map(r => r.reqId).join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #154: FACTION MODIFIER OVERVIEW ============
+
+export async function getFactionModifierOverview(): Promise<string> {
+  await loadFactions();
+
+  if (!factionModifierNames || factionModifierNames.size === 0) {
+    return 'Faction modifier data not available.';
+  }
+
+  const lines = ['# Faction Modifier Overview', ''];
+
+  // Group modifiers by type
+  const raceModifiers: [number, string][] = [];
+  const classModifiers: [number, string][] = [];
+  const deityModifiers: [number, string][] = [];
+  const otherModifiers: [number, string][] = [];
+
+  for (const [id, name] of factionModifierNames) {
+    if (name.startsWith('Race:') || (id >= 51 && id <= 200 && !name.startsWith('Class:'))) {
+      raceModifiers.push([id, name]);
+    } else if (name.startsWith('Class:') || (id >= 1 && id <= 16)) {
+      classModifiers.push([id, name]);
+    } else if (name.startsWith('Deity:') || name.includes('Deity')) {
+      deityModifiers.push([id, name]);
+    } else {
+      otherModifiers.push([id, name]);
+    }
+  }
+
+  lines.push(`- **Total faction modifiers:** ${factionModifierNames.size}`);
+  lines.push(`- **Race modifiers:** ${raceModifiers.length}`);
+  lines.push(`- **Class modifiers:** ${classModifiers.length}`);
+  lines.push(`- **Deity modifiers:** ${deityModifiers.length}`);
+  if (otherModifiers.length > 0) lines.push(`- **Other modifiers:** ${otherModifiers.length}`);
+
+  // Class modifiers
+  if (classModifiers.length > 0) {
+    lines.push('', '## Class Modifiers', '');
+    lines.push('| ID | Name |');
+    lines.push('|----|------|');
+    for (const [id, name] of classModifiers.sort((a, b) => a[0] - b[0])) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+  }
+
+  // Race modifiers
+  if (raceModifiers.length > 0) {
+    lines.push('', '## Race Modifiers', '');
+    lines.push('| ID | Name |');
+    lines.push('|----|------|');
+    for (const [id, name] of raceModifiers.sort((a, b) => a[0] - b[0])) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+  }
+
+  // Deity modifiers
+  if (deityModifiers.length > 0) {
+    lines.push('', '## Deity Modifiers', '');
+    lines.push('| ID | Name |');
+    lines.push('|----|------|');
+    for (const [id, name] of deityModifiers.sort((a, b) => a[0] - b[0])) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+  }
+
+  // Other modifiers
+  if (otherModifiers.length > 0) {
+    lines.push('', '## Other Modifiers', '');
+    lines.push('| ID | Name |');
+    lines.push('|----|------|');
+    for (const [id, name] of otherModifiers.sort((a, b) => a[0] - b[0])) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+  }
+
+  // Usage analysis: how many factions reference each modifier
+  if (factions) {
+    const modUsage: Record<number, number> = {};
+    let factionsWithStarting = 0;
+    let totalAssociations = 0;
+
+    for (const faction of factions.values()) {
+      if (faction.startingValues && faction.startingValues.length > 0) {
+        factionsWithStarting++;
+        for (const sv of faction.startingValues) {
+          modUsage[sv.modifierId] = (modUsage[sv.modifierId] || 0) + 1;
+          totalAssociations++;
+        }
+      }
+    }
+
+    lines.push('', '## Modifier Usage in Factions', '');
+    lines.push(`- **Factions with starting value adjustments:** ${factionsWithStarting} of ${factions.size}`);
+    lines.push(`- **Total faction-modifier associations:** ${totalAssociations}`);
+
+    lines.push('', '### Most Used Modifiers', '');
+    lines.push('| Modifier | Factions Using It |');
+    lines.push('|----------|------------------|');
+    const sortedUsage = Object.entries(modUsage)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 30);
+    for (const [modId, count] of sortedUsage) {
+      const name = factionModifierNames.get(parseInt(modId)) || `Modifier ${modId}`;
+      lines.push(`| ${name} (ID ${modId}) | ${count} |`);
+    }
+
+    // Starting value ranges
+    lines.push('', '### Starting Value Distribution', '');
+    const valueBuckets: Record<string, number> = {};
+    for (const faction of factions.values()) {
+      if (!faction.startingValues) continue;
+      for (const sv of faction.startingValues) {
+        let bucket: string;
+        if (sv.value < -500) bucket = 'Very Negative (< -500)';
+        else if (sv.value < -100) bucket = 'Negative (-500 to -101)';
+        else if (sv.value < 0) bucket = 'Slightly Negative (-100 to -1)';
+        else if (sv.value === 0) bucket = 'Neutral (0)';
+        else if (sv.value <= 100) bucket = 'Slightly Positive (1 to 100)';
+        else if (sv.value <= 500) bucket = 'Positive (101 to 500)';
+        else bucket = 'Very Positive (> 500)';
+        valueBuckets[bucket] = (valueBuckets[bucket] || 0) + 1;
+      }
+    }
+    const bucketOrder = [
+      'Very Negative (< -500)', 'Negative (-500 to -101)', 'Slightly Negative (-100 to -1)',
+      'Neutral (0)', 'Slightly Positive (1 to 100)', 'Positive (101 to 500)', 'Very Positive (> 500)'
+    ];
+    for (const bucket of bucketOrder) {
+      if (valueBuckets[bucket]) {
+        lines.push(`- **${bucket}:** ${valueBuckets[bucket]} associations`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #155: OVERSEER SLOT ANALYSIS ============
+
+export async function getOverseerSlotAnalysis(): Promise<string> {
+  await loadOverseerQuests();
+  await loadOverseerMinions(); // loads trait names
+  await loadOverseerEnhancements();
+
+  if (!overseerQuests || overseerQuests.size === 0) {
+    return 'Overseer quest data not available.';
+  }
+
+  const lines = ['# Overseer Quest Slot Analysis', ''];
+
+  // Gather all slot data
+  let totalSlots = 0;
+  let totalRequired = 0;
+  let totalOptional = 0;
+  let questsWithSlots = 0;
+  const jobDemand: Record<number, { required: number; optional: number }> = {};
+  const traitFreq: Record<number, number> = {};
+  const slotCountDist: Record<number, number> = {}; // total slots per quest -> freq
+  const questsBySlotCount: { quest: OverseerQuest; total: number }[] = [];
+
+  for (const quest of overseerQuests.values()) {
+    if (quest.slotDetails.length === 0) continue;
+    questsWithSlots++;
+    const total = quest.slotDetails.length;
+    totalSlots += total;
+    totalRequired += quest.requiredSlots;
+    totalOptional += quest.optionalSlots;
+    slotCountDist[total] = (slotCountDist[total] || 0) + 1;
+    questsBySlotCount.push({ quest, total });
+
+    for (const slot of quest.slotDetails) {
+      if (!jobDemand[slot.jobTypeId]) jobDemand[slot.jobTypeId] = { required: 0, optional: 0 };
+      if (slot.isRequired) {
+        jobDemand[slot.jobTypeId].required++;
+      } else {
+        jobDemand[slot.jobTypeId].optional++;
+      }
+      for (const traitId of slot.bonusTraitIds) {
+        traitFreq[traitId] = (traitFreq[traitId] || 0) + 1;
+      }
+    }
+  }
+
+  lines.push(`- **Quests with slot data:** ${questsWithSlots} of ${overseerQuests.size}`);
+  lines.push(`- **Total agent slots:** ${totalSlots}`);
+  lines.push(`- **Required slots:** ${totalRequired} (${((totalRequired / totalSlots) * 100).toFixed(1)}%)`);
+  lines.push(`- **Optional slots:** ${totalOptional} (${((totalOptional / totalSlots) * 100).toFixed(1)}%)`);
+  if (questsWithSlots > 0) {
+    lines.push(`- **Average slots per quest:** ${(totalSlots / questsWithSlots).toFixed(1)}`);
+  }
+
+  // Slot count distribution
+  lines.push('', '## Slots per Quest Distribution', '');
+  const sortedSlotCounts = Object.entries(slotCountDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+  for (const [count, freq] of sortedSlotCounts) {
+    const bar = '#'.repeat(Math.min(freq, 50));
+    lines.push(`- **${count} slots:** ${freq} quests ${bar}`);
+  }
+
+  // Job type demand
+  lines.push('', '## Job Type Demand', '');
+  lines.push('| Job | Required | Optional | Total | % of All Slots |');
+  lines.push('|-----|---------|---------|-------|---------------|');
+  const sortedJobs = Object.entries(jobDemand)
+    .sort((a, b) => (b[1].required + b[1].optional) - (a[1].required + a[1].optional));
+  for (const [jobId, counts] of sortedJobs) {
+    const name = overseerJobNames?.get(parseInt(jobId)) || `Job ${jobId}`;
+    const total = counts.required + counts.optional;
+    const pct = ((total / totalSlots) * 100).toFixed(1);
+    lines.push(`| ${name} | ${counts.required} | ${counts.optional} | ${total} | ${pct}% |`);
+  }
+
+  // Most demanded job (required slots only)
+  const topRequired = sortedJobs.sort((a, b) => b[1].required - a[1].required)[0];
+  if (topRequired) {
+    const topName = overseerJobNames?.get(parseInt(topRequired[0])) || `Job ${topRequired[0]}`;
+    lines.push('', `**Most required job type:** ${topName} (${topRequired[1].required} required slots)`);
+  }
+
+  // Bonus trait frequency
+  const traitNames = dbStrings?.get(DBSTR_TYPES.OVERSEER_TRAIT) || new Map<number, string>();
+  if (Object.keys(traitFreq).length > 0) {
+    lines.push('', '## Bonus Trait Frequency', '');
+    lines.push('| Trait | Slots with Bonus | % of Total Slots |');
+    lines.push('|-------|-----------------|-----------------|');
+    const sortedTraits = Object.entries(traitFreq).sort((a, b) => b[1] - a[1]).slice(0, 25);
+    for (const [traitId, count] of sortedTraits) {
+      const name = traitNames.get(parseInt(traitId)) || `Trait ${traitId}`;
+      const pct = ((count / totalSlots) * 100).toFixed(1);
+      lines.push(`| ${name} | ${count} | ${pct}% |`);
+    }
+    lines.push('', `- **Total unique bonus traits:** ${Object.keys(traitFreq).length}`);
+    lines.push(`- **Total bonus trait assignments:** ${Object.values(traitFreq).reduce((s, v) => s + v, 0)}`);
+  }
+
+  // Quests by difficulty with slot analysis
+  if (overseerDifficulties && overseerDifficulties.size > 0) {
+    lines.push('', '## Slots by Difficulty Level', '');
+    const byDiff: Record<number, { quests: number; totalSlots: number; required: number; optional: number }> = {};
+    for (const quest of overseerQuests.values()) {
+      if (quest.slotDetails.length === 0) continue;
+      if (!byDiff[quest.difficulty]) byDiff[quest.difficulty] = { quests: 0, totalSlots: 0, required: 0, optional: 0 };
+      byDiff[quest.difficulty].quests++;
+      byDiff[quest.difficulty].totalSlots += quest.slotDetails.length;
+      byDiff[quest.difficulty].required += quest.requiredSlots;
+      byDiff[quest.difficulty].optional += quest.optionalSlots;
+    }
+
+    lines.push('| Difficulty | Quests | Total Slots | Avg Slots | Required | Optional |');
+    lines.push('|-----------|--------|------------|-----------|---------|---------|');
+    for (const [diff, data] of Object.entries(byDiff).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+      const diffName = overseerDifficulties.get(parseInt(diff)) || `Level ${diff}`;
+      const avg = (data.totalSlots / data.quests).toFixed(1);
+      lines.push(`| ${diffName} | ${data.quests} | ${data.totalSlots} | ${avg} | ${data.required} | ${data.optional} |`);
+    }
+  }
+
+  // Most demanding quests
+  questsBySlotCount.sort((a, b) => b.total - a.total);
+  lines.push('', '## Most Agent-Demanding Quests (Top 10)', '');
+  for (const { quest, total } of questsBySlotCount.slice(0, 10)) {
+    const cat = overseerCategories?.get(quest.categoryId) || '';
+    lines.push(`- **${quest.name}** — ${total} slots (${quest.requiredSlots} req, ${quest.optionalSlots} opt)${cat ? ` [${cat}]` : ''}`);
+  }
+
+  // Least demanding quests (with at least 1 slot)
+  lines.push('', '## Least Agent-Demanding Quests (Bottom 10)', '');
+  for (const { quest, total } of questsBySlotCount.slice(-10).reverse()) {
+    const cat = overseerCategories?.get(quest.categoryId) || '';
+    lines.push(`- **${quest.name}** — ${total} slots (${quest.requiredSlots} req, ${quest.optionalSlots} opt)${cat ? ` [${cat}]` : ''}`);
+  }
+
+  return lines.join('\n');
+}

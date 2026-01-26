@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 152 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 155 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **152 tools** for querying EverQuest data
+- **155 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -153,6 +153,7 @@ Then restart Claude Desktop.
 | `get_shared_spells_overview` | Cross-class spell availability — sharing distribution, most widely shared spells, exclusive vs shared counts per class |
 | `get_spell_duration_overview` | Spell duration analysis — formula breakdown, duration distribution buckets with bar graph, optionally per class |
 | `get_resist_type_comparison` | Resist type distribution matrix across all 16 classes — detrimental spell counts per resist type, dominant resist per class |
+| `get_spell_requirement_overview` | Spell casting requirement associations — prerequisite counts, most common requirement IDs, complexity analysis, sample spell-requirement mappings |
 
 ### Local Data - Character
 | Tool | Description |
@@ -213,6 +214,7 @@ Then restart Claude Desktop.
 | `get_faction_overview` | Faction system overview with counts by expansion, value ranges, starting modifier stats |
 | `compare_factions` | Compare two factions side by side (expansion, value ranges, starting values by race) |
 | `get_currency_overview` | Alternate currency overview — total count, description stats, keyword analysis, complete listing |
+| `get_faction_modifier_overview` | All faction modifiers (race, class, deity) — modifier IDs, usage frequency across factions, starting value distribution |
 
 ### Local Data - Achievements & AA
 | Tool | Description |
@@ -238,6 +240,7 @@ Then restart Claude Desktop.
 | `get_overseer_quest_summary` | Overseer system overview with categories, difficulties, durations, agent stats |
 | `get_overseer_job_overview` | Complete overseer system overview — jobs, archetypes, categories, difficulties, traits, incapacitations, minion rarity breakdown |
 | `search_overseer_agents_by_trait` | Search overseer agents by trait (race/creature type) with auto-list of available traits |
+| `get_overseer_slot_analysis` | Overseer quest slot patterns — job type demand, required vs optional ratios, bonus trait frequency, slots by difficulty, most demanding quests |
 
 ### Local Data - Mercenaries
 | Tool | Description |
@@ -309,7 +312,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (152 tools)
+├── tools.ts          # Tool definitions and handlers (155 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

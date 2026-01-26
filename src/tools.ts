@@ -160,6 +160,9 @@ import {
   getSharedSpellsOverview,
   getSpellDurationOverview,
   getResistTypeComparison,
+  getSpellRequirementOverview,
+  getFactionModifierOverview,
+  getOverseerSlotAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2255,6 +2258,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_requirement_overview',
+    description: 'Overview of spell casting requirement associations — shows which spells have prerequisites, most common requirement IDs, requirement complexity per spell, and sample spell-requirement mappings.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_faction_modifier_overview',
+    description: 'Overview of all faction modifiers (race, class, deity) — lists all modifier IDs and names, shows which modifiers affect the most factions, starting value distribution, and modifier usage statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_overseer_slot_analysis',
+    description: 'Analysis of Overseer quest agent slot patterns — job type demand, required vs optional slot ratios, bonus trait frequency, slots by difficulty level, and most/least agent-demanding quests.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3799,6 +3829,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_resist_type_comparison': {
         return getResistTypeComparison();
+      }
+
+      case 'get_spell_requirement_overview': {
+        return getSpellRequirementOverview();
+      }
+
+      case 'get_faction_modifier_overview': {
+        return getFactionModifierOverview();
+      }
+
+      case 'get_overseer_slot_analysis': {
+        return getOverseerSlotAnalysis();
       }
 
       case 'search_help_topics': {
