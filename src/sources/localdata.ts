@@ -26,6 +26,35 @@ const CLASS_SHORT: Record<number, string> = {
   13: 'MAG', 14: 'ENC', 15: 'BST', 16: 'BER',
 };
 
+// ============ RACE MAPPING ============
+
+const RACE_IDS: Record<number, string> = {
+  1: 'Human', 2: 'Barbarian', 3: 'Erudite', 4: 'Wood Elf',
+  5: 'High Elf', 6: 'Dark Elf', 7: 'Half Elf', 8: 'Dwarf',
+  9: 'Troll', 10: 'Ogre', 11: 'Halfling', 12: 'Gnome',
+  128: 'Iksar', 130: 'Vah Shir', 330: 'Froglok', 522: 'Drakkin',
+};
+
+// Race-class availability (which classes each race can play)
+const RACE_CLASSES: Record<number, number[]> = {
+  1:   [1,2,3,4,5,6,7,8,9,11,12,13,14],       // Human
+  2:   [1,9,10,15,16],                          // Barbarian
+  3:   [2,3,5,11,12,13,14],                     // Erudite
+  4:   [1,4,6,8,9,15],                          // Wood Elf
+  5:   [2,3,12,13,14],                          // High Elf
+  6:   [1,2,5,9,11,12,13,14],                   // Dark Elf
+  7:   [1,3,4,6,8,9],                           // Half Elf
+  8:   [1,2,3,9,16],                            // Dwarf
+  9:   [1,5,10,15,16],                          // Troll
+  10:  [1,5,10,15,16],                          // Ogre
+  11:  [1,2,3,4,6,9],                           // Halfling
+  12:  [1,2,3,5,9,11,12,13,14],                 // Gnome
+  128: [1,5,7,10,11,15],                        // Iksar
+  130: [1,8,9,10,15,16],                        // Vah Shir
+  330: [1,2,3,5,9,11,12],                       // Froglok
+  522: [1,2,3,4,5,6,7,8,9,11,12,13,14],         // Drakkin
+};
+
 // Reverse lookup: name -> ID
 const CLASS_NAME_TO_ID: Record<string, number> = {};
 for (const [id, name] of Object.entries(CLASS_IDS)) {
@@ -34,6 +63,44 @@ for (const [id, name] of Object.entries(CLASS_IDS)) {
 for (const [id, short] of Object.entries(CLASS_SHORT)) {
   CLASS_NAME_TO_ID[short.toLowerCase()] = parseInt(id);
 }
+
+const RACE_NAME_TO_ID: Record<string, number> = {};
+for (const [id, name] of Object.entries(RACE_IDS)) {
+  RACE_NAME_TO_ID[name.toLowerCase()] = parseInt(id);
+}
+// Common aliases
+RACE_NAME_TO_ID['de'] = 6;
+RACE_NAME_TO_ID['he'] = 5;
+RACE_NAME_TO_ID['we'] = 4;
+RACE_NAME_TO_ID['hef'] = 7;
+
+// Deity data from eqstr_us.txt (IDs 3250-3266)
+const DEITY_IDS: Record<number, number> = {
+  3250: 0, 3251: 201, 3252: 202, 3253: 203, 3254: 206,
+  3255: 207, 3256: 204, 3257: 205, 3258: 208, 3259: 209,
+  3260: 210, 3261: 213, 3262: 211, 3263: 214, 3264: 215,
+  3265: 216, 3266: 212,
+};
+
+// Race-deity availability
+const RACE_DEITIES: Record<number, string[]> = {
+  1:   ['Agnostic', 'Bertoxxulous', 'Bristlebane', 'Cazic-Thule', 'Erollisi Marr', 'Innoruuk', 'Karana', 'Mithaniel Marr', 'Prexus', 'Quellious', 'Rallos Zek', 'Rodcet Nife', 'Solusek Ro', 'The Tribunal', 'Tunare'],
+  2:   ['Agnostic', 'Bristlebane', 'Rallos Zek', 'The Tribunal', 'Tunare'],
+  3:   ['Agnostic', 'Bristlebane', 'Cazic-Thule', 'Prexus', 'Quellious', 'Solusek Ro'],
+  4:   ['Agnostic', 'Bristlebane', 'Karana', 'Tunare'],
+  5:   ['Agnostic', 'Karana', 'Mithaniel Marr', 'Tunare'],
+  6:   ['Agnostic', 'Cazic-Thule', 'Innoruuk', 'Solusek Ro'],
+  7:   ['Agnostic', 'Bristlebane', 'Karana', 'Tunare'],
+  8:   ['Agnostic', 'Bertoxxulous', 'Brell Serilis', 'Bristlebane', 'Innoruuk', 'The Tribunal', 'Tunare'],
+  9:   ['Agnostic', 'Cazic-Thule', 'Innoruuk', 'Rallos Zek'],
+  10:  ['Agnostic', 'Cazic-Thule', 'Rallos Zek'],
+  11:  ['Agnostic', 'Brell Serilis', 'Bristlebane', 'Karana'],
+  12:  ['Agnostic', 'Bertoxxulous', 'Brell Serilis', 'Bristlebane', 'Solusek Ro'],
+  128: ['Cazic-Thule'],
+  130: ['Agnostic', 'The Tribunal'],
+  330: ['Mithaniel Marr'],
+  522: ['Agnostic', 'Bertoxxulous', 'Bristlebane', 'Cazic-Thule', 'Erollisi Marr', 'Innoruuk', 'Karana', 'Mithaniel Marr', 'Prexus', 'Quellious', 'Rallos Zek', 'Rodcet Nife', 'Solusek Ro', 'The Tribunal', 'Tunare', 'Veeshan'],
+};
 
 // ============ SPELL FIELD INDICES ============
 
@@ -322,6 +389,16 @@ let combatAbilityNameIndex: Map<string, number[]> | null = null;
 // Mercenaries
 let mercenaries: Map<number, MercenaryEntry> | null = null;
 let mercenaryNameIndex: Map<string, number[]> | null = null;
+
+// Race/class descriptions
+let raceDescriptions: Map<number, { short: string; long: string }> | null = null;
+let classDescriptions: Map<number, { short: string; long: string }> | null = null;
+let statDescriptions: Map<string, string> | null = null;
+let deityNames: Map<number, string> | null = null;
+let deityDescriptions: Map<number, string> | null = null;
+
+// Alternate currencies
+let altCurrencies: Map<number, string> | null = null;
 
 let dataAvailable: boolean | null = null;
 
@@ -872,6 +949,10 @@ const DBSTR_TYPES = {
   MERCENARY_TIER: 22,
   MERCENARY_DESC: 23,
   RACE_NAME: 11,
+  RACE_DESCRIPTION: 8,
+  CLASS_DESCRIPTION: 9,
+  DEITY_DESCRIPTION: 14,
+  ALT_CURRENCY: 17,
 };
 
 const OVERSEER_RARITIES: Record<number, string> = {
@@ -1429,6 +1510,156 @@ async function loadMercenaries(): Promise<void> {
   }
 
   console.error(`[LocalData] Loaded ${mercenaries.size} mercenary types`);
+}
+
+// ============ RACE & CLASS INFO PARSER ============
+
+// eqstr_us.txt IDs for race descriptions (longer, lore-rich)
+const EQSTR_RACE_DESC: Record<number, number> = {
+  2: 3239,   // Barbarian
+  6: 3240,   // Dark Elf
+  8: 3241,   // Dwarf
+  3: 3242,   // Erudite
+  7: 3243,   // Half Elf
+  11: 3244,  // Halfling
+  5: 3245,   // High Elf
+  1: 3246,   // Human
+  128: 3247, // Iksar
+  10: 3248,  // Ogre
+  9: 3249,   // Troll
+  130: 3273, // Vah Shir
+  4: 3274,   // Wood Elf
+  330: 3316, // Froglok
+  12: 3339,  // Gnome
+};
+
+// eqstr_us.txt IDs for class descriptions (longer)
+const EQSTR_CLASS_DESC: Record<number, number> = {
+  8: 3317,   // Bard
+  15: 3318,  // Beastlord
+  2: 3319,   // Cleric
+  6: 3320,   // Druid
+  14: 3321,  // Enchanter
+  13: 3322,  // Magician
+  7: 3323,   // Monk
+  11: 3324,  // Necromancer
+  3: 3325,   // Paladin
+  4: 3326,   // Ranger
+  9: 3327,   // Rogue
+  5: 3328,   // Shadow Knight
+  10: 3329,  // Shaman
+  1: 3330,   // Warrior
+  12: 3331,  // Wizard
+};
+
+// eqstr_us.txt IDs for stat descriptions
+const EQSTR_STAT_DESC: Record<string, number> = {
+  'Strength': 3332,
+  'Stamina': 3333,
+  'Agility': 3334,
+  'Dexterity': 3335,
+  'Wisdom': 3336,
+  'Intelligence': 3337,
+  'Charisma': 3338,
+};
+
+async function loadRaceClassInfo(): Promise<void> {
+  if (raceDescriptions !== null) return;
+
+  raceDescriptions = new Map();
+  classDescriptions = new Map();
+  statDescriptions = new Map();
+  deityNames = new Map();
+
+  if (!isGameDataAvailable()) return;
+
+  console.error('[LocalData] Loading race/class info...');
+
+  deityDescriptions = new Map();
+
+  // Load short descriptions from dbstr_us.txt (types 8, 9, and 14 for deities)
+  await loadDbStrings([DBSTR_TYPES.RACE_DESCRIPTION, DBSTR_TYPES.CLASS_DESCRIPTION, DBSTR_TYPES.DEITY_DESCRIPTION]);
+  const shortRaceDescs = dbStrings?.get(DBSTR_TYPES.RACE_DESCRIPTION) || new Map();
+  const shortClassDescs = dbStrings?.get(DBSTR_TYPES.CLASS_DESCRIPTION) || new Map();
+
+  // Load long descriptions and other data from eqstr_us.txt
+  await loadGameStrings();
+
+  // Build race descriptions
+  for (const [raceId, raceName] of Object.entries(RACE_IDS)) {
+    const id = parseInt(raceId);
+    const shortRaw = shortRaceDescs.get(id) || '';
+    const short = stripHtmlTags(shortRaw);
+
+    let long = '';
+    const eqstrId = EQSTR_RACE_DESC[id];
+    if (eqstrId && gameStrings) {
+      const raw = gameStrings.get(eqstrId) || '';
+      long = stripHtmlTags(raw);
+    }
+
+    raceDescriptions.set(id, { short: short || long, long: long || short });
+  }
+
+  // Build class descriptions
+  for (const [classId, className] of Object.entries(CLASS_IDS)) {
+    const id = parseInt(classId);
+    const shortRaw = shortClassDescs.get(id) || '';
+    const short = stripHtmlTags(shortRaw);
+
+    let long = '';
+    const eqstrId = EQSTR_CLASS_DESC[id];
+    if (eqstrId && gameStrings) {
+      const raw = gameStrings.get(eqstrId) || '';
+      long = stripHtmlTags(raw);
+    }
+
+    classDescriptions.set(id, { short: short || long, long: long || short });
+  }
+
+  // Load stat descriptions
+  if (gameStrings) {
+    for (const [statName, eqstrId] of Object.entries(EQSTR_STAT_DESC)) {
+      const raw = gameStrings.get(eqstrId) || '';
+      statDescriptions.set(statName, stripHtmlTags(raw));
+    }
+  }
+
+  // Load deity names
+  if (gameStrings) {
+    for (const [eqstrId, deityId] of Object.entries(DEITY_IDS)) {
+      const name = gameStrings.get(parseInt(eqstrId));
+      if (name) {
+        deityNames.set(deityId, name);
+      }
+    }
+  }
+
+  // Load deity descriptions from dbstr type 14
+  const deityDescs = dbStrings?.get(DBSTR_TYPES.DEITY_DESCRIPTION) || new Map();
+  for (const [deityId, rawDesc] of deityDescs) {
+    deityDescriptions!.set(deityId, stripHtmlTags(rawDesc));
+  }
+
+  console.error(`[LocalData] Loaded ${raceDescriptions.size} races, ${classDescriptions.size} classes, ${deityDescriptions!.size} deities`);
+}
+
+// ============ ALTERNATE CURRENCY PARSER ============
+
+async function loadAltCurrencies(): Promise<void> {
+  if (altCurrencies !== null) return;
+
+  altCurrencies = new Map();
+  if (!isGameDataAvailable()) return;
+
+  await loadDbStrings([DBSTR_TYPES.ALT_CURRENCY]);
+  const currencies = dbStrings?.get(DBSTR_TYPES.ALT_CURRENCY) || new Map();
+
+  for (const [id, name] of currencies) {
+    altCurrencies.set(id, name);
+  }
+
+  console.error(`[LocalData] Loaded ${altCurrencies.size} alternate currencies`);
 }
 
 // ============ MAP POI PARSER (On-Demand) ============
@@ -2590,6 +2821,209 @@ export async function getMercenary(id: string): Promise<string> {
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: RACE & CLASS INFO ============
+
+export async function getRaceInfo(raceName: string): Promise<string> {
+  await loadRaceClassInfo();
+  if (!raceDescriptions) return 'Race data not available.';
+
+  // Resolve race ID
+  const raceId = RACE_NAME_TO_ID[raceName.toLowerCase()];
+  if (!raceId && raceId !== 0) {
+    return `Unknown race: "${raceName}". Valid races: ${Object.values(RACE_IDS).join(', ')}`;
+  }
+
+  const name = RACE_IDS[raceId];
+  const desc = raceDescriptions.get(raceId);
+  if (!desc) return `No data found for race: ${name}`;
+
+  const lines = [
+    `## ${name}`,
+    '',
+    desc.long || desc.short,
+    '',
+  ];
+
+  // Available classes
+  const availableClasses = RACE_CLASSES[raceId];
+  if (availableClasses) {
+    lines.push(`**Available Classes:** ${availableClasses.map(id => CLASS_IDS[id]).join(', ')}`);
+  }
+
+  // Available deities
+  const deities = RACE_DEITIES[raceId];
+  if (deities) {
+    lines.push(`**Available Deities:** ${deities.join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+export async function getClassInfo(className: string): Promise<string> {
+  await loadRaceClassInfo();
+  if (!classDescriptions) return 'Class data not available.';
+
+  // Resolve class ID
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const name = CLASS_IDS[classId];
+  const desc = classDescriptions.get(classId);
+  if (!desc) return `No data found for class: ${name}`;
+
+  const lines = [
+    `## ${name} (${CLASS_SHORT[classId]})`,
+    '',
+    desc.long || desc.short,
+    '',
+  ];
+
+  // Available races
+  const availableRaces: string[] = [];
+  for (const [raceId, classIds] of Object.entries(RACE_CLASSES)) {
+    if (classIds.includes(classId)) {
+      const raceName = RACE_IDS[parseInt(raceId)];
+      if (raceName) availableRaces.push(raceName);
+    }
+  }
+  if (availableRaces.length > 0) {
+    lines.push(`**Available Races:** ${availableRaces.join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+export async function getDeityInfo(deityName: string): Promise<string> {
+  await loadRaceClassInfo();
+
+  const normalized = deityName.toLowerCase();
+
+  // Find which races can worship this deity
+  const racesForDeity: string[] = [];
+  for (const [raceId, deities] of Object.entries(RACE_DEITIES)) {
+    for (const d of deities) {
+      if (d.toLowerCase().includes(normalized)) {
+        const raceName = RACE_IDS[parseInt(raceId)];
+        if (raceName) racesForDeity.push(raceName);
+        break;
+      }
+    }
+  }
+
+  if (racesForDeity.length === 0) {
+    // List all deities
+    const allDeities = new Set<string>();
+    for (const deities of Object.values(RACE_DEITIES)) {
+      for (const d of deities) allDeities.add(d);
+    }
+    return `Unknown deity: "${deityName}". Valid deities: ${[...allDeities].sort().join(', ')}`;
+  }
+
+  // Find the actual deity name (properly cased)
+  let properName = deityName;
+  for (const deities of Object.values(RACE_DEITIES)) {
+    for (const d of deities) {
+      if (d.toLowerCase().includes(normalized)) {
+        properName = d;
+        break;
+      }
+    }
+    if (properName !== deityName) break;
+  }
+
+  const lines = [
+    `## ${properName}`,
+    '',
+  ];
+
+  // Find deity lore description from dbstr type 14
+  if (deityDescriptions) {
+    for (const [deityId, desc] of deityDescriptions) {
+      if (desc.toLowerCase().includes(properName.toLowerCase())) {
+        lines.push(desc, '');
+        break;
+      }
+    }
+  }
+
+  lines.push(`**Races that can worship ${properName}:** ${racesForDeity.join(', ')}`);
+
+  return lines.join('\n');
+}
+
+export async function getStatInfo(statName?: string): Promise<string> {
+  await loadRaceClassInfo();
+  if (!statDescriptions || statDescriptions.size === 0) return 'Stat data not available.';
+
+  if (statName) {
+    // Find matching stat
+    const normalized = statName.toLowerCase();
+    for (const [name, desc] of statDescriptions) {
+      if (name.toLowerCase().startsWith(normalized)) {
+        return `## ${name}\n\n${desc}`;
+      }
+    }
+    return `Unknown stat: "${statName}". Valid stats: ${[...statDescriptions.keys()].join(', ')}`;
+  }
+
+  // Show all stats
+  const lines = ['## EverQuest Stats', ''];
+  for (const [name, desc] of statDescriptions) {
+    lines.push(`### ${name}`, desc, '');
+  }
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: ALTERNATE CURRENCIES ============
+
+export async function searchAltCurrencies(query: string): Promise<SearchResult[]> {
+  await loadAltCurrencies();
+  if (!altCurrencies || altCurrencies.size === 0) return [];
+
+  const normalized = query.toLowerCase();
+  const results: SearchResult[] = [];
+
+  for (const [id, name] of altCurrencies) {
+    if (results.length >= 25) break;
+    if (name.toLowerCase().includes(normalized)) {
+      results.push({
+        name,
+        type: 'unknown' as const,
+        id: id.toString(),
+        url: `local://currency/${id}`,
+        source: 'Local Game Data',
+        description: `Alternate Currency (ID: ${id})`,
+      });
+    }
+  }
+
+  // Sort: exact > starts-with > contains
+  results.sort((a, b) => {
+    const aName = a.name.toLowerCase();
+    const bName = b.name.toLowerCase();
+    const aScore = aName === normalized ? 3 : aName.startsWith(normalized) ? 2 : 1;
+    const bScore = bName === normalized ? 3 : bName.startsWith(normalized) ? 2 : 1;
+    return bScore - aScore;
+  });
+
+  return results;
+}
+
+export async function listAltCurrencies(): Promise<string> {
+  await loadAltCurrencies();
+  if (!altCurrencies || altCurrencies.size === 0) return 'Alternate currency data not available.';
+
+  const lines = ['## EverQuest Alternate Currencies', ''];
+  const sorted = [...altCurrencies.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [id, name] of sorted) {
+    lines.push(`- **${name}** (ID: ${id})`);
+  }
+  lines.push('', `*${altCurrencies.size} currencies total*`);
+  return lines.join('\n');
+}
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {
@@ -2628,6 +3062,10 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Achievement Components:** ${achievementComponents ? achievementComponents.size.toLocaleString() + ' achievements' : 'Not loaded'}`);
   lines.push(`- **Combat Abilities:** ${combatAbilities ? combatAbilities.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Mercenaries:** ${mercenaries ? mercenaries.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Race Descriptions:** ${raceDescriptions ? raceDescriptions.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Class Descriptions:** ${classDescriptions ? classDescriptions.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Deity Descriptions:** ${deityDescriptions ? deityDescriptions.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Alternate Currencies:** ${altCurrencies ? altCurrencies.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Map Cache:** ${mapCache.size} zones loaded`);
 
   return lines.join('\n');

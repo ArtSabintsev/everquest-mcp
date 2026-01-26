@@ -51,6 +51,12 @@ import {
   searchCombatAbilities,
   searchMercenaries,
   getMercenary,
+  getRaceInfo,
+  getClassInfo,
+  getDeityInfo,
+  getStatInfo,
+  searchAltCurrencies,
+  listAltCurrencies,
 } from './sources/index.js';
 
 export const tools = [
@@ -676,6 +682,75 @@ export const tools = [
     }
   },
   {
+    name: 'get_race_info',
+    description: 'Get detailed information about an EverQuest playable race, including lore description, available classes, and available deities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        race: {
+          type: 'string',
+          description: 'Race name (e.g., "Human", "Dark Elf", "Iksar", "Drakkin", "Vah Shir")'
+        }
+      },
+      required: ['race']
+    }
+  },
+  {
+    name: 'get_class_info',
+    description: 'Get detailed information about an EverQuest class, including description, playstyle, and available races.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name or abbreviation (e.g., "Warrior", "WAR", "Shadow Knight", "SHD")'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'get_deity_info',
+    description: 'Get information about an EverQuest deity and which races can worship them.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        deity: {
+          type: 'string',
+          description: 'Deity name (e.g., "Tunare", "Innoruuk", "Cazic-Thule", "Agnostic")'
+        }
+      },
+      required: ['deity']
+    }
+  },
+  {
+    name: 'get_stat_info',
+    description: 'Get description of what EverQuest stats do (Strength, Stamina, Agility, Dexterity, Wisdom, Intelligence, Charisma). Shows how each stat affects gameplay.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        stat: {
+          type: 'string',
+          description: 'Optional: specific stat name (e.g., "Strength", "Wisdom"). Omit to see all stats.'
+        }
+      },
+    }
+  },
+  {
+    name: 'search_alt_currencies',
+    description: 'Search EverQuest alternate currencies by name (e.g., "Chronobine", "Noble", "Doubloon"). Shows all known alternate/special currencies.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Currency name to search for. Use "*" or leave empty to list all currencies.'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
     name: 'get_local_data_status',
     description: 'Show status of local EverQuest game data integration - which data files are loaded and available.',
     inputSchema: {
@@ -1028,7 +1103,7 @@ function formatSources(): string {
   const lines = ['# Available EverQuest Data Sources', ''];
 
   const sourceInfo = [
-    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with descriptions), zones, skill caps, class stats, achievements (with categories & steps), factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+), AC mitigation, spell stacking, map POIs (34K+ from Brewall maps), lore/storylines (50 stories), game strings (7K messages), Overseer agents (300+) & quests (800+)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
+    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with descriptions), zones, skill caps, class stats, achievements (with categories & steps), factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+), AC mitigation, spell stacking, map POIs (34K+ from Brewall maps), lore/storylines (50 stories), game strings (7K messages), Overseer agents (300+) & quests (800+), race/class info (16 races, 16 classes), deities, stat descriptions', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
     { name: 'Allakhazam', specialty: 'Primary database - spells, items, NPCs, zones, quests', url: 'https://everquest.allakhazam.com' },
     { name: "Almar's Guides", specialty: 'Quest walkthroughs, epic guides, leveling guides', url: 'https://www.almarsguides.com/eq' },
     { name: 'EQResource', specialty: 'Modern expansion content, progression, spells database', url: 'https://eqresource.com' },
@@ -1512,6 +1587,36 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const id = (args.id as string).trim();
         return getMercenary(id);
+      }
+
+      case 'get_race_info': {
+        const race = typeof args.race === 'string' ? args.race.trim() : '';
+        if (!race) return 'Error: "race" parameter is required';
+        return getRaceInfo(race);
+      }
+
+      case 'get_class_info': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        return getClassInfo(className);
+      }
+
+      case 'get_deity_info': {
+        const deity = typeof args.deity === 'string' ? args.deity.trim() : '';
+        if (!deity) return 'Error: "deity" parameter is required';
+        return getDeityInfo(deity);
+      }
+
+      case 'get_stat_info': {
+        const stat = typeof args.stat === 'string' ? args.stat.trim() : undefined;
+        return getStatInfo(stat);
+      }
+
+      case 'search_alt_currencies': {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query || query === '*') return listAltCurrencies();
+        const results = await searchAltCurrencies(query);
+        return formatSearchResults(results, query);
       }
 
       case 'get_local_data_status': {
