@@ -13182,3 +13182,756 @@ export async function getItemEffectOverview(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ TOOL #165: SPELL STACKING OVERVIEW ============
+
+export async function getSpellStackingOverview(): Promise<string> {
+  await loadSpellStacking();
+  await loadSpells();
+  if (!spellStacking || !spellGroupNames || spellGroupNames.size === 0) {
+    return 'Spell stacking data not available.';
+  }
+
+  const lines = ['# Spell Stacking Group Overview', ''];
+  lines.push(`- **Total stacking groups:** ${spellGroupNames.size}`);
+
+  // Count spells per group
+  const groupSpellCounts: Record<number, number> = {};
+  const groupClassCoverage: Record<number, Set<number>> = {};
+
+  for (const [spellId, entries] of spellStacking) {
+    for (const entry of entries) {
+      groupSpellCounts[entry.stackingGroup] = (groupSpellCounts[entry.stackingGroup] || 0) + 1;
+
+      // Track which classes can use spells in this group
+      const spell = spells?.get(spellId);
+      if (spell) {
+        if (!groupClassCoverage[entry.stackingGroup]) groupClassCoverage[entry.stackingGroup] = new Set();
+        for (let i = 1; i <= 16; i++) {
+          const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+          if (level > 0 && level < 255) groupClassCoverage[entry.stackingGroup].add(i);
+        }
+      }
+    }
+  }
+
+  // Group size distribution
+  const sizeDist: Record<number, number> = {};
+  const groupSizes = Object.values(groupSpellCounts);
+  for (const size of groupSizes) {
+    const bucket = size <= 5 ? size : size <= 10 ? 10 : size <= 20 ? 20 : size <= 50 ? 50 : 100;
+    sizeDist[bucket] = (sizeDist[bucket] || 0) + 1;
+  }
+
+  const totalSpellsInGroups = groupSizes.reduce((s, v) => s + v, 0);
+  const avgSize = totalSpellsInGroups / groupSizes.length;
+  lines.push(`- **Total spells with stacking data:** ${spellStacking.size}`);
+  lines.push(`- **Average group size:** ${avgSize.toFixed(1)} spells`);
+
+  lines.push('', '## Group Size Distribution', '');
+  const sizeLabels: Record<number, string> = {
+    1: '1 spell', 2: '2 spells', 3: '3 spells', 4: '4 spells', 5: '5 spells',
+    10: '6-10 spells', 20: '11-20 spells', 50: '21-50 spells', 100: '51+ spells',
+  };
+  for (const [bucket, count] of Object.entries(sizeDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    const label = sizeLabels[parseInt(bucket)] || `${bucket} spells`;
+    const bar = '#'.repeat(Math.min(count, 50));
+    lines.push(`- **${label}:** ${count} groups ${bar}`);
+  }
+
+  // Largest groups
+  lines.push('', '## Largest Stacking Groups (Top 15)', '');
+  lines.push('| Group | Spells | Classes |');
+  lines.push('|-------|--------|---------|');
+  const sortedGroups = Object.entries(groupSpellCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15);
+  for (const [groupId, count] of sortedGroups) {
+    const gid = parseInt(groupId);
+    const name = spellGroupNames.get(gid) || `Group ${gid}`;
+    const classCount = groupClassCoverage[gid]?.size || 0;
+    lines.push(`| ${name} | ${count} | ${classCount} |`);
+  }
+
+  // Stacking type analysis
+  const stackTypes: Record<number, number> = {};
+  for (const entries of spellStacking.values()) {
+    for (const entry of entries) {
+      stackTypes[entry.stackingType] = (stackTypes[entry.stackingType] || 0) + 1;
+    }
+  }
+  lines.push('', '## Stacking Type Distribution', '');
+  for (const [type, count] of Object.entries(stackTypes).sort((a, b) => b[1] - a[1])) {
+    const pct = ((count / totalSpellsInGroups) * 100).toFixed(1);
+    lines.push(`- **Type ${type}:** ${count} entries (${pct}%)`);
+  }
+
+  // Class coverage analysis
+  lines.push('', '## Groups by Class Coverage', '');
+  const classCoverageDist: Record<number, number> = {};
+  for (const classes of Object.values(groupClassCoverage)) {
+    classCoverageDist[classes.size] = (classCoverageDist[classes.size] || 0) + 1;
+  }
+  for (const [classCount, groupCount] of Object.entries(classCoverageDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    lines.push(`- **${classCount} class${parseInt(classCount) !== 1 ? 'es' : ''}:** ${groupCount} groups`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #166: SPELL AE ANALYSIS ============
+
+export async function getSpellAEAnalysis(className?: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  let classFilter: number | undefined;
+  let classLabel = 'All Classes';
+  if (className) {
+    const classId = Object.entries(CLASS_IDS).find(([, name]) =>
+      name.toLowerCase() === className.toLowerCase()
+    )?.[0];
+    if (!classId) {
+      const validClasses = Object.values(CLASS_IDS).join(', ');
+      return `Unknown class "${className}". Valid classes: ${validClasses}`;
+    }
+    classFilter = parseInt(classId);
+    classLabel = CLASS_IDS[classFilter];
+  }
+
+  // AE target types
+  const AE_TYPES: Record<number, string> = {
+    2: 'AE (PC v1)', 4: 'PB AE', 8: 'Targeted AE',
+    40: 'AE (PC v2)', 42: 'Directional AE', 44: 'Beam',
+    46: 'Target Ring AE',
+  };
+
+  let totalSpells = 0;
+  let aeSpells = 0;
+  const aeTypeCounts: Record<number, number> = {};
+  const aeRanges: number[] = [];
+  const aeRadii: number[] = [];
+  const radiusBuckets: Record<string, number> = {};
+  const aeByBeneficial: { beneficial: number; detrimental: number } = { beneficial: 0, detrimental: 0 };
+  const largestAE: { name: string; radius: number; type: string }[] = [];
+
+  for (const spell of spells.values()) {
+    if (classFilter) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classFilter - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+    }
+    totalSpells++;
+
+    const targetType = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    if (!AE_TYPES[targetType]) continue;
+
+    aeSpells++;
+    aeTypeCounts[targetType] = (aeTypeCounts[targetType] || 0) + 1;
+
+    const range = parseInt(spell.fields[SF.RANGE]) || 0;
+    const aeRange = parseInt(spell.fields[SF.AE_RANGE]) || 0;
+    if (range > 0) aeRanges.push(range);
+    if (aeRange > 0) aeRadii.push(aeRange);
+
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    if (beneficial) aeByBeneficial.beneficial++;
+    else aeByBeneficial.detrimental++;
+
+    // Radius buckets
+    let bucket: string;
+    if (aeRange === 0) bucket = 'No radius';
+    else if (aeRange <= 15) bucket = 'Small (1-15)';
+    else if (aeRange <= 30) bucket = 'Medium (16-30)';
+    else if (aeRange <= 50) bucket = 'Large (31-50)';
+    else if (aeRange <= 100) bucket = 'Very Large (51-100)';
+    else bucket = 'Massive (100+)';
+    radiusBuckets[bucket] = (radiusBuckets[bucket] || 0) + 1;
+
+    if (aeRange > 0) {
+      largestAE.push({ name: spell.name, radius: aeRange, type: AE_TYPES[targetType] });
+    }
+  }
+
+  const lines = [`# AE Spell Analysis: ${classLabel}`, ''];
+  lines.push(`- **Total spells:** ${totalSpells}`);
+  lines.push(`- **AE spells:** ${aeSpells} (${((aeSpells / totalSpells) * 100).toFixed(1)}%)`);
+  lines.push(`- **Beneficial AE:** ${aeByBeneficial.beneficial}`);
+  lines.push(`- **Detrimental AE:** ${aeByBeneficial.detrimental}`);
+
+  // AE type breakdown
+  lines.push('', '## AE Type Breakdown', '');
+  lines.push('| Type | Count | % of AE Spells |');
+  lines.push('|------|-------|---------------|');
+  for (const [type, count] of Object.entries(aeTypeCounts).sort((a, b) => b[1] - a[1])) {
+    const name = AE_TYPES[parseInt(type)];
+    const pct = ((count / aeSpells) * 100).toFixed(1);
+    lines.push(`| ${name} | ${count} | ${pct}% |`);
+  }
+
+  // Radius distribution
+  if (aeRadii.length > 0) {
+    const sorted = [...aeRadii].sort((a, b) => a - b);
+    const avg = sorted.reduce((s, v) => s + v, 0) / sorted.length;
+    lines.push('', '## AE Radius Statistics', '');
+    lines.push(`- **AE spells with radius:** ${aeRadii.length}`);
+    lines.push(`- **Average radius:** ${avg.toFixed(1)}`);
+    lines.push(`- **Median radius:** ${sorted[Math.floor(sorted.length / 2)]}`);
+    lines.push(`- **Range:** ${sorted[0]} to ${sorted[sorted.length - 1]}`);
+
+    lines.push('', '### Radius Distribution', '');
+    const bucketOrder = ['No radius', 'Small (1-15)', 'Medium (16-30)', 'Large (31-50)', 'Very Large (51-100)', 'Massive (100+)'];
+    for (const bucket of bucketOrder) {
+      const count = radiusBuckets[bucket] || 0;
+      if (count > 0) {
+        const pct = ((count / aeSpells) * 100).toFixed(1);
+        lines.push(`- **${bucket}:** ${count} (${pct}%)`);
+      }
+    }
+  }
+
+  // Range analysis
+  if (aeRanges.length > 0) {
+    const sorted = [...aeRanges].sort((a, b) => a - b);
+    const avg = sorted.reduce((s, v) => s + v, 0) / sorted.length;
+    lines.push('', '## AE Spell Range to Target', '');
+    lines.push(`- **Average range:** ${avg.toFixed(1)}`);
+    lines.push(`- **Range:** ${sorted[0]} to ${sorted[sorted.length - 1]}`);
+  }
+
+  // Largest AE spells
+  largestAE.sort((a, b) => b.radius - a.radius);
+  lines.push('', '## Largest AE Radius Spells (Top 15)', '');
+  for (const ae of largestAE.slice(0, 15)) {
+    lines.push(`- **${ae.name}:** radius ${ae.radius} (${ae.type})`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #167: OVERSEER MINION RARITY ANALYSIS ============
+
+export async function getOverseerMinionRarityAnalysis(): Promise<string> {
+  await loadOverseerMinions();
+  await loadOverseerEnhancements();
+
+  if (!overseerMinions || overseerMinions.size === 0) {
+    return 'Overseer minion data not available.';
+  }
+
+  const lines = ['# Overseer Minion Rarity Analysis', ''];
+
+  const RARITY_NAMES: Record<number, string> = {
+    1: 'Common', 2: 'Uncommon', 3: 'Rare', 4: 'Elite', 5: 'Iconic',
+  };
+
+  // Rarity distribution
+  const rarityDist: Record<number, number> = {};
+  const rarityTraits: Record<number, Record<string, number>> = {}; // rarity -> trait -> count
+  const rarityJobs: Record<number, Record<number, number>> = {}; // rarity -> jobTypeId -> count
+  const rarityJobLevels: Record<number, number[]> = {}; // rarity -> job levels
+
+  for (const minion of overseerMinions.values()) {
+    rarityDist[minion.rarity] = (rarityDist[minion.rarity] || 0) + 1;
+
+    if (!rarityTraits[minion.rarity]) rarityTraits[minion.rarity] = {};
+    for (const trait of minion.traits) {
+      rarityTraits[minion.rarity][trait] = (rarityTraits[minion.rarity][trait] || 0) + 1;
+    }
+
+    if (!rarityJobs[minion.rarity]) rarityJobs[minion.rarity] = {};
+    if (!rarityJobLevels[minion.rarity]) rarityJobLevels[minion.rarity] = [];
+    for (const job of minion.jobs) {
+      rarityJobs[minion.rarity][job.jobTypeId] = (rarityJobs[minion.rarity][job.jobTypeId] || 0) + 1;
+      rarityJobLevels[minion.rarity].push(job.level);
+    }
+  }
+
+  lines.push(`- **Total minions:** ${overseerMinions.size}`);
+
+  // Rarity distribution
+  lines.push('', '## Rarity Distribution', '');
+  for (const rarity of [1, 2, 3, 4, 5]) {
+    const count = rarityDist[rarity] || 0;
+    if (count > 0) {
+      const pct = ((count / overseerMinions.size) * 100).toFixed(1);
+      const bar = '#'.repeat(Math.min(Math.round(count / 3), 50));
+      lines.push(`- **${RARITY_NAMES[rarity]}:** ${count} (${pct}%) ${bar}`);
+    }
+  }
+
+  // Traits per rarity
+  lines.push('', '## Average Traits by Rarity', '');
+  for (const rarity of [1, 2, 3, 4, 5]) {
+    const minionCount = rarityDist[rarity] || 0;
+    if (minionCount === 0) continue;
+    const totalTraits = Object.values(rarityTraits[rarity] || {}).reduce((s, v) => s + v, 0);
+    const avg = totalTraits / minionCount;
+    lines.push(`- **${RARITY_NAMES[rarity]}:** ${avg.toFixed(1)} traits per minion`);
+  }
+
+  // Job levels per rarity
+  lines.push('', '## Job Levels by Rarity', '');
+  lines.push('| Rarity | Avg Level | Min | Max | Jobs/Minion |');
+  lines.push('|--------|-----------|-----|-----|-------------|');
+  for (const rarity of [1, 2, 3, 4, 5]) {
+    const levels = rarityJobLevels[rarity] || [];
+    if (levels.length === 0) continue;
+    const avg = levels.reduce((s, v) => s + v, 0) / levels.length;
+    const min = Math.min(...levels);
+    const max = Math.max(...levels);
+    const minionCount = rarityDist[rarity] || 1;
+    const jobsPerMinion = (levels.length / minionCount).toFixed(1);
+    lines.push(`| ${RARITY_NAMES[rarity]} | ${avg.toFixed(1)} | ${min} | ${max} | ${jobsPerMinion} |`);
+  }
+
+  // Job type distribution per rarity
+  lines.push('', '## Job Type Distribution by Rarity', '');
+  for (const rarity of [1, 2, 3, 4, 5]) {
+    const jobs = rarityJobs[rarity];
+    if (!jobs || Object.keys(jobs).length === 0) continue;
+    lines.push(`### ${RARITY_NAMES[rarity]}`);
+    const sortedJobs = Object.entries(jobs).sort((a, b) => b[1] - a[1]);
+    for (const [jobId, count] of sortedJobs) {
+      const name = overseerJobNames?.get(parseInt(jobId)) || `Job ${jobId}`;
+      lines.push(`  - ${name}: ${count}`);
+    }
+    lines.push('');
+  }
+
+  // Most common traits per rarity (top 5 each)
+  lines.push('## Top Traits by Rarity', '');
+  for (const rarity of [1, 2, 3, 4, 5]) {
+    const traits = rarityTraits[rarity];
+    if (!traits || Object.keys(traits).length === 0) continue;
+    lines.push(`### ${RARITY_NAMES[rarity]}`);
+    const topTraits = Object.entries(traits).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    for (const [trait, count] of topTraits) {
+      lines.push(`  - ${trait}: ${count} minions`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL PUSHBACK OVERVIEW ============
+
+export async function getSpellPushbackOverview(className?: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  let classId = 0;
+  if (className) {
+    const cn = className.toLowerCase().trim();
+    const entry = Object.entries(CLASS_IDS).find(([, name]) => name.toLowerCase() === cn);
+    if (!entry) return `Unknown class: "${className}". Valid: ${Object.values(CLASS_IDS).join(', ')}`;
+    classId = parseInt(entry[0]);
+  }
+
+  const title = classId ? CLASS_IDS[classId] : 'All Classes';
+  const lines = [`# Spell Pushback/Positioning Overview: ${title}`, ''];
+
+  // Collect spells with pushback or pushup
+  const pushbackSpells: { name: string; pushBack: number; pushUp: number; beneficial: boolean }[] = [];
+  let totalSpells = 0;
+
+  for (const spell of spells.values()) {
+    if (classId) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]);
+      if (isNaN(level) || level < 1 || level > 254) continue;
+    }
+    totalSpells++;
+
+    const pushBack = parseFloat(spell.fields[SF.PUSH_BACK]) || 0;
+    const pushUp = parseFloat(spell.fields[SF.PUSH_UP]) || 0;
+    if (pushBack > 0 || pushUp > 0) {
+      pushbackSpells.push({
+        name: spell.name,
+        pushBack,
+        pushUp,
+        beneficial: spell.fields[SF.BENEFICIAL] === '1',
+      });
+    }
+  }
+
+  lines.push(`- **Total spells:** ${totalSpells.toLocaleString()}`);
+  lines.push(`- **Spells with positioning effects:** ${pushbackSpells.length} (${(pushbackSpells.length / totalSpells * 100).toFixed(1)}%)`);
+
+  const withPushback = pushbackSpells.filter(s => s.pushBack > 0);
+  const withPushup = pushbackSpells.filter(s => s.pushUp > 0);
+  const withBoth = pushbackSpells.filter(s => s.pushBack > 0 && s.pushUp > 0);
+
+  lines.push(`- **With pushback:** ${withPushback.length}`);
+  lines.push(`- **With pushup (launch):** ${withPushup.length}`);
+  lines.push(`- **With both pushback AND pushup:** ${withBoth.length}`);
+  lines.push(`- **Beneficial with positioning:** ${pushbackSpells.filter(s => s.beneficial).length}`);
+  lines.push(`- **Detrimental with positioning:** ${pushbackSpells.filter(s => !s.beneficial).length}`);
+
+  // Pushback value distribution
+  const pushbackBuckets = new Map<string, number>();
+  for (const s of withPushback) {
+    const bucket = s.pushBack <= 1 ? '0-1' : s.pushBack <= 5 ? '2-5' : s.pushBack <= 10 ? '6-10' : s.pushBack <= 25 ? '11-25' : s.pushBack <= 50 ? '26-50' : '51+';
+    pushbackBuckets.set(bucket, (pushbackBuckets.get(bucket) || 0) + 1);
+  }
+
+  if (pushbackBuckets.size > 0) {
+    lines.push('', '## Pushback Value Distribution', '');
+    lines.push('| Range | Count |');
+    lines.push('|-------|-------|');
+    for (const bucket of ['0-1', '2-5', '6-10', '11-25', '26-50', '51+']) {
+      const count = pushbackBuckets.get(bucket) || 0;
+      if (count > 0) lines.push(`| ${bucket} | ${count} |`);
+    }
+  }
+
+  // Pushup value distribution
+  const pushupBuckets = new Map<string, number>();
+  for (const s of withPushup) {
+    const bucket = s.pushUp <= 1 ? '0-1' : s.pushUp <= 5 ? '2-5' : s.pushUp <= 10 ? '6-10' : s.pushUp <= 25 ? '11-25' : s.pushUp <= 50 ? '26-50' : '51+';
+    pushupBuckets.set(bucket, (pushupBuckets.get(bucket) || 0) + 1);
+  }
+
+  if (pushupBuckets.size > 0) {
+    lines.push('', '## Pushup (Launch) Value Distribution', '');
+    lines.push('| Range | Count |');
+    lines.push('|-------|-------|');
+    for (const bucket of ['0-1', '2-5', '6-10', '11-25', '26-50', '51+']) {
+      const count = pushupBuckets.get(bucket) || 0;
+      if (count > 0) lines.push(`| ${bucket} | ${count} |`);
+    }
+  }
+
+  // Top pushback spells
+  const topPushback = [...withPushback].sort((a, b) => b.pushBack - a.pushBack).slice(0, 15);
+  if (topPushback.length > 0) {
+    lines.push('', '## Highest Pushback Spells (Top 15)', '');
+    lines.push('| Spell | Pushback | Pushup | Type |');
+    lines.push('|-------|----------|--------|------|');
+    for (const s of topPushback) {
+      lines.push(`| ${s.name} | ${s.pushBack} | ${s.pushUp || '-'} | ${s.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+  }
+
+  // Top pushup spells
+  const topPushup = [...withPushup].sort((a, b) => b.pushUp - a.pushUp).slice(0, 15);
+  if (topPushup.length > 0) {
+    lines.push('', '## Highest Pushup (Launch) Spells (Top 15)', '');
+    lines.push('| Spell | Pushup | Pushback | Type |');
+    lines.push('|-------|--------|----------|------|');
+    for (const s of topPushup) {
+      lines.push(`| ${s.name} | ${s.pushUp} | ${s.pushBack || '-'} | ${s.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+  }
+
+  // Spells with both pushback AND pushup
+  if (withBoth.length > 0) {
+    lines.push('', '## Spells with Both Pushback AND Pushup', '');
+    const sorted = [...withBoth].sort((a, b) => (b.pushBack + b.pushUp) - (a.pushBack + a.pushUp)).slice(0, 20);
+    for (const s of sorted) {
+      lines.push(`- **${s.name}**: pushback=${s.pushBack}, pushup=${s.pushUp} (${s.beneficial ? 'Beneficial' : 'Detrimental'})`);
+    }
+  }
+
+  // Class comparison (only if showing all classes)
+  if (!classId) {
+    lines.push('', '## Positioning Spells by Class', '');
+    lines.push('| Class | Pushback | Pushup | Both | Total |');
+    lines.push('|-------|----------|--------|------|-------|');
+
+    for (let cid = 1; cid <= 16; cid++) {
+      let pb = 0, pu = 0, both = 0, total = 0;
+      for (const spell of spells.values()) {
+        const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]);
+        if (isNaN(level) || level < 1 || level > 254) continue;
+        const pushBack = parseFloat(spell.fields[SF.PUSH_BACK]) || 0;
+        const pushUp = parseFloat(spell.fields[SF.PUSH_UP]) || 0;
+        if (pushBack > 0 || pushUp > 0) {
+          total++;
+          if (pushBack > 0) pb++;
+          if (pushUp > 0) pu++;
+          if (pushBack > 0 && pushUp > 0) both++;
+        }
+      }
+      if (total > 0) {
+        lines.push(`| ${CLASS_SHORT[cid]} | ${pb} | ${pu} | ${both} | ${total} |`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: ACHIEVEMENT REQUIREMENT ANALYSIS ============
+
+export async function getAchievementRequirementAnalysis(): Promise<string> {
+  await loadAchievementComponents();
+  await loadAchievements();
+  if (!achievementComponents || achievementComponents.size === 0) return 'Achievement component data not available.';
+
+  const lines = ['# Achievement Requirement Value Analysis', ''];
+
+  // Collect all requirement values
+  const allRequirements: number[] = [];
+  const reqByType = new Map<number, number[]>();
+  let zeroReqs = 0;
+  let maxReq = 0;
+  let maxReqName = '';
+  let maxReqAchId = 0;
+
+  for (const [achId, components] of achievementComponents) {
+    for (const comp of components) {
+      allRequirements.push(comp.requirement);
+      if (comp.requirement === 0) zeroReqs++;
+      if (comp.requirement > maxReq) {
+        maxReq = comp.requirement;
+        maxReqAchId = achId;
+        maxReqName = comp.description || `Component ${comp.componentNum}`;
+      }
+
+      if (!reqByType.has(comp.type)) reqByType.set(comp.type, []);
+      reqByType.get(comp.type)!.push(comp.requirement);
+    }
+  }
+
+  const nonZero = allRequirements.filter(r => r > 0);
+  const avg = nonZero.length > 0 ? nonZero.reduce((a, b) => a + b, 0) / nonZero.length : 0;
+  nonZero.sort((a, b) => a - b);
+  const median = nonZero.length > 0 ? nonZero[Math.floor(nonZero.length / 2)] : 0;
+
+  lines.push(`- **Total components:** ${allRequirements.length.toLocaleString()}`);
+  lines.push(`- **Zero-requirement components:** ${zeroReqs.toLocaleString()} (${(zeroReqs / allRequirements.length * 100).toFixed(1)}%)`);
+  lines.push(`- **Non-zero requirements:** ${nonZero.length.toLocaleString()}`);
+  lines.push(`- **Average requirement (non-zero):** ${avg.toFixed(1)}`);
+  lines.push(`- **Median requirement (non-zero):** ${median.toLocaleString()}`);
+  lines.push(`- **Maximum requirement:** ${maxReq.toLocaleString()}`);
+
+  // Look up achievement name for max requirement
+  if (maxReqAchId && achievements) {
+    const ach = achievements.get(maxReqAchId);
+    if (ach) {
+      lines.push(`  - Achievement: ${ach.name}, Component: ${maxReqName}`);
+    }
+  }
+
+  // Requirement value buckets
+  const buckets = new Map<string, number>();
+  const bucketOrder = ['0', '1', '2-5', '6-10', '11-25', '26-50', '51-100', '101-500', '501-1000', '1001-5000', '5001+'];
+  for (const r of allRequirements) {
+    const bucket = r === 0 ? '0' : r === 1 ? '1' : r <= 5 ? '2-5' : r <= 10 ? '6-10' : r <= 25 ? '11-25' : r <= 50 ? '26-50' : r <= 100 ? '51-100' : r <= 500 ? '101-500' : r <= 1000 ? '501-1000' : r <= 5000 ? '1001-5000' : '5001+';
+    buckets.set(bucket, (buckets.get(bucket) || 0) + 1);
+  }
+
+  lines.push('', '## Requirement Value Distribution', '');
+  lines.push('| Range | Count | % |');
+  lines.push('|-------|-------|---|');
+  for (const bucket of bucketOrder) {
+    const count = buckets.get(bucket) || 0;
+    if (count > 0) {
+      lines.push(`| ${bucket} | ${count.toLocaleString()} | ${(count / allRequirements.length * 100).toFixed(1)}% |`);
+    }
+  }
+
+  // Requirements by component type
+  lines.push('', '## Requirement Statistics by Component Type', '');
+  lines.push('| Type | Count | Avg Req | Median Req | Max Req |');
+  lines.push('|------|-------|---------|------------|---------|');
+  const sortedTypes = [...reqByType.entries()].sort((a, b) => b[1].length - a[1].length);
+  for (const [type, reqs] of sortedTypes) {
+    const nz = reqs.filter(r => r > 0);
+    nz.sort((a, b) => a - b);
+    const typeAvg = nz.length > 0 ? nz.reduce((a, b) => a + b, 0) / nz.length : 0;
+    const typeMedian = nz.length > 0 ? nz[Math.floor(nz.length / 2)] : 0;
+    const typeMax = nz.length > 0 ? nz[nz.length - 1] : 0;
+    lines.push(`| ${type} | ${reqs.length} | ${typeAvg.toFixed(1)} | ${typeMedian.toLocaleString()} | ${typeMax.toLocaleString()} |`);
+  }
+
+  // Top 15 highest requirement components
+  const topReqs: { achId: number; comp: AchievementComponent }[] = [];
+  for (const [achId, components] of achievementComponents) {
+    for (const comp of components) {
+      topReqs.push({ achId, comp });
+    }
+  }
+  topReqs.sort((a, b) => b.comp.requirement - a.comp.requirement);
+
+  lines.push('', '## Highest Requirement Components (Top 15)', '');
+  lines.push('| Achievement | Component | Type | Requirement |');
+  lines.push('|-------------|-----------|------|-------------|');
+  for (const { achId, comp } of topReqs.slice(0, 15)) {
+    const achName = achievements?.get(achId)?.name || `#${achId}`;
+    const desc = comp.description || `Step ${comp.componentNum}`;
+    lines.push(`| ${achName} | ${desc.substring(0, 50)} | ${comp.type} | ${comp.requirement.toLocaleString()} |`);
+  }
+
+  // Achievements with most total requirements (sum)
+  const achTotalReqs: { achId: number; total: number; count: number }[] = [];
+  for (const [achId, components] of achievementComponents) {
+    const total = components.reduce((sum, c) => sum + c.requirement, 0);
+    achTotalReqs.push({ achId, total, count: components.length });
+  }
+  achTotalReqs.sort((a, b) => b.total - a.total);
+
+  lines.push('', '## Most Demanding Achievements (Highest Total Requirements)', '');
+  lines.push('| Achievement | Steps | Total Requirement |');
+  lines.push('|-------------|-------|-------------------|');
+  for (const { achId, total, count } of achTotalReqs.slice(0, 15)) {
+    const achName = achievements?.get(achId)?.name || `#${achId}`;
+    lines.push(`| ${achName} | ${count} | ${total.toLocaleString()} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: FACTION STARTING VALUE ANALYSIS ============
+
+export async function getFactionStartingValueAnalysis(): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const lines = ['# Faction Starting Value Analysis', ''];
+
+  // Collect all factions with starting values
+  const factionsWithModifiers: { id: number; name: string; startingValues: { modifierId: number; value: number }[] }[] = [];
+  let totalModifiers = 0;
+
+  for (const [, faction] of factions) {
+    if (faction.startingValues && faction.startingValues.length > 0) {
+      factionsWithModifiers.push({ id: faction.id, name: faction.name, startingValues: faction.startingValues });
+      totalModifiers += faction.startingValues.length;
+    }
+  }
+
+  lines.push(`- **Total factions:** ${factions.size.toLocaleString()}`);
+  lines.push(`- **Factions with starting modifiers:** ${factionsWithModifiers.length}`);
+  lines.push(`- **Total starting modifiers:** ${totalModifiers.toLocaleString()}`);
+  lines.push(`- **Average modifiers per faction (with any):** ${(totalModifiers / factionsWithModifiers.length).toFixed(1)}`);
+
+  // Separate race, class, deity modifiers
+  const raceModifiers: { factionName: string; raceName: string; value: number }[] = [];
+  const classModifiers: { factionName: string; className: string; value: number }[] = [];
+  const deityModifiers: { factionName: string; deityName: string; value: number }[] = [];
+  const otherModifiers: { factionName: string; modId: number; value: number }[] = [];
+
+  for (const faction of factionsWithModifiers) {
+    for (const sv of faction.startingValues) {
+      const modName = factionModifierNames?.get(sv.modifierId) || '';
+      if (PLAYABLE_RACE_MODIFIER_IDS.has(sv.modifierId) || modName.startsWith('Race:')) {
+        raceModifiers.push({ factionName: faction.name, raceName: modName.replace(/^Race:\s*/, '') || `Race ${sv.modifierId}`, value: sv.value });
+      } else if (DEITY_MODIFIER_IDS.has(sv.modifierId)) {
+        deityModifiers.push({ factionName: faction.name, deityName: modName.replace(/^Deity:\s*/, '') || `Deity ${sv.modifierId}`, value: sv.value });
+      } else if (modName.startsWith('Class:')) {
+        classModifiers.push({ factionName: faction.name, className: modName.replace(/^Class:\s*/, ''), value: sv.value });
+      } else {
+        otherModifiers.push({ factionName: faction.name, modId: sv.modifierId, value: sv.value });
+      }
+    }
+  }
+
+  lines.push(`- **Race modifiers:** ${raceModifiers.length}`);
+  lines.push(`- **Class modifiers:** ${classModifiers.length}`);
+  lines.push(`- **Deity modifiers:** ${deityModifiers.length}`);
+  if (otherModifiers.length > 0) lines.push(`- **Other modifiers:** ${otherModifiers.length}`);
+
+  // Value distribution (positive vs negative)
+  const allValues = [...raceModifiers.map(m => m.value), ...classModifiers.map(m => m.value), ...deityModifiers.map(m => m.value)];
+  const positiveValues = allValues.filter(v => v > 0);
+  const negativeValues = allValues.filter(v => v < 0);
+  const zeroValues = allValues.filter(v => v === 0);
+
+  lines.push('', '## Value Distribution', '');
+  lines.push(`- **Positive (friendly):** ${positiveValues.length} (${(positiveValues.length / allValues.length * 100).toFixed(1)}%)`);
+  lines.push(`- **Negative (hostile):** ${negativeValues.length} (${(negativeValues.length / allValues.length * 100).toFixed(1)}%)`);
+  if (zeroValues.length > 0) lines.push(`- **Zero:** ${zeroValues.length}`);
+
+  if (positiveValues.length > 0) {
+    positiveValues.sort((a, b) => a - b);
+    lines.push(`- **Positive range:** ${positiveValues[0]} to ${positiveValues[positiveValues.length - 1]}`);
+  }
+  if (negativeValues.length > 0) {
+    negativeValues.sort((a, b) => a - b);
+    lines.push(`- **Negative range:** ${negativeValues[0]} to ${negativeValues[negativeValues.length - 1]}`);
+  }
+
+  // Race impact summary
+  if (raceModifiers.length > 0) {
+    lines.push('', '## Race Starting Faction Impact', '');
+
+    const byRace = new Map<string, { positive: number; negative: number; total: number; sumPositive: number; sumNegative: number }>();
+    for (const m of raceModifiers) {
+      if (!byRace.has(m.raceName)) byRace.set(m.raceName, { positive: 0, negative: 0, total: 0, sumPositive: 0, sumNegative: 0 });
+      const entry = byRace.get(m.raceName)!;
+      entry.total++;
+      if (m.value > 0) { entry.positive++; entry.sumPositive += m.value; }
+      else if (m.value < 0) { entry.negative++; entry.sumNegative += m.value; }
+    }
+
+    lines.push('| Race | Factions Affected | Positive | Negative | Net Balance |');
+    lines.push('|------|-------------------|----------|----------|-------------|');
+    const sortedRaces = [...byRace.entries()].sort((a, b) => b[1].total - a[1].total);
+    for (const [race, data] of sortedRaces) {
+      const net = data.sumPositive + data.sumNegative;
+      lines.push(`| ${race} | ${data.total} | ${data.positive} (+${data.sumPositive}) | ${data.negative} (${data.sumNegative}) | ${net >= 0 ? '+' : ''}${net} |`);
+    }
+  }
+
+  // Class impact summary
+  if (classModifiers.length > 0) {
+    lines.push('', '## Class Starting Faction Impact', '');
+
+    const byClass = new Map<string, { positive: number; negative: number; total: number; sumPositive: number; sumNegative: number }>();
+    for (const m of classModifiers) {
+      if (!byClass.has(m.className)) byClass.set(m.className, { positive: 0, negative: 0, total: 0, sumPositive: 0, sumNegative: 0 });
+      const entry = byClass.get(m.className)!;
+      entry.total++;
+      if (m.value > 0) { entry.positive++; entry.sumPositive += m.value; }
+      else if (m.value < 0) { entry.negative++; entry.sumNegative += m.value; }
+    }
+
+    lines.push('| Class | Factions Affected | Positive | Negative | Net Balance |');
+    lines.push('|-------|-------------------|----------|----------|-------------|');
+    const sortedClasses = [...byClass.entries()].sort((a, b) => b[1].total - a[1].total);
+    for (const [cls, data] of sortedClasses) {
+      const net = data.sumPositive + data.sumNegative;
+      lines.push(`| ${cls} | ${data.total} | ${data.positive} (+${data.sumPositive}) | ${data.negative} (${data.sumNegative}) | ${net >= 0 ? '+' : ''}${net} |`);
+    }
+  }
+
+  // Deity impact summary
+  if (deityModifiers.length > 0) {
+    lines.push('', '## Deity Starting Faction Impact', '');
+
+    const byDeity = new Map<string, { positive: number; negative: number; total: number; sumPositive: number; sumNegative: number }>();
+    for (const m of deityModifiers) {
+      if (!byDeity.has(m.deityName)) byDeity.set(m.deityName, { positive: 0, negative: 0, total: 0, sumPositive: 0, sumNegative: 0 });
+      const entry = byDeity.get(m.deityName)!;
+      entry.total++;
+      if (m.value > 0) { entry.positive++; entry.sumPositive += m.value; }
+      else if (m.value < 0) { entry.negative++; entry.sumNegative += m.value; }
+    }
+
+    lines.push('| Deity | Factions Affected | Positive | Negative | Net Balance |');
+    lines.push('|-------|-------------------|----------|----------|-------------|');
+    const sortedDeities = [...byDeity.entries()].sort((a, b) => b[1].total - a[1].total);
+    for (const [deity, data] of sortedDeities) {
+      const net = data.sumPositive + data.sumNegative;
+      lines.push(`| ${deity} | ${data.total} | ${data.positive} (+${data.sumPositive}) | ${data.negative} (${data.sumNegative}) | ${net >= 0 ? '+' : ''}${net} |`);
+    }
+  }
+
+  // Factions most affected by starting modifiers (most modifiers)
+  const sortedFactions = [...factionsWithModifiers].sort((a, b) => b.startingValues.length - a.startingValues.length);
+  lines.push('', '## Most Modified Factions (Most Starting Value Adjustments)', '');
+  lines.push('| Faction | Modifiers | Most Positive | Most Negative |');
+  lines.push('|---------|-----------|---------------|---------------|');
+  for (const faction of sortedFactions.slice(0, 15)) {
+    const sorted = [...faction.startingValues].sort((a, b) => b.value - a.value);
+    const bestMod = sorted[0];
+    const worstMod = sorted[sorted.length - 1];
+    const bestName = factionModifierNames?.get(bestMod.modifierId) || `#${bestMod.modifierId}`;
+    const worstName = factionModifierNames?.get(worstMod.modifierId) || `#${worstMod.modifierId}`;
+    lines.push(`| ${faction.name} | ${faction.startingValues.length} | ${bestName}: +${bestMod.value} | ${worstName}: ${worstMod.value} |`);
+  }
+
+  return lines.join('\n');
+}

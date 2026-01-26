@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 167 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 170 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **167 tools** for querying EverQuest data
+- **170 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -163,6 +163,7 @@ Then restart Claude Desktop.
 | `get_teleport_spell_overview` | All teleport spells — unique destinations, most-served zones, class availability, rare destinations |
 | `get_spell_stacking_overview` | Spell stacking group overview — group size distribution, stacking type breakdown, class coverage, largest groups |
 | `get_spell_ae_analysis` | AE spell analysis — AE type breakdown (PB AE, targeted, directional, beam, ring), radius distribution, largest AE spells, class comparison |
+| `get_spell_pushback_overview` | Spell pushback/positioning overview — pushback and pushup value distributions, highest knockback spells, spells with both effects, class comparison |
 
 ### Local Data - Character
 | Tool | Description |
@@ -224,6 +225,7 @@ Then restart Claude Desktop.
 | `compare_factions` | Compare two factions side by side (expansion, value ranges, starting values by race) |
 | `get_currency_overview` | Alternate currency overview — total count, description stats, keyword analysis, complete listing |
 | `get_faction_modifier_overview` | All faction modifiers (race, class, deity) — modifier IDs, usage frequency across factions, starting value distribution |
+| `get_faction_starting_value_analysis` | Faction starting value analysis — race/class/deity impact tables with positive/negative counts and net balance, most modified factions |
 
 ### Local Data - Achievements & AA
 | Tool | Description |
@@ -236,6 +238,7 @@ Then restart Claude Desktop.
 | `get_aa` | Get AA ability details |
 | `get_achievement_overview` | Achievement system overview with point distribution and category counts |
 | `get_achievement_component_overview` | Achievement component/step analysis — step distribution, component types, most complex achievements |
+| `get_achievement_requirement_analysis` | Achievement requirement value analysis — value distributions by type, highest requirements, most demanding achievements |
 | `get_aa_overview` | AA system overview with keyword analysis, description stats, and rank distribution |
 
 ### Local Data - Overseer System
@@ -324,7 +327,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (167 tools)
+├── tools.ts          # Tool definitions and handlers (170 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

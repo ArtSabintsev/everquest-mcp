@@ -175,6 +175,9 @@ import {
   getSpellStackingOverview,
   getSpellAEAnalysis,
   getOverseerMinionRarityAnalysis,
+  getSpellPushbackOverview,
+  getAchievementRequirementAnalysis,
+  getFactionStartingValueAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2417,6 +2420,35 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_pushback_overview',
+    description: 'Overview of spell pushback and launch (pushup) positioning effects — value distributions, highest pushback/pushup spells, spells with both effects, beneficial vs detrimental, and class comparison.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Optional class name to filter (e.g., "Wizard", "Druid"). Omit for all classes.' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_achievement_requirement_analysis',
+    description: 'Analysis of achievement component requirement values — value distributions, statistics by component type, highest requirements, most demanding achievements by total requirement sum.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_faction_starting_value_analysis',
+    description: 'Analysis of faction starting value modifiers by race, class, and deity — positive vs negative distributions, race/class/deity impact tables with net balance, most modified factions.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4029,6 +4061,19 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_overseer_minion_rarity_analysis': {
         return getOverseerMinionRarityAnalysis();
+      }
+
+      case 'get_spell_pushback_overview': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : undefined;
+        return getSpellPushbackOverview(className || undefined);
+      }
+
+      case 'get_achievement_requirement_analysis': {
+        return getAchievementRequirementAnalysis();
+      }
+
+      case 'get_faction_starting_value_analysis': {
+        return getFactionStartingValueAnalysis();
       }
 
       case 'search_help_topics': {
