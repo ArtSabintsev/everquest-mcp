@@ -20965,3 +20965,471 @@ export async function getClassIdentityProfile(className: string): Promise<string
 
   return lines.join('\n');
 }
+
+// ============ TOOL 228: Spell School Analysis ============
+export async function getSpellSchoolAnalysis(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Spell School Analysis', '', '*Spells grouped by resist type × beneficial/detrimental "school" with class dominance.*', ''];
+
+  // Build schools: resistType + beneficial → class counts
+  interface SchoolData {
+    resistType: number;
+    beneficial: boolean;
+    total: number;
+    byClass: Map<number, number>;
+    categories: Map<string, number>;
+  }
+
+  const schools = new Map<string, SchoolData>();
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const resistType = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const key = `${resistType}-${beneficial ? 'B' : 'D'}`;
+
+    if (!schools.has(key)) {
+      schools.set(key, { resistType, beneficial, total: 0, byClass: new Map(), categories: new Map() });
+    }
+    const school = schools.get(key)!;
+    school.total++;
+
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Cat ${catId}`);
+    school.categories.set(catName, (school.categories.get(catName) || 0) + 1);
+
+    for (let cid = 1; cid <= 16; cid++) {
+      const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (lv >= 1 && lv <= 254) {
+        school.byClass.set(cid, (school.byClass.get(cid) || 0) + 1);
+      }
+    }
+  }
+
+  // Sort schools by total spell count
+  const sortedSchools = [...schools.values()].sort((a, b) => b.total - a.total);
+
+  // Overview table
+  lines.push('## School Overview', '');
+  lines.push('| School | Type | Spells | Classes | Top Category |');
+  lines.push('|--------|------|------:|--------:|-------------|');
+  for (const school of sortedSchools) {
+    const resistName = RESIST_TYPES[school.resistType] || `Resist ${school.resistType}`;
+    const type = school.beneficial ? 'Buff' : 'Debuff';
+    const classCount = school.byClass.size;
+    const topCat = [...school.categories.entries()].sort((a, b) => b[1] - a[1])[0];
+    lines.push(`| ${resistName} | ${type} | ${school.total} | ${classCount} | ${topCat ? topCat[0] : '-'} |`);
+  }
+
+  // Top 8 schools — class dominance detail
+  lines.push('', '## Class Dominance by School (Top 8)', '');
+  for (const school of sortedSchools.slice(0, 8)) {
+    const resistName = RESIST_TYPES[school.resistType] || `Resist ${school.resistType}`;
+    const type = school.beneficial ? 'Buff' : 'Debuff';
+    lines.push(`### ${resistName} ${type}s (${school.total} spells)`, '');
+
+    // Rank classes
+    const classRanking = [...school.byClass.entries()]
+      .sort((a, b) => b[1] - a[1]);
+    if (classRanking.length > 0) {
+      lines.push('| Rank | Class | Spells | Share |');
+      lines.push('|-----:|-------|------:|------:|');
+      let rank = 1;
+      for (const [cid, count] of classRanking.slice(0, 10)) {
+        const pct = Math.round(count / school.total * 100);
+        lines.push(`| ${rank} | ${CLASS_SHORT[cid] || `C${cid}`} | ${count} | ${pct}% |`);
+        rank++;
+      }
+    }
+
+    // Top categories
+    const topCats = [...school.categories.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    if (topCats.length > 0) {
+      lines.push('', '**Top categories:** ' + topCats.map(([name, count]) => `${name} (${count})`).join(', '));
+    }
+    lines.push('');
+  }
+
+  // Cross-school class specialization
+  lines.push('## Class School Specialization', '');
+  lines.push('| Class | Strongest School | Spells | 2nd School | Spells |');
+  lines.push('|-------|-----------------|------:|-----------|------:|');
+  for (let cid = 1; cid <= 16; cid++) {
+    const classSchools: { name: string; count: number }[] = [];
+    for (const school of sortedSchools) {
+      const count = school.byClass.get(cid) || 0;
+      if (count > 0) {
+        const resistName = RESIST_TYPES[school.resistType] || `R${school.resistType}`;
+        const type = school.beneficial ? 'Buff' : 'Debuff';
+        classSchools.push({ name: `${resistName} ${type}`, count });
+      }
+    }
+    classSchools.sort((a, b) => b.count - a.count);
+    const s1 = classSchools[0];
+    const s2 = classSchools[1];
+    lines.push(`| ${CLASS_SHORT[cid] || `C${cid}`} | ${s1?.name || '-'} | ${s1?.count || 0} | ${s2?.name || '-'} | ${s2?.count || 0} |`);
+  }
+
+  lines.push('', `*${sortedSchools.length} schools analyzed across ${spells.size} spells.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 229: AA-Spell Category Correlation ============
+export async function getAASpellCorrelation(): Promise<string> {
+  await loadAAAbilities();
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!aaAbilities || aaAbilities.size === 0) return 'AA ability data not available.';
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# AA-Spell Category Correlation', '', '*Cross-reference AA ability descriptions with spell categories and effect types.*', ''];
+
+  // Build spell category list
+  const categoryNames = new Set<string>();
+  if (spellCategories) {
+    for (const name of spellCategories.values()) {
+      categoryNames.add(name.toLowerCase());
+    }
+  }
+
+  // Build SPA name list (lowercased for matching)
+  const spaKeywords: { keyword: string; spaId: number; name: string }[] = [];
+  for (const [id, name] of Object.entries(SPA_NAMES)) {
+    const words = name.toLowerCase().split(/[\s\/]+/).filter(w => w.length >= 3);
+    for (const word of words) {
+      spaKeywords.push({ keyword: word, spaId: parseInt(id), name });
+    }
+  }
+
+  // Spell effect keywords commonly referenced in AA descriptions
+  const effectKeywords = [
+    'heal', 'nuke', 'damage', 'haste', 'slow', 'mez', 'mesmerize', 'charm', 'root',
+    'snare', 'stun', 'dot', 'damage over time', 'rune', 'ward', 'shield',
+    'resist', 'critical', 'crit', 'proc', 'trigger', 'twincast',
+    'mana', 'endurance', 'pet', 'summon', 'teleport', 'gate',
+    'aggro', 'hate', 'taunt', 'backstab', 'kick', 'bash',
+    'parry', 'dodge', 'riposte', 'block', 'avoidance',
+    'flurry', 'double attack', 'triple attack',
+    'fear', 'blind', 'silence', 'dispel', 'cure',
+    'buff', 'debuff', 'aura', 'illusion',
+    'regeneration', 'regen', 'lifetap',
+  ];
+
+  // Match AAs to effect keywords
+  const keywordMatches = new Map<string, { aaCount: number; aaSamples: string[] }>();
+  const categoryMatches = new Map<string, { aaCount: number; aaSamples: string[] }>();
+
+  for (const aa of aaAbilities.values()) {
+    const descLower = (aa.description + ' ' + aa.name).toLowerCase();
+
+    // Match effect keywords
+    for (const kw of effectKeywords) {
+      if (descLower.includes(kw)) {
+        if (!keywordMatches.has(kw)) {
+          keywordMatches.set(kw, { aaCount: 0, aaSamples: [] });
+        }
+        const match = keywordMatches.get(kw)!;
+        match.aaCount++;
+        if (match.aaSamples.length < 3) match.aaSamples.push(aa.name);
+      }
+    }
+
+    // Match spell category names
+    for (const catName of categoryNames) {
+      if (catName.length >= 4 && descLower.includes(catName)) {
+        if (!categoryMatches.has(catName)) {
+          categoryMatches.set(catName, { aaCount: 0, aaSamples: [] });
+        }
+        const match = categoryMatches.get(catName)!;
+        match.aaCount++;
+        if (match.aaSamples.length < 2) match.aaSamples.push(aa.name);
+      }
+    }
+  }
+
+  // Effect keyword matches
+  const sortedKeywords = [...keywordMatches.entries()].sort((a, b) => b[1].aaCount - a[1].aaCount);
+  lines.push('## AA-Spell Effect Keyword Matches', '');
+  lines.push('| Keyword | AAs Referencing | Sample AAs |');
+  lines.push('|---------|---------------:|-----------|');
+  for (const [kw, data] of sortedKeywords.slice(0, 30)) {
+    lines.push(`| ${kw} | ${data.aaCount} | ${data.aaSamples.join(', ')} |`);
+  }
+
+  // Category matches
+  const sortedCategories = [...categoryMatches.entries()].sort((a, b) => b[1].aaCount - a[1].aaCount);
+  if (sortedCategories.length > 0) {
+    lines.push('', '## AA-Spell Category Name Matches', '');
+    lines.push('| Category | AAs Referencing | Sample AAs |');
+    lines.push('|----------|---------------:|-----------|');
+    for (const [cat, data] of sortedCategories.slice(0, 20)) {
+      lines.push(`| ${cat} | ${data.aaCount} | ${data.aaSamples.join(', ')} |`);
+    }
+  }
+
+  // Multi-keyword AAs (AAs that reference 3+ effect keywords)
+  lines.push('', '## Multi-Effect AAs (3+ keyword matches)', '');
+  const multiEffect: { name: string; keywords: string[]; desc: string }[] = [];
+  for (const aa of aaAbilities.values()) {
+    const descLower = (aa.description + ' ' + aa.name).toLowerCase();
+    const matched: string[] = [];
+    for (const kw of effectKeywords) {
+      if (descLower.includes(kw)) matched.push(kw);
+    }
+    if (matched.length >= 3) {
+      multiEffect.push({ name: aa.name, keywords: matched, desc: aa.description.slice(0, 80) });
+    }
+  }
+  multiEffect.sort((a, b) => b.keywords.length - a.keywords.length);
+
+  if (multiEffect.length > 0) {
+    lines.push('| AA Name | Keywords | Description |');
+    lines.push('|---------|---------|------------|');
+    for (const me of multiEffect.slice(0, 20)) {
+      lines.push(`| ${me.name} | ${me.keywords.join(', ')} | ${me.desc}... |`);
+    }
+  }
+
+  // Summary stats
+  const totalAAs = aaAbilities.size;
+  const aasWithEffectRef = new Set<number>();
+  for (const aa of aaAbilities.values()) {
+    const descLower = (aa.description + ' ' + aa.name).toLowerCase();
+    for (const kw of effectKeywords) {
+      if (descLower.includes(kw)) {
+        aasWithEffectRef.add(aa.id);
+        break;
+      }
+    }
+  }
+
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total AAs:** ${totalAAs}`);
+  lines.push(`- **AAs referencing spell effects:** ${aasWithEffectRef.size} (${Math.round(aasWithEffectRef.size / totalAAs * 100)}%)`);
+  lines.push(`- **Distinct effect keywords matched:** ${sortedKeywords.length}`);
+  lines.push(`- **Spell categories found in AA text:** ${sortedCategories.length}`);
+  lines.push(`- **Multi-effect AAs (3+ keywords):** ${multiEffect.length}`);
+
+  lines.push('', `*${totalAAs} AA abilities cross-referenced with ${effectKeywords.length} effect keywords and ${categoryNames.size} spell categories.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 230: Class Defensive Profile ============
+export async function getClassDefensiveProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  await loadBaseStats();
+  await loadACMitigation();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve class
+  const classNameUpper = className.toUpperCase().trim();
+  let classId = 0;
+  for (const [id, short] of Object.entries(CLASS_SHORT)) {
+    if (short === classNameUpper) { classId = parseInt(id); break; }
+  }
+  if (!classId) {
+    for (const [id, name] of Object.entries(CLASS_IDS)) {
+      if (name.toUpperCase() === classNameUpper) { classId = parseInt(id); break; }
+    }
+  }
+  if (!classId) return `Unknown class: "${className}". Use 3-letter code (WAR, CLR) or full name (Warrior, Cleric).`;
+
+  const fullName = CLASS_IDS[classId];
+  const lines = [`# Class Defensive Profile: ${fullName} (${CLASS_SHORT[classId]})`, '', '*Defensive capabilities analysis — runes, heals, AC, resists, damage shields, and defensive cooldowns.*', ''];
+
+  // Defensive SPA categories
+  const defensiveCategories: Record<string, number[]> = {
+    'Rune/Absorb': [55, 54, 63, 97],       // Damage absorb, Stoneskin, Magic absorb, Spell shield
+    'Heal': [0],                             // HP (positive base = heal)
+    'HP Regen': [34, 69],                    // HP Regen, Max HP
+    'AC Buff': [1],                          // AC
+    'Fire Resist': [46],
+    'Cold Resist': [47],
+    'Poison Resist': [48],
+    'Disease Resist': [49],
+    'Magic Resist': [50],
+    'Damage Shield': [87, 89],               // Damage Shield, Reverse DS
+    'Cure': [36, 77],                        // Dispel Magic, Dispel Detrimental
+    'Fade/Aggro': [92, 68],                  // Adjust aggro, Feign Death
+    'Root/Snare': [99, 3],                   // Root (self defensive use), Snare
+    'Stun': [21],
+    'Mez': [31, 74],
+    'Fear': [23],
+  };
+
+  // Scan all class spells for defensive effects
+  interface DefSpell {
+    id: number;
+    name: string;
+    level: number;
+    beneficial: boolean;
+    category: string;
+    defTypes: string[];
+    base1Values: Map<string, number>;
+  }
+
+  const defSpells: DefSpell[] = [];
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+    if (lv < 1 || lv > 254) continue;
+
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    // Parse effect slots
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        slotsField = i;
+        break;
+      }
+    }
+    if (slotsField < 0) continue;
+
+    const slots = spell.fields[slotsField].split('$');
+    const foundDef: string[] = [];
+    const baseValues = new Map<string, number>();
+
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base1 = parseInt(parts[2]) || 0;
+
+      for (const [defName, spaIds] of Object.entries(defensiveCategories)) {
+        if (spaIds.includes(spaId)) {
+          // For heals, only count beneficial spells with positive HP effect
+          if (defName === 'Heal' && (!beneficial || base1 <= 0)) continue;
+          // For HP regen, only count beneficial
+          if (defName === 'HP Regen' && !beneficial) continue;
+          // For AC/resist buffs, only count beneficial
+          if (['AC Buff', 'Fire Resist', 'Cold Resist', 'Poison Resist', 'Disease Resist', 'Magic Resist'].includes(defName) && !beneficial) continue;
+
+          if (!foundDef.includes(defName)) {
+            foundDef.push(defName);
+            baseValues.set(defName, base1);
+          }
+        }
+      }
+    }
+
+    if (foundDef.length > 0) {
+      const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+      const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Cat ${catId}`);
+      defSpells.push({ id: spell.id, name: spell.name, level: lv, beneficial, category: catName, defTypes: foundDef, base1Values: baseValues });
+    }
+  }
+
+  lines.push(`**Total defensive spells:** ${defSpells.length}`, '');
+
+  // Breakdown by defensive type
+  lines.push('## Defensive Capability Breakdown', '');
+  lines.push('| Category | Spells | Level Range | Max Value |');
+  lines.push('|----------|------:|:------------|----------:|');
+
+  const typeOrder = Object.keys(defensiveCategories);
+  for (const defType of typeOrder) {
+    const matching = defSpells.filter(s => s.defTypes.includes(defType));
+    if (matching.length === 0) continue;
+    const levels = matching.map(s => s.level);
+    const minLv = Math.min(...levels);
+    const maxLv = Math.max(...levels);
+    const maxBase = Math.max(...matching.map(s => Math.abs(s.base1Values.get(defType) || 0)));
+    lines.push(`| ${defType} | ${matching.length} | ${minLv}-${maxLv} | ${maxBase > 0 ? maxBase.toLocaleString() : '-'} |`);
+  }
+
+  // Top defensive spells by level
+  lines.push('', '## Top Defensive Spells (Highest Level)', '');
+  const sorted = [...defSpells].sort((a, b) => b.level - a.level);
+  lines.push('| Level | Spell | Types | Category |');
+  lines.push('|------:|-------|-------|----------|');
+  const seen = new Set<string>();
+  let shown = 0;
+  for (const s of sorted) {
+    if (seen.has(s.name)) continue;
+    seen.add(s.name);
+    lines.push(`| ${s.level} | ${s.name} | ${s.defTypes.join(', ')} | ${s.category} |`);
+    shown++;
+    if (shown >= 20) break;
+  }
+
+  // Multi-defense spells (spells with 2+ defensive types)
+  const multiDef = defSpells.filter(s => s.defTypes.length >= 2)
+    .sort((a, b) => b.defTypes.length - a.defTypes.length || b.level - a.level);
+  if (multiDef.length > 0) {
+    lines.push('', '## Multi-Defense Spells (2+ defensive effects)', '');
+    lines.push('| Spell | Level | Effects | Category |');
+    lines.push('|-------|------:|---------|----------|');
+    const multiSeen = new Set<string>();
+    let mShown = 0;
+    for (const s of multiDef) {
+      if (multiSeen.has(s.name)) continue;
+      multiSeen.add(s.name);
+      lines.push(`| ${s.name} | ${s.level} | ${s.defTypes.join(', ')} | ${s.category} |`);
+      mShown++;
+      if (mShown >= 15) break;
+    }
+  }
+
+  // AC and base stats at 125
+  if (baseStats && baseStats.length > 0) {
+    const stats125 = baseStats.filter(s => s.classId === classId && s.level === 125);
+    if (stats125.length > 0) {
+      const s = stats125[0];
+      lines.push('', '## Base Defensive Stats (Level 125)', '');
+      lines.push(`- **HP:** ${s.hp.toLocaleString()}`);
+      lines.push(`- **HP Regen:** ${s.hpRegen}`);
+      lines.push(`- **Mana:** ${s.mana.toLocaleString()}`);
+      lines.push(`- **Endurance:** ${s.endurance.toLocaleString()}`);
+    }
+  }
+
+  if (acMitigation && acMitigation.length > 0) {
+    const ac125 = acMitigation.filter(a => a.classId === classId && a.level === 125);
+    if (ac125.length > 0) {
+      const ac = ac125[0];
+      lines.push(`- **AC Soft Cap:** ${ac.acCap}`);
+      lines.push(`- **AC Multiplier:** ${ac.softCapMultiplier}`);
+    }
+  }
+
+  // Defensive rating summary
+  lines.push('', '## Defensive Rating Summary', '');
+  const healCount = defSpells.filter(s => s.defTypes.includes('Heal')).length;
+  const runeCount = defSpells.filter(s => s.defTypes.includes('Rune/Absorb')).length;
+  const acBuffCount = defSpells.filter(s => s.defTypes.includes('AC Buff')).length;
+  const dsCount = defSpells.filter(s => s.defTypes.includes('Damage Shield')).length;
+  const resistTotal = defSpells.filter(s =>
+    s.defTypes.some(d => d.includes('Resist'))
+  ).length;
+  const ccCount = defSpells.filter(s =>
+    s.defTypes.some(d => ['Stun', 'Mez', 'Fear', 'Root/Snare'].includes(d))
+  ).length;
+  const fadeCount = defSpells.filter(s => s.defTypes.includes('Fade/Aggro')).length;
+
+  lines.push(`| Aspect | Count | Rating |`);
+  lines.push(`|--------|------:|--------|`);
+  const rate = (count: number, thresholds: number[]): string => {
+    if (count >= thresholds[2]) return 'Excellent';
+    if (count >= thresholds[1]) return 'Good';
+    if (count >= thresholds[0]) return 'Basic';
+    return 'None';
+  };
+  lines.push(`| Self-Healing | ${healCount} | ${rate(healCount, [5, 20, 50])} |`);
+  lines.push(`| Rune/Absorb | ${runeCount} | ${rate(runeCount, [5, 15, 30])} |`);
+  lines.push(`| AC Buffs | ${acBuffCount} | ${rate(acBuffCount, [3, 10, 20])} |`);
+  lines.push(`| Damage Shields | ${dsCount} | ${rate(dsCount, [2, 5, 10])} |`);
+  lines.push(`| Resist Buffs | ${resistTotal} | ${rate(resistTotal, [5, 15, 30])} |`);
+  lines.push(`| Crowd Control | ${ccCount} | ${rate(ccCount, [5, 15, 30])} |`);
+  lines.push(`| Fade/Aggro Mgmt | ${fadeCount} | ${rate(fadeCount, [1, 3, 5])} |`);
+
+  lines.push('', `*${defSpells.length} defensive spells analyzed for ${fullName}.*`);
+  return lines.join('\n');
+}

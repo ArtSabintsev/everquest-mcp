@@ -235,6 +235,9 @@ import {
   getSpellNamePatternAnalysis,
   getZoneLevelGapAnalysis,
   getClassIdentityProfile,
+  getSpellSchoolAnalysis,
+  getAASpellCorrelation,
+  getClassDefensiveProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -3079,6 +3082,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_school_analysis',
+    description: 'Spell school analysis — group spells by resist type × beneficial/detrimental "school", class dominance per school, class specialization matrix.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_aa_spell_correlation',
+    description: 'AA-spell category correlation — cross-reference 2700+ AA descriptions with spell effect keywords and category names, multi-effect AAs, and coverage statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_defensive_profile',
+    description: 'Class defensive profile — runes, heals, AC buffs, resist buffs, damage shields, crowd control, aggro management with defensive rating summary.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class name (3-letter code like WAR, PAL or full name like Warrior, Paladin)'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4956,6 +4991,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassIdentityProfile(className);
+      }
+
+      case 'get_spell_school_analysis': {
+        return getSpellSchoolAnalysis();
+      }
+
+      case 'get_aa_spell_correlation': {
+        return getAASpellCorrelation();
+      }
+
+      case 'get_class_defensive_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDefensiveProfile(className);
       }
 
       case 'search_help_topics': {
