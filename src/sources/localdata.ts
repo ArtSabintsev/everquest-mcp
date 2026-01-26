@@ -12901,3 +12901,284 @@ export async function getClassUniqueSpellAnalysis(className: string): Promise<st
 
   return lines.join('\n');
 }
+
+// ============ TOOL #162: TELEPORT SPELL OVERVIEW ============
+
+export async function getTeleportSpellOverview(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Collect all teleport spells
+  const teleports: { id: number; name: string; zone: string; classes: string[] }[] = [];
+  const zoneSpellCount: Record<string, number> = {};
+  const zoneNames = new Set<string>();
+
+  for (const [id, spell] of spells) {
+    const tz = spell.fields[SF.TELEPORT_ZONE]?.trim();
+    if (!tz || !/^[a-z_]+[a-z0-9_]*$/.test(tz)) continue;
+
+    // Find which classes can use this spell
+    const classes: string[] = [];
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level > 0 && level < 255) classes.push(CLASS_SHORT[i]);
+    }
+
+    teleports.push({ id, name: spell.name, zone: tz, classes });
+    zoneSpellCount[tz] = (zoneSpellCount[tz] || 0) + 1;
+    zoneNames.add(tz);
+  }
+
+  if (teleports.length === 0) return 'No teleport spells found.';
+
+  const lines = ['# Teleport Spell Overview', ''];
+  lines.push(`- **Total teleport spells:** ${teleports.length}`);
+  lines.push(`- **Unique destinations:** ${zoneNames.size}`);
+
+  // Most-served zones
+  lines.push('', '## Most-Served Destinations (Top 20)', '');
+  lines.push('| Zone | Spells | Sample Spell Names |');
+  lines.push('|------|--------|-------------------|');
+  const sortedZones = Object.entries(zoneSpellCount).sort((a, b) => b[1] - a[1]).slice(0, 20);
+  for (const [zone, count] of sortedZones) {
+    const samples = teleports
+      .filter(t => t.zone === zone)
+      .slice(0, 3)
+      .map(t => t.name)
+      .join(', ');
+    lines.push(`| ${zone} | ${count} | ${samples} |`);
+  }
+
+  // Class availability of teleport spells
+  lines.push('', '## Teleport Spells by Class', '');
+  const classTeleports: Record<string, number> = {};
+  const classDestinations: Record<string, Set<string>> = {};
+  for (const t of teleports) {
+    for (const cls of t.classes) {
+      classTeleports[cls] = (classTeleports[cls] || 0) + 1;
+      if (!classDestinations[cls]) classDestinations[cls] = new Set();
+      classDestinations[cls].add(t.zone);
+    }
+  }
+
+  lines.push('| Class | Teleport Spells | Unique Destinations |');
+  lines.push('|-------|----------------|-------------------|');
+  const sortedClasses = Object.entries(classTeleports).sort((a, b) => b[1] - a[1]);
+  for (const [cls, count] of sortedClasses) {
+    const dests = classDestinations[cls]?.size || 0;
+    lines.push(`| ${cls} | ${count} | ${dests} |`);
+  }
+
+  // Spells that teleport to unique/rare destinations (only 1 spell goes there)
+  const uniqueDests = Object.entries(zoneSpellCount).filter(([, c]) => c === 1);
+  if (uniqueDests.length > 0) {
+    lines.push('', `## Unique Destinations (only 1 spell): ${uniqueDests.length} zones`, '');
+    const udSpells = uniqueDests.slice(0, 20).map(([zone]) => {
+      const spell = teleports.find(t => t.zone === zone)!;
+      return `- **${zone}** — ${spell.name} (${spell.classes.join('/')})`;
+    });
+    lines.push(...udSpells);
+    if (uniqueDests.length > 20) lines.push(`- *(+${uniqueDests.length - 20} more)*`);
+  }
+
+  // Alphabetical zone listing
+  lines.push('', '## All Teleport Destinations (A-Z)', '');
+  const allZones = [...zoneNames].sort();
+  lines.push(allZones.join(', '));
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #163: COMBAT ABILITY OVERVIEW ============
+
+export async function getCombatAbilityOverview(): Promise<string> {
+  await loadCombatAbilities();
+  if (!combatAbilities || combatAbilities.size === 0) return 'Combat ability data not available.';
+
+  const lines = ['# Combat Ability Overview', ''];
+  lines.push(`- **Total combat abilities/disciplines:** ${combatAbilities.size}`);
+
+  // Word frequency analysis
+  const wordFreq: Record<string, number> = {};
+  const prefixes: Record<string, number> = {};
+  const suffixes: Record<string, number> = {};
+  const rankCounts: Record<string, number> = {};
+
+  for (const name of combatAbilities.values()) {
+    const words = name.split(/\s+/);
+    for (const word of words) {
+      const lower = word.toLowerCase().replace(/[^a-z]/g, '');
+      if (lower.length >= 3) {
+        wordFreq[lower] = (wordFreq[lower] || 0) + 1;
+      }
+    }
+
+    // First word as prefix
+    if (words.length > 0) {
+      const prefix = words[0];
+      prefixes[prefix] = (prefixes[prefix] || 0) + 1;
+    }
+
+    // Check for rank suffixes (Rk. II, Rk. III, etc.)
+    const rankMatch = name.match(/Rk\.\s*(I+|IV|V+|X+)/);
+    if (rankMatch) {
+      const rank = `Rk. ${rankMatch[1]}`;
+      rankCounts[rank] = (rankCounts[rank] || 0) + 1;
+    }
+  }
+
+  // ID ranges
+  const ids = [...combatAbilities.keys()].sort((a, b) => a - b);
+  lines.push(`- **ID range:** ${ids[0]} to ${ids[ids.length - 1]}`);
+
+  // Rank distribution
+  const totalRanked = Object.values(rankCounts).reduce((s, v) => s + v, 0);
+  const baseAbilities = combatAbilities.size - totalRanked;
+  lines.push(`- **Base abilities (no rank):** ${baseAbilities}`);
+  lines.push(`- **Ranked variants:** ${totalRanked}`);
+
+  if (Object.keys(rankCounts).length > 0) {
+    lines.push('', '## Rank Distribution', '');
+    for (const [rank, count] of Object.entries(rankCounts).sort((a, b) => b[1] - a[1])) {
+      lines.push(`- **${rank}:** ${count}`);
+    }
+  }
+
+  // Most common words
+  lines.push('', '## Most Common Words in Ability Names', '');
+  const topWords = Object.entries(wordFreq)
+    .filter(([w]) => !['rk', 'ii', 'iii', 'iv'].includes(w))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 25);
+  for (const [word, count] of topWords) {
+    lines.push(`- **${word}:** ${count} occurrences`);
+  }
+
+  // Most common name prefixes (first word)
+  lines.push('', '## Most Common Name Prefixes', '');
+  const topPrefixes = Object.entries(prefixes).sort((a, b) => b[1] - a[1]).slice(0, 20);
+  for (const [prefix, count] of topPrefixes) {
+    lines.push(`- **${prefix}:** ${count} abilities`);
+  }
+
+  // Name length statistics
+  const nameLengths = [...combatAbilities.values()].map(n => n.length);
+  const avgLen = nameLengths.reduce((s, v) => s + v, 0) / nameLengths.length;
+  const longest = [...combatAbilities.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 5);
+  const shortest = [...combatAbilities.entries()].sort((a, b) => a[1].length - b[1].length).slice(0, 5);
+
+  lines.push('', '## Name Statistics', '');
+  lines.push(`- **Average name length:** ${avgLen.toFixed(1)} characters`);
+  lines.push('', '**Longest names:**');
+  for (const [id, name] of longest) {
+    lines.push(`- ${name} (ID ${id}, ${name.length} chars)`);
+  }
+  lines.push('', '**Shortest names:**');
+  for (const [id, name] of shortest) {
+    lines.push(`- ${name} (ID ${id}, ${name.length} chars)`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ TOOL #164: ITEM EFFECT OVERVIEW ============
+
+export async function getItemEffectOverview(): Promise<string> {
+  await loadItemEffects();
+  if (!itemEffectDescs || itemEffectDescs.size === 0) return 'Item effect data not available.';
+
+  const lines = ['# Item Effect Descriptions Overview', ''];
+  lines.push(`- **Total item effects:** ${itemEffectDescs.size}`);
+
+  // Analyze descriptions
+  const wordFreq: Record<string, number> = {};
+  const descLengths: number[] = [];
+  const keywordBuckets: Record<string, number> = {};
+
+  const keywords = [
+    'increase', 'decrease', 'damage', 'heal', 'resist', 'mana', 'strength',
+    'stamina', 'agility', 'dexterity', 'wisdom', 'intelligence', 'charisma',
+    'haste', 'slow', 'stun', 'root', 'snare', 'dot', 'proc', 'focus',
+    'attack', 'defense', 'armor', 'hit points', 'regeneration', 'critical',
+    'spell', 'melee', 'range', 'fire', 'cold', 'magic', 'poison', 'disease',
+    'corruption', 'chromatic', 'prismatic', 'heroic', 'purity', 'luck',
+  ];
+
+  for (const desc of itemEffectDescs.values()) {
+    descLengths.push(desc.length);
+    const lower = desc.toLowerCase();
+
+    // Keyword analysis
+    for (const kw of keywords) {
+      if (lower.includes(kw)) {
+        keywordBuckets[kw] = (keywordBuckets[kw] || 0) + 1;
+      }
+    }
+
+    // Word frequency
+    const words = lower.split(/[^a-z]+/).filter(w => w.length >= 4);
+    for (const word of words) {
+      wordFreq[word] = (wordFreq[word] || 0) + 1;
+    }
+  }
+
+  // Description length stats
+  const sortedLens = [...descLengths].sort((a, b) => a - b);
+  const avgLen = sortedLens.reduce((s, v) => s + v, 0) / sortedLens.length;
+  lines.push(`- **Average description length:** ${avgLen.toFixed(0)} characters`);
+  lines.push(`- **Shortest:** ${sortedLens[0]} characters`);
+  lines.push(`- **Longest:** ${sortedLens[sortedLens.length - 1]} characters`);
+  lines.push(`- **Median:** ${sortedLens[Math.floor(sortedLens.length / 2)]} characters`);
+
+  // ID ranges
+  const ids = [...itemEffectDescs.keys()].sort((a, b) => a - b);
+  lines.push(`- **ID range:** ${ids[0]} to ${ids[ids.length - 1]}`);
+
+  // Keyword frequency
+  lines.push('', '## Effect Keyword Frequency', '');
+  lines.push('| Keyword | Effects Mentioning | % of Total |');
+  lines.push('|---------|-------------------|------------|');
+  const sortedKeywords = Object.entries(keywordBuckets).sort((a, b) => b[1] - a[1]);
+  for (const [kw, count] of sortedKeywords) {
+    const pct = ((count / itemEffectDescs.size) * 100).toFixed(1);
+    lines.push(`| ${kw} | ${count} | ${pct}% |`);
+  }
+
+  // Most common words
+  lines.push('', '## Most Common Words in Descriptions', '');
+  const topWords = Object.entries(wordFreq)
+    .filter(([w]) => !['this', 'that', 'with', 'from', 'your', 'will', 'have', 'when', 'been', 'they', 'their'].includes(w))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 25);
+  for (const [word, count] of topWords) {
+    lines.push(`- **${word}:** ${count}`);
+  }
+
+  // Sample effects by keyword category
+  lines.push('', '## Sample Effects', '');
+  const categories = [
+    { name: 'Healing', keyword: 'heal' },
+    { name: 'Damage', keyword: 'damage' },
+    { name: 'Stat Boost', keyword: 'increase' },
+    { name: 'Haste', keyword: 'haste' },
+    { name: 'Focus', keyword: 'focus' },
+    { name: 'Proc', keyword: 'proc' },
+  ];
+  for (const cat of categories) {
+    const samples: string[] = [];
+    for (const [id, desc] of itemEffectDescs) {
+      if (samples.length >= 3) break;
+      if (desc.toLowerCase().includes(cat.keyword)) {
+        const truncated = desc.length > 80 ? desc.substring(0, 77) + '...' : desc;
+        samples.push(`  - ID ${id}: ${truncated}`);
+      }
+    }
+    if (samples.length > 0) {
+      lines.push(`### ${cat.name}`);
+      lines.push(...samples);
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
+}

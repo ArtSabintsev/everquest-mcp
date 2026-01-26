@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 161 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 164 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **161 tools** for querying EverQuest data
+- **164 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -124,6 +124,7 @@ Then restart Claude Desktop.
 | `list_spell_categories` | List all 176 spell categories for filtering |
 | `search_spells_by_name` | Search spells by name, find all ranks/versions of a spell line |
 | `search_combat_abilities` | Search combat abilities (disciplines) by name |
+| `get_combat_ability_overview` | Combat ability/discipline overview — total count, rank distribution, common name words and prefixes |
 | `search_timer_group` | Find all spells/disciplines sharing a reuse timer group (cooldown conflicts) |
 | `compare_spells` | Compare two spells side by side showing differences in stats, effects, classes |
 | `get_shared_spells` | Find spells shared between two classes with level comparison and overlap summary |
@@ -159,6 +160,7 @@ Then restart Claude Desktop.
 | `get_spell_mana_cost_overview` | Mana cost distribution — cost brackets, average by level, most expensive spells, endurance-only abilities |
 | `get_spell_subcategory_overview` | Category and subcategory tree — hierarchical breakdown with beneficial/detrimental split |
 | `get_class_unique_spell_analysis` | Class-exclusive spell analysis — exclusive vs shared counts, categories, level distribution |
+| `get_teleport_spell_overview` | All teleport spells — unique destinations, most-served zones, class availability, rare destinations |
 
 ### Local Data - Character
 | Tool | Description |
@@ -261,6 +263,7 @@ Then restart Claude Desktop.
 |------|-------------|
 | `search_item_effects` | Search 1100+ item click/proc effect descriptions |
 | `get_item_effect` | Get specific item effect description |
+| `get_item_effect_overview` | Item effect overview — keyword frequency, description stats, common words, sample effects by category |
 | `search_augment_groups` | Search augmentation slot groups |
 | `list_augment_slot_types` | List all 31 augmentation slot types |
 | `search_item_lore_groups` | Search item lore groups (LORE duplicate definitions) |
@@ -318,7 +321,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (161 tools)
+├── tools.ts          # Tool definitions and handlers (164 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

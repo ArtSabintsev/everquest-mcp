@@ -169,6 +169,9 @@ import {
   getSpellManaCostOverview,
   getSpellSubcategoryOverview,
   getClassUniqueSpellAnalysis,
+  getTeleportSpellOverview,
+  getCombatAbilityOverview,
+  getItemEffectOverview,
 } from './sources/index.js';
 
 export const tools = [
@@ -2355,6 +2358,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_teleport_spell_overview',
+    description: 'Overview of all teleport spells — unique destinations, most-served zones, teleport availability by class, unique/rare destinations, and full destination list.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_combat_ability_overview',
+    description: 'Overview of all combat abilities and disciplines — total count, rank distribution, most common name words and prefixes, name statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_item_effect_overview',
+    description: 'Overview of item effect descriptions — keyword frequency (healing, damage, stats, haste, focus, proc), description statistics, most common words, and sample effects by category.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3942,6 +3972,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required';
         return getClassUniqueSpellAnalysis(className);
+      }
+
+      case 'get_teleport_spell_overview': {
+        return getTeleportSpellOverview();
+      }
+
+      case 'get_combat_ability_overview': {
+        return getCombatAbilityOverview();
+      }
+
+      case 'get_item_effect_overview': {
+        return getItemEffectOverview();
       }
 
       case 'search_help_topics': {
