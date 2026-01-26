@@ -1603,6 +1603,8 @@ const DBSTR_TYPES = {
   CREATURE_RACE: 12,
   STARTING_CITY: 15,
   OVERSEER_JOB_CLASS_DESC: 65,
+  AUGMENT_SLOT_TYPE: 16,
+  ITEM_LORE_GROUP: 7,
 };
 
 const OVERSEER_RARITIES: Record<number, string> = {
@@ -7608,6 +7610,329 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Drakkin Heritages:** ${drakkinHeritages ? drakkinHeritages.length.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Overseer Archetypes:** ${overseerArchetypeNames ? overseerArchetypeNames.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Map Cache:** ${mapCache.size} zones loaded`);
+
+  return lines.join('\n');
+}
+
+// ============ LISTING TOOLS ============
+
+export async function listAllRaces(): Promise<string> {
+  await loadRaceClassInfo();
+
+  const lines = ['# All Playable Races (16)', ''];
+  lines.push('| Race | Classes | Deities | Base Stats (STR/STA/AGI/DEX/WIS/INT/CHA) |');
+  lines.push('|------|---------|---------|------------------------------------------|');
+
+  for (const [raceId, raceName] of Object.entries(RACE_IDS)) {
+    const id = parseInt(raceId);
+    const classes = (RACE_CLASSES[id] || []).map(cid => CLASS_IDS[cid] || '?');
+    const deities = RACE_DEITIES[id] || [];
+    const stats = RACE_BASE_STATS[id] || [];
+    const statStr = stats.join('/');
+
+    lines.push(`| **${raceName}** | ${classes.join(', ')} | ${deities.length} | ${statStr} |`);
+  }
+
+  lines.push('');
+  lines.push('## Race Details');
+  lines.push('');
+
+  for (const [raceId, raceName] of Object.entries(RACE_IDS)) {
+    const id = parseInt(raceId);
+    const desc = raceDescriptions?.get(id);
+    const classes = (RACE_CLASSES[id] || []).map(cid => CLASS_IDS[cid] || '?');
+    const deities = RACE_DEITIES[id] || [];
+    const stats = RACE_BASE_STATS[id] || [];
+
+    lines.push(`### ${raceName}`);
+    if (desc?.short) lines.push(desc.short);
+    lines.push(`- **Classes (${classes.length}):** ${classes.join(', ')}`);
+    lines.push(`- **Deities (${deities.length}):** ${deities.join(', ')}`);
+    lines.push(`- **Base Stats:** STR ${stats[0]}, STA ${stats[1]}, AGI ${stats[2]}, DEX ${stats[3]}, WIS ${stats[4]}, INT ${stats[5]}, CHA ${stats[6]}`);
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+export async function listAllClasses(): Promise<string> {
+  await loadRaceClassInfo();
+  await loadSpells();
+
+  const lines = ['# All Classes (16)', ''];
+  lines.push('| Class | Short | Races | Spells | Type |');
+  lines.push('|-------|-------|-------|--------|------|');
+
+  // Count spells per class
+  const spellCounts: Record<number, number> = {};
+  if (spells) {
+    for (const spell of spells.values()) {
+      for (let i = 0; i < 16; i++) {
+        const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i]) || 255;
+        if (level > 0 && level < 255) {
+          const classId = i + 1;
+          spellCounts[classId] = (spellCounts[classId] || 0) + 1;
+        }
+      }
+    }
+  }
+
+  // Classify as melee/hybrid/caster
+  const meleeClasses = new Set([1, 7, 9, 16]); // WAR, MNK, ROG, BER
+  const hybridClasses = new Set([3, 4, 5, 8, 10, 15]); // PAL, RNG, SHD, BRD, SHM, BST
+  const casterClasses = new Set([2, 6, 11, 12, 13, 14]); // CLR, DRU, NEC, WIZ, MAG, ENC
+
+  for (const [classId, className] of Object.entries(CLASS_IDS)) {
+    const id = parseInt(classId);
+    const short = CLASS_SHORT[id] || '???';
+    const races: string[] = [];
+    for (const [raceId, raceClasses] of Object.entries(RACE_CLASSES)) {
+      if (raceClasses.includes(id)) {
+        races.push(RACE_IDS[parseInt(raceId)] || '?');
+      }
+    }
+    const count = spellCounts[id] || 0;
+    const type = meleeClasses.has(id) ? 'Melee' : hybridClasses.has(id) ? 'Hybrid' : casterClasses.has(id) ? 'Caster' : '?';
+
+    lines.push(`| **${className}** | ${short} | ${races.length} | ${count.toLocaleString()} | ${type} |`);
+  }
+
+  lines.push('');
+  lines.push('## Class Details');
+  lines.push('');
+
+  for (const [classId, className] of Object.entries(CLASS_IDS)) {
+    const id = parseInt(classId);
+    const desc = classDescriptions?.get(id);
+    const races: string[] = [];
+    for (const [raceId, raceClasses] of Object.entries(RACE_CLASSES)) {
+      if (raceClasses.includes(id)) {
+        races.push(RACE_IDS[parseInt(raceId)] || '?');
+      }
+    }
+    const count = spellCounts[id] || 0;
+
+    lines.push(`### ${className} (${CLASS_SHORT[id]})`);
+    if (desc?.short) lines.push(desc.short);
+    lines.push(`- **Races (${races.length}):** ${races.join(', ')}`);
+    lines.push(`- **Spells:** ${count.toLocaleString()}`);
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+export async function listAllDeities(): Promise<string> {
+  await loadRaceClassInfo();
+
+  const lines = ['# All EverQuest Deities', ''];
+
+  // Collect unique deity names from all races
+  const allDeities = new Set<string>();
+  for (const deityList of Object.values(RACE_DEITIES)) {
+    for (const d of deityList) allDeities.add(d);
+  }
+
+  // Sort alphabetically but put Agnostic first
+  const sorted = Array.from(allDeities).sort((a, b) => {
+    if (a === 'Agnostic') return -1;
+    if (b === 'Agnostic') return 1;
+    return a.localeCompare(b);
+  });
+
+  lines.push(`| Deity | Follower Races | Classes Available |`);
+  lines.push(`|-------|---------------|-------------------|`);
+
+  for (const deity of sorted) {
+    const followerRaces: string[] = [];
+    for (const [raceId, deities] of Object.entries(RACE_DEITIES)) {
+      if (deities.includes(deity)) {
+        followerRaces.push(RACE_IDS[parseInt(raceId)] || '?');
+      }
+    }
+    // Derive unique classes from follower races
+    const classSet = new Set<number>();
+    for (const [raceId, deities] of Object.entries(RACE_DEITIES)) {
+      if (deities.includes(deity)) {
+        const raceClasses = RACE_CLASSES[parseInt(raceId)] || [];
+        for (const c of raceClasses) classSet.add(c);
+      }
+    }
+
+    lines.push(`| **${deity}** | ${followerRaces.join(', ')} | ${classSet.size} |`);
+  }
+
+  lines.push('');
+  lines.push('## Deity Details');
+  lines.push('');
+
+  for (const deity of sorted) {
+    const followerRaces: string[] = [];
+    for (const [raceId, deities] of Object.entries(RACE_DEITIES)) {
+      if (deities.includes(deity)) {
+        followerRaces.push(RACE_IDS[parseInt(raceId)] || '?');
+      }
+    }
+    const classSet = new Set<number>();
+    for (const [raceId, deities] of Object.entries(RACE_DEITIES)) {
+      if (deities.includes(deity)) {
+        const raceClasses = RACE_CLASSES[parseInt(raceId)] || [];
+        for (const c of raceClasses) classSet.add(c);
+      }
+    }
+    const classNames = Array.from(classSet).sort((a, b) => a - b).map(c => CLASS_IDS[c] || '?');
+
+    // Get deity lore from deityDescriptions (match by text content like getDeityInfo)
+    let lore = '';
+    if (deityDescriptions) {
+      for (const [, desc] of deityDescriptions) {
+        if (desc.toLowerCase().includes(deity.toLowerCase())) {
+          lore = desc;
+          break;
+        }
+      }
+    }
+
+    lines.push(`### ${deity}`);
+    if (lore) lines.push(lore);
+    lines.push(`- **Follower Races (${followerRaces.length}):** ${followerRaces.join(', ')}`);
+    lines.push(`- **Available Classes (${classNames.length}):** ${classNames.join(', ')}`);
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// ============ AUGMENT SLOT TYPES ============
+
+export async function listAugmentSlotTypes(): Promise<string> {
+  await loadDbStrings([DBSTR_TYPES.AUGMENT_SLOT_TYPE]);
+  const slotTypes = dbStrings?.get(DBSTR_TYPES.AUGMENT_SLOT_TYPE) || new Map();
+
+  if (slotTypes.size === 0) return 'Augment slot type data not available.';
+
+  const lines = [`# Augmentation Slot Types (${slotTypes.size})`, ''];
+  lines.push('| ID | Slot Type |');
+  lines.push('|----|-----------|');
+
+  const sorted = Array.from(slotTypes.entries()).sort((a, b) => a[0] - b[0]);
+  for (const [id, name] of sorted) {
+    lines.push(`| ${id} | ${name} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ ITEM LORE GROUPS ============
+
+export async function searchItemLoreGroups(query?: string): Promise<string> {
+  await loadDbStrings([DBSTR_TYPES.ITEM_LORE_GROUP]);
+  const loreGroups = dbStrings?.get(DBSTR_TYPES.ITEM_LORE_GROUP) || new Map();
+
+  if (loreGroups.size === 0) return 'Item lore group data not available.';
+
+  const lines: string[] = [];
+
+  if (!query) {
+    lines.push(`# Item Lore Groups (${loreGroups.size})`, '');
+    lines.push('Item lore groups define which items are considered "LORE" duplicates — you can only carry one item from each lore group. Use a search query to filter.', '');
+    lines.push('| ID | Lore Group |');
+    lines.push('|----|------------|');
+    const sorted = Array.from(loreGroups.entries()).sort((a, b) => a[0] - b[0]);
+    for (const [id, name] of sorted.slice(0, 50)) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+    if (sorted.length > 50) {
+      lines.push('', `*Showing first 50 of ${sorted.length}. Use a search query to filter.*`);
+    }
+  } else {
+    const lowerQuery = query.toLowerCase();
+    const matches: [number, string][] = [];
+    for (const [id, name] of loreGroups) {
+      if (name.toLowerCase().includes(lowerQuery)) {
+        matches.push([id, name]);
+      }
+    }
+
+    if (matches.length === 0) {
+      return `No item lore groups matching "${query}".`;
+    }
+
+    lines.push(`# Item Lore Groups matching "${query}" (${matches.length})`, '');
+    lines.push('| ID | Lore Group |');
+    lines.push('|----|------------|');
+    matches.sort((a, b) => a[1].localeCompare(b[1]));
+    for (const [id, name] of matches) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ CLASS ABILITIES AT LEVEL ============
+
+export async function getClassAbilitiesAtLevel(className: string, level: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // Find spells at this exact level
+  const spellsAtLevel: { name: string; category: string; beneficial: boolean; targetType: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const spellLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (spellLevel !== level) continue;
+
+    const name = spell.fields[SF.NAME];
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetType = TARGET_TYPES[targetTypeId] || 'Unknown';
+
+    spellsAtLevel.push({ name, category, beneficial, targetType });
+  }
+
+  const lines = [`# ${classFullName} — Level ${level} Spells`, ''];
+
+  if (spellsAtLevel.length === 0) {
+    lines.push(`No spells available at exactly level ${level} for ${classFullName}.`);
+    return lines.join('\n');
+  }
+
+  lines.push(`**${spellsAtLevel.length} spells obtained at level ${level}:**`, '');
+
+  // Group by category
+  const byCategory: Record<string, typeof spellsAtLevel> = {};
+  for (const s of spellsAtLevel) {
+    if (!byCategory[s.category]) byCategory[s.category] = [];
+    byCategory[s.category].push(s);
+  }
+
+  const sortedCategories = Object.keys(byCategory).sort();
+  for (const cat of sortedCategories) {
+    const catSpells = byCategory[cat];
+    lines.push(`### ${cat} (${catSpells.length})`);
+    for (const s of catSpells.sort((a, b) => a.name.localeCompare(b.name))) {
+      const type = s.beneficial ? 'buff' : 'debuff';
+      lines.push(`- ${s.name} (${type}, ${s.targetType})`);
+    }
+    lines.push('');
+  }
+
+  // Summary
+  const buffCount = spellsAtLevel.filter(s => s.beneficial).length;
+  const debuffCount = spellsAtLevel.length - buffCount;
+  lines.push(`**Summary:** ${buffCount} buffs, ${debuffCount} debuffs across ${sortedCategories.length} categories`);
 
   return lines.join('\n');
 }

@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 93 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 99 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **93 tools** for querying EverQuest data
+- **99 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (93)
+## Available Tools (99)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -132,6 +132,7 @@ Then restart Claude Desktop.
 | `get_exclusive_spells` | Find spells only one class can cast — shows what makes each class unique |
 | `search_spells_advanced` | Multi-criteria spell search combining class, level range, buff/debuff, target, resist, category, name, and effect |
 | `get_class_spell_summary` | High-level overview of a class's spell book (buff/debuff ratio, categories, level distribution, target types) |
+| `get_class_abilities_at_level` | Show all spells a class obtains at a specific level, grouped by category |
 
 ### Local Data - Character
 | Tool | Description |
@@ -147,6 +148,9 @@ Then restart Claude Desktop.
 | `compare_races` | Compare two races side by side (stats, classes, deities) |
 | `compare_classes` | Compare two classes side by side (races, spell counts, category breakdown) |
 | `compare_deities` | Compare two deities side by side (follower races, classes, lore) |
+| `list_all_races` | List all 16 playable races with base stats, classes, deities, descriptions |
+| `list_all_classes` | List all 16 classes with type (melee/hybrid/caster), races, spell counts |
+| `list_all_deities` | List all deities with follower races, available classes, and lore |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -202,6 +206,8 @@ Then restart Claude Desktop.
 | `search_item_effects` | Search 1100+ item click/proc effect descriptions |
 | `get_item_effect` | Get specific item effect description |
 | `search_augment_groups` | Search augmentation slot groups |
+| `list_augment_slot_types` | List all 31 augmentation slot types |
+| `search_item_lore_groups` | Search item lore groups (LORE duplicate definitions) |
 
 ### Local Data - Lore & Reference
 | Tool | Description |
@@ -250,7 +256,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (93 tools)
+├── tools.ts          # Tool definitions and handlers (99 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

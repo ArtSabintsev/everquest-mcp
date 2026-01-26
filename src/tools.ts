@@ -101,6 +101,12 @@ import {
   searchSpellsAdvanced,
   getClassSpellSummary,
   compareDeities,
+  listAllRaces,
+  listAllClasses,
+  listAllDeities,
+  listAugmentSlotTypes,
+  searchItemLoreGroups,
+  getClassAbilitiesAtLevel,
 } from './sources/index.js';
 
 export const tools = [
@@ -1466,6 +1472,74 @@ export const tools = [
     }
   },
   {
+    name: 'list_all_races',
+    description: 'List all 16 playable EverQuest races with base stats, available classes, deities, and descriptions. Quick reference for character creation.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'list_all_classes',
+    description: 'List all 16 EverQuest classes with type (melee/hybrid/caster), available races, spell counts, and descriptions. Quick reference for character creation.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'list_all_deities',
+    description: 'List all EverQuest deities with follower races, available classes, and lore. Quick reference for character creation deity selection.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'list_augment_slot_types',
+    description: 'List all EverQuest augmentation slot types. Reference for understanding which augments fit in which equipment slots.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'search_item_lore_groups',
+    description: 'Search item lore groups — groups that define which items are LORE duplicates (you can only carry one per group). Call without query to list first 50.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search text to filter lore groups (e.g., "earring", "charm", "seal"). Leave empty to list all.'
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_class_abilities_at_level',
+    description: 'Show all spells a class obtains at a specific level, grouped by category with buff/debuff type and target. Useful for leveling guides and understanding class progression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Cleric", "Wizard", "Shaman")'
+        },
+        level: {
+          type: 'number',
+          description: 'Character level to check (1-125)'
+        }
+      },
+      required: ['class', 'level']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -2681,6 +2755,35 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!deity1) return 'Error: "deity1" parameter is required';
         if (!deity2) return 'Error: "deity2" parameter is required';
         return compareDeities(deity1, deity2);
+      }
+
+      case 'list_all_races': {
+        return listAllRaces();
+      }
+
+      case 'list_all_classes': {
+        return listAllClasses();
+      }
+
+      case 'list_all_deities': {
+        return listAllDeities();
+      }
+
+      case 'list_augment_slot_types': {
+        return listAugmentSlotTypes();
+      }
+
+      case 'search_item_lore_groups': {
+        const query = typeof args.query === 'string' ? args.query.trim() : undefined;
+        return searchItemLoreGroups(query);
+      }
+
+      case 'get_class_abilities_at_level': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        const level = typeof args.level === 'number' ? args.level : parseInt(String(args.level)) || 0;
+        if (!className) return 'Error: "class" parameter is required';
+        if (!level || level < 1) return 'Error: "level" parameter is required (1-125)';
+        return getClassAbilitiesAtLevel(className, level);
       }
 
       case 'search_help_topics': {
