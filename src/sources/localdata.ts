@@ -9123,3 +9123,299 @@ export async function getZoneLevelStatistics(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ ACHIEVEMENT OVERVIEW ============
+
+export async function getAchievementOverview(): Promise<string> {
+  await loadAchievements();
+  await loadAchievementCategories();
+  if (!achievements || achievements.size === 0) return 'Achievement data not available.';
+
+  const lines = ['# EverQuest Achievement System Overview', ''];
+  lines.push(`**${achievements.size.toLocaleString()} total achievements**`, '');
+
+  // Points distribution
+  let totalPoints = 0;
+  let hiddenCount = 0;
+  let lockedCount = 0;
+  let withPoints = 0;
+  const pointBuckets = new Map<string, number>();
+
+  for (const ach of achievements.values()) {
+    totalPoints += ach.points;
+    if (ach.hidden) hiddenCount++;
+    if (ach.locked) lockedCount++;
+    if (ach.points > 0) withPoints++;
+
+    const bucket = ach.points === 0 ? '0' :
+      ach.points <= 5 ? '1-5' :
+      ach.points <= 10 ? '6-10' :
+      ach.points <= 20 ? '11-20' :
+      ach.points <= 50 ? '21-50' : '51+';
+    pointBuckets.set(bucket, (pointBuckets.get(bucket) || 0) + 1);
+  }
+
+  lines.push('## Summary', '');
+  lines.push(`- **Total points available:** ${totalPoints.toLocaleString()}`);
+  lines.push(`- **Achievements with points:** ${withPoints.toLocaleString()}`);
+  lines.push(`- **Hidden achievements:** ${hiddenCount.toLocaleString()}`);
+  lines.push(`- **Locked achievements:** ${lockedCount.toLocaleString()}`);
+
+  lines.push('', '## Points Distribution', '');
+  lines.push('| Points | Achievements |');
+  lines.push('|--------|-------------|');
+  for (const bucket of ['0', '1-5', '6-10', '11-20', '21-50', '51+']) {
+    const count = pointBuckets.get(bucket) || 0;
+    if (count > 0) {
+      lines.push(`| ${bucket} | ${count} |`);
+    }
+  }
+
+  // Top-level categories
+  if (achievementCategories && categoryToAchievements) {
+    const topCats: { name: string; totalAchs: number }[] = [];
+
+    for (const [, cat] of achievementCategories) {
+      if (cat.parentId !== 0) continue;
+
+      // Count all achievements in this top-level category and subcategories
+      let total = 0;
+      const directAchs = categoryToAchievements.get(cat.id) || [];
+      total += directAchs.length;
+
+      for (const [, subcat] of achievementCategories) {
+        if (subcat.parentId === cat.id) {
+          const subAchs = categoryToAchievements.get(subcat.id) || [];
+          total += subAchs.length;
+        }
+      }
+
+      if (total > 0) {
+        topCats.push({ name: cat.name, totalAchs: total });
+      }
+    }
+
+    topCats.sort((a, b) => b.totalAchs - a.totalAchs);
+
+    lines.push('', '## Achievements by Top-Level Category', '');
+    lines.push('| Category | Achievements |');
+    lines.push('|----------|-------------|');
+    for (const tc of topCats) {
+      lines.push(`| ${tc.name} | ${tc.totalAchs} |`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ COMPARE EXPANSIONS ============
+
+export async function compareExpansions(exp1Query: string, exp2Query: string): Promise<string> {
+  await loadExpansions();
+  await loadFactions();
+  await loadAchievementCategories();
+  await loadAchievements();
+  await loadZones();
+
+  if (!expansionNames || expansionNames.size === 0) return 'Expansion data not available.';
+
+  const findExpansion = (query: string): { id: number; name: string } | undefined => {
+    const lower = query.toLowerCase();
+    for (const [id, name] of expansionNames!) {
+      if (name.toLowerCase() === lower) return { id, name };
+    }
+    for (const [id, name] of expansionNames!) {
+      if (name.toLowerCase().includes(lower)) return { id, name };
+    }
+    const num = parseInt(query);
+    if (!isNaN(num) && expansionNames!.has(num)) return { id: num, name: expansionNames!.get(num)! };
+    return undefined;
+  };
+
+  const e1 = findExpansion(exp1Query);
+  const e2 = findExpansion(exp2Query);
+  if (!e1) return `Expansion not found: "${exp1Query}". Use list_expansions to see all.`;
+  if (!e2) return `Expansion not found: "${exp2Query}". Use list_expansions to see all.`;
+
+  const lines = [`# Expansion Comparison: ${e1.name} vs ${e2.name}`, ''];
+
+  // Count factions
+  const countFactions = (expName: string): number => {
+    if (!factions) return 0;
+    let count = 0;
+    for (const faction of factions.values()) {
+      if (faction.category && faction.category.toLowerCase() === expName.toLowerCase()) count++;
+    }
+    return count;
+  };
+
+  // Count achievements
+  const countAchievements = (expName: string): { total: number; subcats: number } => {
+    if (!achievementCategories || !categoryToAchievements) return { total: 0, subcats: 0 };
+    let total = 0;
+    let subcats = 0;
+    for (const [, cat] of achievementCategories) {
+      if (cat.parentId !== 0) continue;
+      if (cat.name.toLowerCase() !== expName.toLowerCase()) continue;
+      const directAchs = categoryToAchievements.get(cat.id) || [];
+      total += directAchs.length;
+      for (const [, subcat] of achievementCategories) {
+        if (subcat.parentId === cat.id) {
+          subcats++;
+          const subAchs = categoryToAchievements.get(subcat.id) || [];
+          total += subAchs.length;
+        }
+      }
+    }
+    return { total, subcats };
+  };
+
+  const f1 = countFactions(e1.name);
+  const f2 = countFactions(e2.name);
+  const a1 = countAchievements(e1.name);
+  const a2 = countAchievements(e2.name);
+
+  lines.push('| Property | ' + e1.name + ' | ' + e2.name + ' |');
+  lines.push('|----------|' + '-'.repeat(e1.name.length + 2) + '|' + '-'.repeat(e2.name.length + 2) + '|');
+  lines.push(`| Expansion # | ${e1.id} | ${e2.id} |`);
+  lines.push(`| Factions | ${f1} | ${f2} |`);
+  lines.push(`| Achievements | ${a1.total} | ${a2.total} |`);
+  lines.push(`| Achievement Subcategories | ${a1.subcats} | ${a2.subcats} |`);
+
+  // List faction names for both
+  if (factions && (f1 > 0 || f2 > 0)) {
+    const getFactionNames = (expName: string): string[] => {
+      const names: string[] = [];
+      for (const faction of factions!.values()) {
+        if (faction.category && faction.category.toLowerCase() === expName.toLowerCase()) {
+          names.push(faction.name);
+        }
+      }
+      return names.sort();
+    };
+
+    const fnames1 = getFactionNames(e1.name);
+    const fnames2 = getFactionNames(e2.name);
+
+    if (fnames1.length > 0) {
+      lines.push('', `## ${e1.name} Factions (${fnames1.length})`);
+      for (const n of fnames1.slice(0, 20)) lines.push(`- ${n}`);
+      if (fnames1.length > 20) lines.push(`- *(${fnames1.length - 20} more...)*`);
+    }
+    if (fnames2.length > 0) {
+      lines.push('', `## ${e2.name} Factions (${fnames2.length})`);
+      for (const n of fnames2.slice(0, 20)) lines.push(`- ${n}`);
+      if (fnames2.length > 20) lines.push(`- *(${fnames2.length - 20} more...)*`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ SPELL SUBCATEGORY SEARCH ============
+
+export async function searchSpellsBySubcategory(className: string, subcategory: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // Find matching subcategory ID
+  const normalizedSubcat = subcategory.toLowerCase();
+  let matchedSubcatId: number | null = null;
+  let matchedSubcatName = '';
+
+  if (spellCategories) {
+    // Exact match first
+    for (const [id, name] of spellCategories) {
+      if (name.toLowerCase() === normalizedSubcat) {
+        matchedSubcatId = id;
+        matchedSubcatName = name;
+        break;
+      }
+    }
+    // Partial match
+    if (matchedSubcatId === null) {
+      for (const [id, name] of spellCategories) {
+        if (name.toLowerCase().includes(normalizedSubcat)) {
+          matchedSubcatId = id;
+          matchedSubcatName = name;
+          break;
+        }
+      }
+    }
+  }
+
+  if (matchedSubcatId === null) {
+    // List available subcategories used by this class
+    const classCats = new Map<number, { name: string; count: number }>();
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+      if (level <= 0 || level >= 255) continue;
+      const subCatId = parseInt(spell.fields[SF.SUBCATEGORY]) || 0;
+      if (subCatId === 0) continue;
+      const catName = spellCategories?.get(subCatId) || 'Unknown';
+      const existing = classCats.get(subCatId) || { name: catName, count: 0 };
+      existing.count++;
+      classCats.set(subCatId, existing);
+    }
+    const sorted = [...classCats.values()].sort((a, b) => b.count - a.count);
+    const lines = [`Subcategory "${subcategory}" not found for ${classFullName}.`, ''];
+    lines.push(`**Available subcategories for ${classFullName}:**`);
+    for (const sc of sorted.slice(0, 40)) {
+      lines.push(`- ${sc.name} (${sc.count} spells)`);
+    }
+    return lines.join('\n');
+  }
+
+  const matches: { name: string; level: number; category: string; beneficial: boolean; target: string; mana: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const subCatId = parseInt(spell.fields[SF.SUBCATEGORY]) || 0;
+    if (subCatId !== matchedSubcatId) continue;
+
+    const name = spell.fields[SF.NAME];
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const target = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+
+    matches.push({ name, level, category, beneficial, target, mana });
+  }
+
+  if (matches.length === 0) {
+    return `No ${classFullName} spells in subcategory "${matchedSubcatName}".`;
+  }
+
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} Spells — Subcategory: ${matchedSubcatName}`, ''];
+  lines.push(`**${matches.length} spells found** (parent category shown for context)`, '');
+
+  const shown = matches.slice(0, 100);
+  lines.push('| Level | Spell | Parent Category | Target | Mana | Type |');
+  lines.push('|-------|-------|----------------|--------|------|------|');
+
+  for (const s of shown) {
+    const type = s.beneficial ? 'Buff' : 'Debuff';
+    lines.push(`| ${s.level} | ${s.name} | ${s.category} | ${s.target} | ${s.mana || '-'} | ${type} |`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*Showing first 100 of ${matches.length}.*`);
+  }
+
+  return lines.join('\n');
+}

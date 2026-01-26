@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 116 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 119 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **116 tools** for querying EverQuest data
+- **119 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (116)
+## Available Tools (119)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -141,6 +141,7 @@ Then restart Claude Desktop.
 | `search_spells_by_duration` | Search spells by buff/debuff duration (find short emergency spells or long-lasting buffs) |
 | `search_spells_by_pushback` | Search spells with knockback/pushback effects (push back and push up values) |
 | `search_spells_by_recovery_time` | Search spells by recovery time (delay after casting before next action) |
+| `search_spells_by_subcategory` | Search spells by subcategory (Twincast, Undead, etc.) with auto-list of available subcategories |
 
 ### Local Data - Character
 | Tool | Description |
@@ -198,6 +199,7 @@ Then restart Claude Desktop.
 | `get_achievement_category` | Browse achievements in a specific category |
 | `search_aa` | Search 2700+ AA abilities |
 | `get_aa` | Get AA ability details |
+| `get_achievement_overview` | Achievement system overview with point distribution and category counts |
 
 ### Local Data - Overseer System
 | Tool | Description |
@@ -235,6 +237,7 @@ Then restart Claude Desktop.
 | `search_game_events` | Search 550+ in-game event announcements |
 | `get_game_event` | Get event announcement details |
 | `list_expansions` | List all 33 EverQuest expansions |
+| `compare_expansions` | Compare two expansions side by side (factions, achievements, faction lists) |
 | `get_expansion` | Expansion content summary with factions and achievements |
 | `get_banner_categories` | Guild banner and fellowship campsite types |
 | `search_help_topics` | Search 75 official in-game help topics on game mechanics |
@@ -273,7 +276,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (116 tools)
+├── tools.ts          # Tool definitions and handlers (119 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

@@ -124,6 +124,9 @@ import {
   searchSpellsByRecoveryTime,
   compareFactions,
   getZoneLevelStatistics,
+  getAchievementOverview,
+  compareExpansions,
+  searchSpellsBySubcategory,
 } from './sources/index.js';
 
 export const tools = [
@@ -1815,6 +1818,51 @@ export const tools = [
     }
   },
   {
+    name: 'get_achievement_overview',
+    description: 'Overview of the EverQuest achievement system — total count, point distribution, hidden/locked stats, and achievement counts by top-level category (expansion).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'compare_expansions',
+    description: 'Compare two EverQuest expansions side by side — faction counts, achievement counts, and faction lists. Search by name or number.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expansion1: {
+          type: 'string',
+          description: 'First expansion name or number (e.g., "Kunark", "2")'
+        },
+        expansion2: {
+          type: 'string',
+          description: 'Second expansion name or number'
+        }
+      },
+      required: ['expansion1', 'expansion2']
+    }
+  },
+  {
+    name: 'search_spells_by_subcategory',
+    description: 'Search spells by subcategory (e.g., "Quick Heal", "Fire DD", "Haste"). Shows spells in a specific subcategory for a class. If subcategory not found, lists available subcategories.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Cleric", "Enchanter")'
+        },
+        subcategory: {
+          type: 'string',
+          description: 'Spell subcategory name (e.g., "Quick Heal", "Stun", "Haste", "Root")'
+        }
+      },
+      required: ['class', 'subcategory']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3178,6 +3226,26 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_zone_level_statistics': {
         return getZoneLevelStatistics();
+      }
+
+      case 'get_achievement_overview': {
+        return getAchievementOverview();
+      }
+
+      case 'compare_expansions': {
+        const exp1 = typeof args.expansion1 === 'string' ? args.expansion1.trim() : '';
+        const exp2 = typeof args.expansion2 === 'string' ? args.expansion2.trim() : '';
+        if (!exp1) return 'Error: "expansion1" parameter is required';
+        if (!exp2) return 'Error: "expansion2" parameter is required';
+        return compareExpansions(exp1, exp2);
+      }
+
+      case 'search_spells_by_subcategory': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        const subcategory = typeof args.subcategory === 'string' ? args.subcategory.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        if (!subcategory) return 'Error: "subcategory" parameter is required';
+        return searchSpellsBySubcategory(className, subcategory);
       }
 
       case 'search_help_topics': {
