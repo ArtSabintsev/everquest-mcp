@@ -21870,3 +21870,471 @@ export async function getOverseerAgentJobCoverageOptimizer(): Promise<string> {
   lines.push('', `*${overseerMinions.size} agents scored against ${overseerQuests.size} quests.*`);
   return lines.join('\n');
 }
+
+// ============ TOOL 234: Class Offensive Profile ============
+export async function getClassOffensiveProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  await loadBaseStats();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve class
+  const classNameUpper = className.toUpperCase().trim();
+  let classId = 0;
+  for (const [id, short] of Object.entries(CLASS_SHORT)) {
+    if (short === classNameUpper) { classId = parseInt(id); break; }
+  }
+  if (!classId) {
+    for (const [id, name] of Object.entries(CLASS_IDS)) {
+      if (name.toUpperCase() === classNameUpper) { classId = parseInt(id); break; }
+    }
+  }
+  if (!classId) return `Unknown class: "${className}". Use 3-letter code (WAR, CLR) or full name (Warrior, Cleric).`;
+
+  const fullName = CLASS_IDS[classId];
+  const lines = [`# Class Offensive Profile: ${fullName} (${CLASS_SHORT[classId]})`, '', '*Offensive capabilities — nukes, DoTs, debuffs, AE damage, procs with rating summary.*', ''];
+
+  // Offensive SPA categories
+  const offensiveCategories: Record<string, { spas: number[]; detrimental: boolean; negativeBase?: boolean }> = {
+    'Direct Damage': { spas: [0], detrimental: true, negativeBase: true },
+    'DoT': { spas: [0], detrimental: true, negativeBase: true },
+    'Slow': { spas: [11], detrimental: true },
+    'Debuff AC': { spas: [1], detrimental: true },
+    'Debuff ATK': { spas: [2], detrimental: true },
+    'Debuff STR': { spas: [4], detrimental: true },
+    'Snare': { spas: [3], detrimental: true },
+    'Root': { spas: [99], detrimental: true },
+    'Stun': { spas: [21], detrimental: true },
+    'Mez': { spas: [31, 74], detrimental: true },
+    'Charm': { spas: [22], detrimental: true },
+    'Fear': { spas: [23], detrimental: true },
+    'Blind': { spas: [20], detrimental: true },
+    'Silence': { spas: [96], detrimental: true },
+    'Mana Drain': { spas: [15], detrimental: true },
+    'Damage Shield': { spas: [87], detrimental: false },
+    'Proc': { spas: [85], detrimental: false },
+  };
+
+  interface OffSpell {
+    id: number;
+    name: string;
+    level: number;
+    category: string;
+    offTypes: string[];
+    isAE: boolean;
+    base1: number;
+  }
+
+  const offSpells: OffSpell[] = [];
+  const ddSpells: OffSpell[] = [];
+  const dotSpells: OffSpell[] = [];
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+    if (lv < 1 || lv > 254) continue;
+
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const targetType = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const isAE = [2, 4, 8, 40, 42, 44, 46].includes(targetType);
+
+    // Parse duration for DD vs DoT classification
+    const durFormula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const durValue = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const isInstant = durFormula === 0 || (durFormula === 50 && durValue === 0);
+
+    // Parse effect slots
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        slotsField = i;
+        break;
+      }
+    }
+    if (slotsField < 0) continue;
+
+    const slots = spell.fields[slotsField].split('$');
+    const foundOff: string[] = [];
+    let maxBase = 0;
+
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base1 = parseInt(parts[2]) || 0;
+
+      for (const [offName, config] of Object.entries(offensiveCategories)) {
+        if (!config.spas.includes(spaId)) continue;
+
+        // Check detrimental requirement
+        if (config.detrimental && beneficial) continue;
+        if (!config.detrimental && !beneficial) continue;
+
+        // For HP effect (SPA 0), distinguish DD vs DoT
+        if (spaId === 0 && base1 < 0 && !beneficial) {
+          if (offName === 'Direct Damage' && isInstant) {
+            if (!foundOff.includes('Direct Damage')) {
+              foundOff.push('Direct Damage');
+              maxBase = Math.max(maxBase, Math.abs(base1));
+            }
+          } else if (offName === 'DoT' && !isInstant) {
+            if (!foundOff.includes('DoT')) {
+              foundOff.push('DoT');
+              maxBase = Math.max(maxBase, Math.abs(base1));
+            }
+          }
+        } else if (spaId !== 0) {
+          if (!foundOff.includes(offName)) {
+            foundOff.push(offName);
+            maxBase = Math.max(maxBase, Math.abs(base1));
+          }
+        }
+      }
+    }
+
+    if (foundOff.length > 0) {
+      const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+      const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Cat ${catId}`);
+      const offSpell: OffSpell = { id: spell.id, name: spell.name, level: lv, category: catName, offTypes: foundOff, isAE, base1: maxBase };
+      offSpells.push(offSpell);
+      if (foundOff.includes('Direct Damage')) ddSpells.push(offSpell);
+      if (foundOff.includes('DoT')) dotSpells.push(offSpell);
+    }
+  }
+
+  lines.push(`**Total offensive spells:** ${offSpells.length}`, '');
+
+  // Breakdown by offensive type
+  lines.push('## Offensive Capability Breakdown', '');
+  lines.push('| Category | Spells | AE Spells | Level Range | Max Effect |');
+  lines.push('|----------|------:|--------:|:------------|----------:|');
+
+  const typeOrder = Object.keys(offensiveCategories);
+  for (const offType of typeOrder) {
+    const matching = offSpells.filter(s => s.offTypes.includes(offType));
+    if (matching.length === 0) continue;
+    const aeCount = matching.filter(s => s.isAE).length;
+    const levels = matching.map(s => s.level);
+    const minLv = Math.min(...levels);
+    const maxLv = Math.max(...levels);
+    const maxEffect = Math.max(...matching.map(s => s.base1));
+    lines.push(`| ${offType} | ${matching.length} | ${aeCount} | ${minLv}-${maxLv} | ${maxEffect > 0 ? maxEffect.toLocaleString() : '-'} |`);
+  }
+
+  // Top nukes
+  if (ddSpells.length > 0) {
+    lines.push('', '## Top Direct Damage Spells', '');
+    const sortedDD = [...ddSpells].sort((a, b) => b.base1 - a.base1);
+    lines.push('| Spell | Level | Damage | AE | Category |');
+    lines.push('|-------|------:|------:|:--:|----------|');
+    const seenDD = new Set<string>();
+    let ddShown = 0;
+    for (const s of sortedDD) {
+      if (seenDD.has(s.name)) continue;
+      seenDD.add(s.name);
+      lines.push(`| ${s.name} | ${s.level} | ${s.base1.toLocaleString()} | ${s.isAE ? 'Yes' : '-'} | ${s.category} |`);
+      ddShown++;
+      if (ddShown >= 12) break;
+    }
+  }
+
+  // Top DoTs
+  if (dotSpells.length > 0) {
+    lines.push('', '## Top DoT Spells', '');
+    const sortedDoT = [...dotSpells].sort((a, b) => b.base1 - a.base1);
+    lines.push('| Spell | Level | Per Tick | Category |');
+    lines.push('|-------|------:|--------:|----------|');
+    const seenDoT = new Set<string>();
+    let dotShown = 0;
+    for (const s of sortedDoT) {
+      if (seenDoT.has(s.name)) continue;
+      seenDoT.add(s.name);
+      lines.push(`| ${s.name} | ${s.level} | ${s.base1.toLocaleString()} | ${s.category} |`);
+      dotShown++;
+      if (dotShown >= 12) break;
+    }
+  }
+
+  // Offensive rating summary
+  lines.push('', '## Offensive Rating Summary', '');
+  const ddCount = ddSpells.length;
+  const dotCount = dotSpells.length;
+  const slowCount = offSpells.filter(s => s.offTypes.includes('Slow')).length;
+  const stunCount = offSpells.filter(s => s.offTypes.includes('Stun')).length;
+  const mezCount = offSpells.filter(s => s.offTypes.includes('Mez')).length;
+  const aeCount = offSpells.filter(s => s.isAE).length;
+  const procCount = offSpells.filter(s => s.offTypes.includes('Proc')).length;
+
+  const rate = (count: number, thresholds: number[]): string => {
+    if (count >= thresholds[2]) return 'Excellent';
+    if (count >= thresholds[1]) return 'Good';
+    if (count >= thresholds[0]) return 'Basic';
+    return 'None';
+  };
+
+  lines.push('| Aspect | Count | Rating |');
+  lines.push('|--------|------:|--------|');
+  lines.push(`| Direct Damage | ${ddCount} | ${rate(ddCount, [5, 20, 50])} |`);
+  lines.push(`| DoT | ${dotCount} | ${rate(dotCount, [5, 15, 30])} |`);
+  lines.push(`| AE Damage | ${aeCount} | ${rate(aeCount, [5, 15, 30])} |`);
+  lines.push(`| Slow | ${slowCount} | ${rate(slowCount, [1, 3, 8])} |`);
+  lines.push(`| Stun | ${stunCount} | ${rate(stunCount, [3, 10, 20])} |`);
+  lines.push(`| Mez | ${mezCount} | ${rate(mezCount, [3, 8, 15])} |`);
+  lines.push(`| Procs | ${procCount} | ${rate(procCount, [2, 5, 10])} |`);
+
+  lines.push('', `*${offSpells.length} offensive spells analyzed for ${fullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 235: Spell Target-Effect Matrix ============
+export async function getSpellTargetEffectMatrix(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Spell Target Type × Effect Matrix', '', '*How spell effects distribute across target types.*', ''];
+
+  // Track target type + SPA combinations
+  const targetEffectMatrix = new Map<string, Map<number, number>>(); // targetName -> (spaId -> count)
+  const targetTotals = new Map<string, number>();
+  const spaTotals = new Map<number, number>();
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const targetType = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetType] || `Target ${targetType}`;
+
+    // Check if any class can use it
+    let usable = false;
+    for (let cid = 1; cid <= 16; cid++) {
+      const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (lv >= 1 && lv <= 254) { usable = true; break; }
+    }
+    if (!usable) continue;
+
+    // Parse effects
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        slotsField = i;
+        break;
+      }
+    }
+    if (slotsField < 0) continue;
+
+    const slots = spell.fields[slotsField].split('$');
+    const seenSPA = new Set<number>();
+
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      if (spaId === 254 || spaId === 10 || seenSPA.has(spaId)) continue; // skip blank/limit/dupes
+      seenSPA.add(spaId);
+
+      if (!targetEffectMatrix.has(targetName)) targetEffectMatrix.set(targetName, new Map());
+      const row = targetEffectMatrix.get(targetName)!;
+      row.set(spaId, (row.get(spaId) || 0) + 1);
+
+      spaTotals.set(spaId, (spaTotals.get(spaId) || 0) + 1);
+    }
+
+    targetTotals.set(targetName, (targetTotals.get(targetName) || 0) + 1);
+  }
+
+  // Top target types
+  const sortedTargets = [...targetTotals.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('## Target Type Distribution', '');
+  lines.push('| Target Type | Spells | Top Effects |');
+  lines.push('|-------------|------:|:-----------|');
+  for (const [target, count] of sortedTargets.slice(0, 15)) {
+    const effects = targetEffectMatrix.get(target)!;
+    const topEffects = [...effects.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([spa, c]) => `${SPA_NAMES[spa] || `SPA${spa}`} (${c})`);
+    lines.push(`| ${target} | ${count} | ${topEffects.join(', ')} |`);
+  }
+
+  // Top SPAs — which target types use them most
+  const topSPAs = [...spaTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  lines.push('', '## Top Effects by Target Preference', '');
+  lines.push('| Effect | Total | Primary Target | % | Secondary Target | % |');
+  lines.push('|--------|------:|:--------------|---:|:----------------|---:|');
+
+  for (const [spa, total] of topSPAs) {
+    const spaName = SPA_NAMES[spa] || `SPA ${spa}`;
+    const targetCounts: { name: string; count: number }[] = [];
+    for (const [target, effects] of targetEffectMatrix) {
+      const count = effects.get(spa) || 0;
+      if (count > 0) targetCounts.push({ name: target, count });
+    }
+    targetCounts.sort((a, b) => b.count - a.count);
+    const t1 = targetCounts[0];
+    const t2 = targetCounts[1];
+    lines.push(`| ${spaName} | ${total} | ${t1?.name || '-'} | ${t1 ? Math.round(t1.count / total * 100) : 0}% | ${t2?.name || '-'} | ${t2 ? Math.round(t2.count / total * 100) : 0}% |`);
+  }
+
+  // AE-specific effects (which effects are most common in AE spells)
+  const aeTargets = ['PB AE', 'Targeted AE', 'Directional AE', 'Beam', 'AE (PC v1)', 'AE (PC v2)', 'Target Ring AE'];
+  const aeEffects = new Map<number, number>();
+  let totalAE = 0;
+  for (const target of aeTargets) {
+    const effects = targetEffectMatrix.get(target);
+    if (effects) {
+      totalAE += targetTotals.get(target) || 0;
+      for (const [spa, count] of effects) {
+        aeEffects.set(spa, (aeEffects.get(spa) || 0) + count);
+      }
+    }
+  }
+
+  if (totalAE > 0) {
+    lines.push('', '## AE-Specific Effects', '');
+    lines.push('| Effect | AE Spells | % of Total Effect Uses |');
+    lines.push('|--------|--------:|------------:|');
+    const sortedAE = [...aeEffects.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [spa, count] of sortedAE.slice(0, 12)) {
+      const totalSpa = spaTotals.get(spa) || 1;
+      const pct = Math.round(count / totalSpa * 100);
+      lines.push(`| ${SPA_NAMES[spa] || `SPA ${spa}`} | ${count} | ${pct}% |`);
+    }
+  }
+
+  lines.push('', `*${sortedTargets.length} target types and ${topSPAs.length} top effects analyzed.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 236: Achievement Expansion Timeline ============
+export async function getAchievementExpansionTimeline(): Promise<string> {
+  await loadAchievements();
+  await loadAchievementCategories();
+  await loadAchievementComponents();
+  if (!achievements || achievements.size === 0) return 'Achievement data not available.';
+  if (!achievementCategories || achievementCategories.size === 0) return 'Achievement category data not available.';
+
+  const lines = ['# Achievement Expansion Timeline', '', '*Achievement growth across expansions — point density, category evolution, and content trends.*', ''];
+
+  // Map top-level categories to expansion names
+  // Top-level categories (parentId === 0) are usually expansion names
+  const topLevelCats = [...achievementCategories.values()]
+    .filter(c => c.parentId === 0)
+    .sort((a, b) => a.order - b.order);
+
+  // For each top-level category, count achievements, points, subcategories
+  interface ExpansionAch {
+    name: string;
+    catId: number;
+    achievementCount: number;
+    totalPoints: number;
+    subcategories: number;
+    components: number;
+    hiddenCount: number;
+  }
+
+  const expansionData: ExpansionAch[] = [];
+
+  for (const topCat of topLevelCats) {
+    // Find all subcategories
+    const subCats = [...achievementCategories.values()].filter(c => c.parentId === topCat.id);
+
+    // Collect all achievement IDs under this top-level category (direct + subcategories)
+    const allCatIds = [topCat.id, ...subCats.map(s => s.id)];
+    let achCount = 0;
+    let totalPoints = 0;
+    let componentCount = 0;
+    let hiddenCount = 0;
+
+    for (const catId of allCatIds) {
+      const achIds = categoryToAchievements?.get(catId) || [];
+      for (const achId of achIds) {
+        const ach = achievements.get(achId);
+        if (ach) {
+          achCount++;
+          totalPoints += ach.points;
+          if (ach.hidden) hiddenCount++;
+          const comps = achievementComponents?.get(ach.id);
+          if (comps) componentCount += comps.length;
+        }
+      }
+    }
+
+    if (achCount > 0) {
+      expansionData.push({
+        name: topCat.name,
+        catId: topCat.id,
+        achievementCount: achCount,
+        totalPoints,
+        subcategories: subCats.length,
+        components: componentCount,
+        hiddenCount
+      });
+    }
+  }
+
+  // Timeline table
+  lines.push('## Achievement Timeline', '');
+  lines.push('| Expansion | Achievements | Points | Sub-categories | Components | Hidden |');
+  lines.push('|-----------|:-----------:|------:|:-----------:|----------:|------:|');
+
+  let cumulativeAch = 0;
+  let cumulativePoints = 0;
+  for (const exp of expansionData) {
+    cumulativeAch += exp.achievementCount;
+    cumulativePoints += exp.totalPoints;
+    lines.push(`| ${exp.name} | ${exp.achievementCount} | ${exp.totalPoints} | ${exp.subcategories} | ${exp.components} | ${exp.hiddenCount} |`);
+  }
+
+  // Cumulative growth
+  lines.push('', '## Cumulative Growth', '');
+  lines.push('| Expansion | Cumulative Achs | Cumulative Points | Avg Points/Ach |');
+  lines.push('|-----------|:--------------:|:----------------:|:---------:|');
+  let runAch = 0;
+  let runPoints = 0;
+  for (const exp of expansionData) {
+    runAch += exp.achievementCount;
+    runPoints += exp.totalPoints;
+    const avg = runAch > 0 ? (runPoints / runAch).toFixed(1) : '0';
+    lines.push(`| ${exp.name} | ${runAch} | ${runPoints} | ${avg} |`);
+  }
+
+  // Point density analysis
+  lines.push('', '## Point Density Analysis', '');
+  const densities = expansionData
+    .map(e => ({ name: e.name, density: e.achievementCount > 0 ? (e.totalPoints / e.achievementCount).toFixed(1) : '0', count: e.achievementCount, points: e.totalPoints }))
+    .sort((a, b) => parseFloat(b.density) - parseFloat(a.density));
+
+  lines.push('| Expansion | Points/Achievement | Achievements | Total Points |');
+  lines.push('|-----------|:---------:|:-----------:|:-----------:|');
+  for (const d of densities.slice(0, 15)) {
+    lines.push(`| ${d.name} | ${d.density} | ${d.count} | ${d.points} |`);
+  }
+
+  // Complexity analysis (components per achievement)
+  lines.push('', '## Complexity Analysis (Steps per Achievement)', '');
+  const complexity = expansionData
+    .filter(e => e.components > 0)
+    .map(e => ({ name: e.name, avg: (e.components / e.achievementCount).toFixed(1), total: e.components, count: e.achievementCount }))
+    .sort((a, b) => parseFloat(b.avg) - parseFloat(a.avg));
+
+  lines.push('| Expansion | Avg Steps/Ach | Total Steps | Achievements |');
+  lines.push('|-----------|:-----:|----------:|:-----------:|');
+  for (const c of complexity.slice(0, 15)) {
+    lines.push(`| ${c.name} | ${c.avg} | ${c.total} | ${c.count} |`);
+  }
+
+  // Summary
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total expansions with achievements:** ${expansionData.length}`);
+  lines.push(`- **Total achievements:** ${cumulativeAch}`);
+  lines.push(`- **Total points:** ${cumulativePoints}`);
+  const biggest = expansionData.sort((a, b) => b.achievementCount - a.achievementCount)[0];
+  if (biggest) lines.push(`- **Largest expansion:** ${biggest.name} (${biggest.achievementCount} achievements, ${biggest.totalPoints} points)`);
+  const densest = densities[0];
+  if (densest) lines.push(`- **Highest point density:** ${densest.name} (${densest.density} points/achievement)`);
+
+  lines.push('', `*${cumulativeAch} achievements across ${expansionData.length} expansions analyzed.*`);
+  return lines.join('\n');
+}

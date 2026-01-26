@@ -241,6 +241,9 @@ import {
   getSpellCategoryCooccurrence,
   getClassManaProfile,
   getOverseerAgentJobCoverageOptimizer,
+  getClassOffensiveProfile,
+  getSpellTargetEffectMatrix,
+  getAchievementExpansionTimeline,
 } from './sources/index.js';
 
 export const tools = [
@@ -3149,6 +3152,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_offensive_profile',
+    description: 'Class offensive profile — nukes, DoTs, debuffs, AE damage, procs, crowd control with offensive rating summary.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class name (3-letter code like WIZ, NEC or full name like Wizard, Necromancer)'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_spell_target_effect_matrix',
+    description: 'Spell target type × effect matrix — how spell effects distribute across target types (Self, Single, Group, AE), AE-specific effects analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_achievement_expansion_timeline',
+    description: 'Achievement expansion timeline — achievement growth, point density, complexity analysis, and cumulative trends across all expansion categories.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5054,6 +5089,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_overseer_agent_job_coverage_optimizer': {
         return getOverseerAgentJobCoverageOptimizer();
+      }
+
+      case 'get_class_offensive_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassOffensiveProfile(className);
+      }
+
+      case 'get_spell_target_effect_matrix': {
+        return getSpellTargetEffectMatrix();
+      }
+
+      case 'get_achievement_expansion_timeline': {
+        return getAchievementExpansionTimeline();
       }
 
       case 'search_help_topics': {
