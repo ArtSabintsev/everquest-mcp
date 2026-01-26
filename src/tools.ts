@@ -80,6 +80,7 @@ import {
   searchSpellsByResist,
   searchSpellsByTarget,
   searchSpellStackingGroups,
+  searchSpellsByDescription,
 } from './sources/index.js';
 
 export const tools = [
@@ -464,6 +465,24 @@ export const tools = [
         }
       },
       required: ['target_type']
+    }
+  },
+  {
+    name: 'search_spells_by_description',
+    description: 'Search EverQuest spells by their description text. Find spells that mention specific keywords like "immune", "resurrect", "teleport", "charm animal", "resist". Optionally filter by class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Text to search for in spell descriptions (e.g., "immune", "resurrect", "charm animal", "damage shield")'
+        },
+        class: {
+          type: 'string',
+          description: 'Optional: filter to a specific class (e.g., "Cleric", "CLR")'
+        }
+      },
+      required: ['query']
     }
   },
   {
@@ -1832,6 +1851,13 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!targetType) return 'Error: "target_type" parameter is required';
         const className = typeof args.class === 'string' ? args.class.trim() : undefined;
         return searchSpellsByTarget(targetType, className);
+      }
+
+      case 'search_spells_by_description': {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query) return 'Error: "query" parameter is required';
+        const className = typeof args.class === 'string' ? args.class.trim() : undefined;
+        return searchSpellsByDescription(query, className);
       }
 
       case 'get_spells_by_class': {

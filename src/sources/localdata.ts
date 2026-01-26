@@ -3154,6 +3154,79 @@ export async function searchSpellsByTarget(targetType: string, className?: strin
   return lines.join('\n');
 }
 
+export async function searchSpellsByDescription(query: string, className?: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  if (!spellDescriptions || spellDescriptions.size === 0) return 'Spell descriptions not available.';
+
+  const normalized = query.toLowerCase();
+
+  // Optional class filter
+  let classId: number | undefined;
+  let classIndex: number | undefined;
+  if (className) {
+    classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (!classId) {
+      return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+    }
+    classIndex = classId - 1;
+  }
+
+  const CLASS_NAMES_SHORT = ['WAR','CLR','PAL','RNG','SHD','DRU','MNK','BRD','ROG','SHM','NEC','WIZ','MAG','ENC','BST','BER'];
+  const matches: { id: number; name: string; desc: string; classes: string[] }[] = [];
+
+  for (const [spellId, desc] of spellDescriptions) {
+    if (!desc.toLowerCase().includes(normalized)) continue;
+
+    const spell = spells.get(spellId);
+    if (!spell) continue;
+
+    // Class filter
+    if (classIndex !== undefined) {
+      const lvl = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+      if (isNaN(lvl) || lvl === 255 || lvl <= 0) continue;
+    }
+
+    // Get class info
+    const classes: string[] = [];
+    for (let c = 0; c < 16; c++) {
+      const lvl = parseInt(spell.fields[SF.CLASS_LEVEL_START + c]);
+      if (!isNaN(lvl) && lvl > 0 && lvl < 255) {
+        classes.push(`${CLASS_NAMES_SHORT[c]}(${lvl})`);
+      }
+    }
+
+    // Truncate description for display
+    const shortDesc = desc.length > 100 ? desc.substring(0, 100) + '...' : desc;
+
+    matches.push({ id: spellId, name: spell.name, desc: shortDesc, classes });
+    if (matches.length >= 50) break;
+  }
+
+  if (matches.length === 0) {
+    const classLabel = classId ? ` for ${CLASS_IDS[classId]}` : '';
+    return `No spells found with description matching "${query}"${classLabel}.`;
+  }
+
+  matches.sort((a, b) => a.name.localeCompare(b.name));
+
+  const classLabel = classId ? ` - ${CLASS_IDS[classId]}` : '';
+  const lines = [
+    `## Spells with description matching "${query}"${classLabel}`,
+    `*${matches.length} spells found${matches.length >= 50 ? ' (limited to 50)' : ''}*`,
+    '',
+  ];
+
+  for (const m of matches) {
+    const classStr = !classId && m.classes.length > 0 ? ` - ${m.classes.join(', ')}` : '';
+    lines.push(`- **${m.name}** (ID: ${m.id})${classStr}`);
+    lines.push(`  *${m.desc}*`);
+  }
+
+  return lines.join('\n');
+}
+
 export async function getLocalSpell(id: string): Promise<SpellData | null> {
   await loadSpells();
   await loadSpellStrings();
