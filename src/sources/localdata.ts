@@ -3388,6 +3388,133 @@ export async function searchTimerGroup(timerGroupOrSpell: string, className?: st
   return lines.join('\n');
 }
 
+export async function compareSpells(spell1: string, spell2: string): Promise<string> {
+  await loadSpells();
+  await loadSpellStrings();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve both spells (by ID or name)
+  const resolve = (input: string): LocalSpell | null => {
+    const id = parseInt(input);
+    if (!isNaN(id) && spells!.has(id)) return spells!.get(id) || null;
+    // Search by name (exact first, then case-insensitive)
+    const lower = input.toLowerCase();
+    for (const [, sp] of spells!) {
+      if (sp.name === input) return sp;
+    }
+    for (const [, sp] of spells!) {
+      if (sp.name.toLowerCase() === lower) return sp;
+    }
+    return null;
+  };
+
+  const s1 = resolve(spell1);
+  const s2 = resolve(spell2);
+
+  if (!s1) return `Spell not found: "${spell1}"`;
+  if (!s2) return `Spell not found: "${spell2}"`;
+
+  const d1 = buildLocalSpellData(s1);
+  const d2 = buildLocalSpellData(s2);
+
+  // Collect spell strings
+  const str1 = spellStrings?.get(s1.id);
+  const str2 = spellStrings?.get(s2.id);
+
+  // Spell descriptions
+  const desc1 = spellDescriptions?.get(s1.id) || '';
+  const desc2 = spellDescriptions?.get(s2.id) || '';
+
+  const lines = [
+    `## Spell Comparison`,
+    '',
+    `| Property | ${d1.name} | ${d2.name} |`,
+    '|----------|' + '-'.repeat(d1.name.length + 2) + '|' + '-'.repeat(d2.name.length + 2) + '|',
+    `| **ID** | ${d1.id} | ${d2.id} |`,
+  ];
+
+  // Helper to add comparison row with diff marking
+  const addRow = (label: string, v1: string | number | undefined, v2: string | number | undefined) => {
+    const s1v = v1 !== undefined ? String(v1) : '—';
+    const s2v = v2 !== undefined ? String(v2) : '—';
+    const marker = s1v !== s2v ? ' ⚡' : '';
+    lines.push(`| **${label}** | ${s1v} | ${s2v}${marker} |`);
+  };
+
+  addRow('Mana', d1.mana, d2.mana);
+  addRow('Endurance', d1.endurance, d2.endurance);
+  addRow('Cast Time', d1.castTime, d2.castTime);
+  addRow('Recast', d1.recastTime, d2.recastTime);
+  addRow('Recovery', d1.recoveryTime, d2.recoveryTime);
+  addRow('Duration', d1.duration, d2.duration);
+  addRow('Range', d1.range, d2.range);
+  addRow('AE Range', d1.aeRange, d2.aeRange);
+  addRow('Target', d1.target, d2.target);
+  addRow('Resist', d1.resist, d2.resist);
+  addRow('Beneficial', d1.beneficial ? 'Yes' : 'No', d2.beneficial ? 'Yes' : 'No');
+  addRow('Category', d1.category, d2.category);
+  addRow('Timer Group', d1.timerId, d2.timerId);
+  if (d1.pushBack || d2.pushBack) addRow('Push Back', d1.pushBack, d2.pushBack);
+  if (d1.recourseId || d2.recourseId) {
+    addRow('Recourse', d1.recourseName ? `${d1.recourseName} [${d1.recourseId}]` : d1.recourseId, d2.recourseName ? `${d2.recourseName} [${d2.recourseId}]` : d2.recourseId);
+  }
+  if (d1.teleportZone || d2.teleportZone) addRow('Teleport Zone', d1.teleportZone, d2.teleportZone);
+
+  // Classes comparison
+  const allClasses = new Set<string>();
+  if (d1.classes) Object.keys(d1.classes).forEach(c => allClasses.add(c));
+  if (d2.classes) Object.keys(d2.classes).forEach(c => allClasses.add(c));
+
+  if (allClasses.size > 0) {
+    lines.push('', '### Class Levels');
+    lines.push(`| Class | ${d1.name} | ${d2.name} |`);
+    lines.push('|-------|' + '-'.repeat(d1.name.length + 2) + '|' + '-'.repeat(d2.name.length + 2) + '|');
+    for (const cls of [...allClasses].sort()) {
+      const l1 = d1.classes?.[cls];
+      const l2 = d2.classes?.[cls];
+      const diff = (l1 || 0) !== (l2 || 0) ? ' ⚡' : '';
+      lines.push(`| ${cls} | ${l1 || '—'} | ${l2 || '—'}${diff} |`);
+    }
+  }
+
+  // Effects comparison
+  if (d1.effects || d2.effects) {
+    lines.push('', '### Effects');
+    const e1 = d1.effects || [];
+    const e2 = d2.effects || [];
+    const maxLen = Math.max(e1.length, e2.length);
+    for (let i = 0; i < maxLen; i++) {
+      const eff1 = e1[i] || '—';
+      const eff2 = e2[i] || '—';
+      const diff = eff1 !== eff2 ? ' ⚡' : '';
+      lines.push(`- **${d1.name}:** ${eff1}`);
+      lines.push(`  **${d2.name}:** ${eff2}${diff}`);
+      if (i < maxLen - 1) lines.push('');
+    }
+  }
+
+  // Descriptions
+  if (desc1 || desc2) {
+    lines.push('', '### Descriptions');
+    if (desc1) lines.push(`**${d1.name}:** ${desc1}`);
+    if (desc2) lines.push(`**${d2.name}:** ${desc2}`);
+  }
+
+  // Cast messages
+  if (str1 || str2) {
+    const msgs1 = str1 ? [str1.casterMe, str1.castedMe].filter(Boolean) : [];
+    const msgs2 = str2 ? [str2.casterMe, str2.castedMe].filter(Boolean) : [];
+    if (msgs1.length > 0 || msgs2.length > 0) {
+      lines.push('', '### Cast Messages');
+      if (msgs1.length > 0) lines.push(`**${d1.name}:** ${msgs1.join(' / ')}`);
+      if (msgs2.length > 0) lines.push(`**${d2.name}:** ${msgs2.join(' / ')}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 export async function getLocalSpell(id: string): Promise<SpellData | null> {
   await loadSpells();
   await loadSpellStrings();

@@ -90,6 +90,7 @@ import {
   getCharacterFactions,
   searchHelpTopics,
   getHelpTopic,
+  compareSpells,
 } from './sources/index.js';
 
 export const tools = [
@@ -510,6 +511,24 @@ export const tools = [
         }
       },
       required: ['timer']
+    }
+  },
+  {
+    name: 'compare_spells',
+    description: 'Compare two EverQuest spells side by side. Shows differences in mana, cast time, duration, effects, classes, and more. Useful for comparing spell ranks or similar spells from different classes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spell1: {
+          type: 'string',
+          description: 'First spell name or ID'
+        },
+        spell2: {
+          type: 'string',
+          description: 'Second spell name or ID'
+        }
+      },
+      required: ['spell1', 'spell2']
     }
   },
   {
@@ -2011,6 +2030,14 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!timer) return 'Error: "timer" parameter is required';
         const className = typeof args.class === 'string' ? args.class.trim() : undefined;
         return searchTimerGroup(timer, className);
+      }
+
+      case 'compare_spells': {
+        const spell1 = typeof args.spell1 === 'string' ? args.spell1.trim() : '';
+        const spell2 = typeof args.spell2 === 'string' ? args.spell2.trim() : '';
+        if (!spell1) return 'Error: "spell1" parameter is required';
+        if (!spell2) return 'Error: "spell2" parameter is required';
+        return compareSpells(spell1, spell2);
       }
 
       case 'get_spells_by_class': {
