@@ -48,6 +48,9 @@ import {
   getOverseerMinion,
   searchOverseerQuests,
   getOverseerQuest,
+  searchCombatAbilities,
+  searchMercenaries,
+  getMercenary,
 } from './sources/index.js';
 
 export const tools = [
@@ -631,6 +634,48 @@ export const tools = [
     }
   },
   {
+    name: 'search_combat_abilities',
+    description: 'Search EverQuest combat abilities and disciplines by name from local game data. Includes warrior disciplines, monk techniques, rogue abilities, etc.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Ability name to search for (e.g., "Whirlwind", "Discipline", "Second Wind", "Provoke")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'search_mercenaries',
+    description: 'Search EverQuest mercenary types by race, role (Tank/Healer), or proficiency from local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query (e.g., "Tank", "Healer", "Journeyman", "Dark Elf")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_mercenary',
+    description: 'Get detailed information about a mercenary type by ID, including full description, proficiency, and confidence level.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Mercenary ID'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
     name: 'get_local_data_status',
     description: 'Show status of local EverQuest game data integration - which data files are loaded and available.',
     inputSchema: {
@@ -983,7 +1028,7 @@ function formatSources(): string {
   const lines = ['# Available EverQuest Data Sources', ''];
 
   const sourceInfo = [
-    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with descriptions), zones, skill caps, class stats, achievements (with categories & steps), factions (1600+), AA abilities (2700+), AC mitigation, spell stacking, map POIs (34K+ from Brewall maps), lore/storylines (50 stories), game strings (7K messages), Overseer agents (300+) & quests (800+)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
+    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with descriptions), zones, skill caps, class stats, achievements (with categories & steps), factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+), AC mitigation, spell stacking, map POIs (34K+ from Brewall maps), lore/storylines (50 stories), game strings (7K messages), Overseer agents (300+) & quests (800+)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
     { name: 'Allakhazam', specialty: 'Primary database - spells, items, NPCs, zones, quests', url: 'https://everquest.allakhazam.com' },
     { name: "Almar's Guides", specialty: 'Quest walkthroughs, epic guides, leveling guides', url: 'https://www.almarsguides.com/eq' },
     { name: 'EQResource', specialty: 'Modern expansion content, progression, spells database', url: 'https://eqresource.com' },
@@ -1039,12 +1084,21 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const query = (args.query as string).trim();
         // Search local data in parallel with web sources
-        const [localSpells, localZones, webResults] = await Promise.all([
+        const [localSpells, localZones, loreResults, overseerAgents, overseerQsts, webResults] = await Promise.all([
           searchLocalSpells(query).catch(() => [] as SearchResult[]),
           searchLocalZones(query).catch(() => [] as SearchResult[]),
+          searchLore(query).catch(() => [] as SearchResult[]),
+          searchOverseerMinions(query).catch(() => [] as SearchResult[]),
+          searchOverseerQuests(query).catch(() => [] as SearchResult[]),
           searchAll(query).catch(() => [] as SearchResult[]),
         ]);
-        const localResults = [...localSpells.slice(0, 5), ...localZones.slice(0, 5)];
+        const localResults = [
+          ...localSpells.slice(0, 5),
+          ...localZones.slice(0, 5),
+          ...loreResults.slice(0, 3),
+          ...overseerAgents.slice(0, 3),
+          ...overseerQsts.slice(0, 3),
+        ];
         const seen = new Set(localResults.map(r => r.name.toLowerCase()));
         const merged = [...localResults, ...webResults.filter(r => !seen.has(r.name.toLowerCase()))];
         return formatSearchResults(merged.slice(0, 30), query);
@@ -1435,6 +1489,29 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const id = (args.id as string).trim();
         return getOverseerQuest(id);
+      }
+
+      case 'search_combat_abilities': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchCombatAbilities(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'search_mercenaries': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchMercenaries(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_mercenary': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getMercenary(id);
       }
 
       case 'get_local_data_status': {

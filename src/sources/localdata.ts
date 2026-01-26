@@ -263,6 +263,16 @@ interface OverseerQuest {
   duration: number;
 }
 
+interface MercenaryEntry {
+  id: number;
+  tier: string;
+  description: string;
+  race: string;
+  type: string;
+  confidence: string;
+  proficiency: string;
+}
+
 // ============ LAZY-LOADED DATA STORES ============
 
 let spells: Map<number, LocalSpell> | null = null;
@@ -304,6 +314,14 @@ let overseerMinions: Map<number, OverseerMinion> | null = null;
 let overseerMinionNameIndex: Map<string, number[]> | null = null;
 let overseerQuests: Map<number, OverseerQuest> | null = null;
 let overseerQuestNameIndex: Map<string, number[]> | null = null;
+
+// Combat abilities / disciplines
+let combatAbilities: Map<number, string> | null = null;
+let combatAbilityNameIndex: Map<string, number[]> | null = null;
+
+// Mercenaries
+let mercenaries: Map<number, MercenaryEntry> | null = null;
+let mercenaryNameIndex: Map<string, number[]> | null = null;
 
 let dataAvailable: boolean | null = null;
 
@@ -851,6 +869,9 @@ const DBSTR_TYPES = {
   OVERSEER_QUEST_NAME: 56,
   OVERSEER_QUEST_DESC: 57,
   OVERSEER_MINION_BIO: 61,
+  MERCENARY_TIER: 22,
+  MERCENARY_DESC: 23,
+  RACE_NAME: 11,
 };
 
 const OVERSEER_RARITIES: Record<number, string> = {
@@ -1331,6 +1352,83 @@ async function loadOverseerQuests(): Promise<void> {
   } catch {
     console.error('[LocalData] Could not load OvrQstClient.txt');
   }
+}
+
+// ============ COMBAT ABILITIES PARSER ============
+
+async function loadCombatAbilities(): Promise<void> {
+  if (combatAbilities !== null) return;
+
+  if (!isGameDataAvailable()) {
+    combatAbilities = new Map();
+    combatAbilityNameIndex = new Map();
+    return;
+  }
+
+  await loadDbStrings([DBSTR_TYPES.COMBAT_ABILITY]);
+  const abilityNames = dbStrings?.get(DBSTR_TYPES.COMBAT_ABILITY) || new Map();
+
+  console.error('[LocalData] Loading combat abilities...');
+  combatAbilities = new Map();
+  combatAbilityNameIndex = new Map();
+
+  for (const [id, name] of abilityNames) {
+    combatAbilities.set(id, name);
+
+    const lowerName = name.toLowerCase();
+    const existing = combatAbilityNameIndex.get(lowerName) || [];
+    existing.push(id);
+    combatAbilityNameIndex.set(lowerName, existing);
+  }
+
+  console.error(`[LocalData] Loaded ${combatAbilities.size} combat abilities`);
+}
+
+// ============ MERCENARY PARSER ============
+
+async function loadMercenaries(): Promise<void> {
+  if (mercenaries !== null) return;
+
+  if (!isGameDataAvailable()) {
+    mercenaries = new Map();
+    mercenaryNameIndex = new Map();
+    return;
+  }
+
+  await loadDbStrings([DBSTR_TYPES.MERCENARY_TIER, DBSTR_TYPES.MERCENARY_DESC]);
+  const tiers = dbStrings?.get(DBSTR_TYPES.MERCENARY_TIER) || new Map();
+  const descs = dbStrings?.get(DBSTR_TYPES.MERCENARY_DESC) || new Map();
+
+  console.error('[LocalData] Loading mercenary data...');
+  mercenaries = new Map();
+  mercenaryNameIndex = new Map();
+
+  for (const [id, rawDesc] of descs) {
+    const tier = tiers.get(id) || '';
+    const cleanDesc = stripHtmlTags(rawDesc);
+
+    // Parse structured fields from description
+    const raceMatch = cleanDesc.match(/Race:\s*([^\n]+)/);
+    const typeMatch = cleanDesc.match(/Type:\s*([^\n]+)/);
+    const confMatch = cleanDesc.match(/Confidence:\s*([^\n]+)/);
+    const profMatch = cleanDesc.match(/Proficiency:\s*([^\n,]+)/);
+
+    const race = raceMatch?.[1]?.trim() || 'Unknown';
+    const type = typeMatch?.[1]?.trim() || 'Unknown';
+    const confidence = confMatch?.[1]?.trim() || '';
+    const proficiency = profMatch?.[1]?.trim() || '';
+
+    const entry: MercenaryEntry = { id, tier, description: cleanDesc, race, type, confidence, proficiency };
+    mercenaries.set(id, entry);
+
+    // Index by race and type for searching
+    const searchKey = `${race} ${type}`.toLowerCase();
+    const existing = mercenaryNameIndex.get(searchKey) || [];
+    existing.push(id);
+    mercenaryNameIndex.set(searchKey, existing);
+  }
+
+  console.error(`[LocalData] Loaded ${mercenaries.size} mercenary types`);
 }
 
 // ============ MAP POI PARSER (On-Demand) ============
@@ -2401,6 +2499,97 @@ export async function getOverseerQuest(id: string): Promise<string> {
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: COMBAT ABILITIES ============
+
+export async function searchCombatAbilities(query: string): Promise<SearchResult[]> {
+  await loadCombatAbilities();
+  if (!combatAbilities || combatAbilities.size === 0) return [];
+
+  const normalized = query.toLowerCase();
+  const results: SearchResult[] = [];
+
+  for (const [id, name] of combatAbilities) {
+    if (results.length >= 25) break;
+    if (name.toLowerCase().includes(normalized)) {
+      results.push({
+        name,
+        type: 'spell' as const,
+        id: id.toString(),
+        url: `local://combat_ability/${id}`,
+        source: 'Local Game Data',
+        description: 'Combat Ability / Discipline',
+      });
+    }
+  }
+
+  // Sort: exact > starts-with > contains
+  results.sort((a, b) => {
+    const aName = a.name.toLowerCase();
+    const bName = b.name.toLowerCase();
+    const aScore = aName === normalized ? 3 : aName.startsWith(normalized) ? 2 : 1;
+    const bScore = bName === normalized ? 3 : bName.startsWith(normalized) ? 2 : 1;
+    return bScore - aScore;
+  });
+
+  return results;
+}
+
+// ============ PUBLIC API: MERCENARIES ============
+
+export async function searchMercenaries(query: string): Promise<SearchResult[]> {
+  await loadMercenaries();
+  if (!mercenaries || mercenaries.size === 0) return [];
+
+  const normalized = query.toLowerCase();
+  const results: SearchResult[] = [];
+  const seen = new Set<string>();
+
+  for (const [id, merc] of mercenaries) {
+    if (results.length >= 25) break;
+    if (merc.race.toLowerCase().includes(normalized) ||
+        merc.type.toLowerCase().includes(normalized) ||
+        merc.proficiency.toLowerCase().includes(normalized) ||
+        merc.description.toLowerCase().includes(normalized)) {
+      // Deduplicate by race+type+proficiency+tier combo
+      const key = `${merc.race}|${merc.type}|${merc.proficiency}|${merc.tier}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      results.push({
+        name: `${merc.race} ${merc.type} (${merc.proficiency}, ${merc.tier})`,
+        type: 'npc' as const,
+        id: id.toString(),
+        url: `local://mercenary/${id}`,
+        source: 'Local Game Data',
+        description: `Confidence: ${merc.confidence}`,
+      });
+    }
+  }
+
+  return results;
+}
+
+export async function getMercenary(id: string): Promise<string> {
+  await loadMercenaries();
+  if (!mercenaries) return 'Mercenary data not available.';
+
+  const mercId = parseInt(id);
+  const merc = mercenaries.get(mercId);
+  if (!merc) return `Mercenary with ID ${id} not found.`;
+
+  const lines = [
+    `## ${merc.race} ${merc.type}`,
+    '',
+    `**Tier:** ${merc.tier}`,
+    `**Proficiency:** ${merc.proficiency}`,
+    `**Confidence:** ${merc.confidence}`,
+    '',
+    merc.description,
+  ];
+
+  return lines.join('\n');
+}
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {
@@ -2437,6 +2626,8 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Overseer Quests:** ${overseerQuests ? overseerQuests.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Achievement Categories:** ${achievementCategories ? achievementCategories.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Achievement Components:** ${achievementComponents ? achievementComponents.size.toLocaleString() + ' achievements' : 'Not loaded'}`);
+  lines.push(`- **Combat Abilities:** ${combatAbilities ? combatAbilities.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Mercenaries:** ${mercenaries ? mercenaries.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Map Cache:** ${mapCache.size} zones loaded`);
 
   return lines.join('\n');
