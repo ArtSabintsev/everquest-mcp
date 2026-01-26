@@ -7936,3 +7936,150 @@ export async function getClassAbilitiesAtLevel(className: string, level: number)
 
   return lines.join('\n');
 }
+
+// ============ SPELL EFFECT TYPES REFERENCE ============
+
+export function listSpellEffectTypes(): string {
+  const lines = [`# Spell Effect Types (SPA) — ${Object.keys(SPA_NAMES).length} types`, ''];
+  lines.push('Use these effect names with `search_spells_by_effect` to find spells by their effect type.', '');
+  lines.push('| SPA ID | Effect Name |');
+  lines.push('|--------|-------------|');
+
+  // Filter out "Limit:" types which are focus/AA modifiers, not direct spell effects
+  const directEffects: [number, string][] = [];
+  const limitEffects: [number, string][] = [];
+
+  for (const [id, name] of Object.entries(SPA_NAMES)) {
+    if (name.startsWith('Limit:')) {
+      limitEffects.push([parseInt(id), name]);
+    } else {
+      directEffects.push([parseInt(id), name]);
+    }
+  }
+
+  lines.push('### Direct Spell Effects');
+  lines.push('');
+  for (const [id, name] of directEffects.sort((a, b) => a[0] - b[0])) {
+    lines.push(`| ${id} | ${name} |`);
+  }
+
+  lines.push('');
+  lines.push(`### Focus/AA Limit Effects (${limitEffects.length})`);
+  lines.push('These are used in focus effects and AA abilities to restrict which spells they apply to.');
+  lines.push('');
+  for (const [id, name] of limitEffects.sort((a, b) => a[0] - b[0])) {
+    lines.push(`| ${id} | ${name} |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ CAST TIME SEARCH ============
+
+export async function searchSpellsByCastTime(className: string, maxCastMs?: number, minCastMs?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const matches: { name: string; level: number; castTime: number; category: string; beneficial: boolean }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0; // in milliseconds
+    if (maxCastMs !== undefined && castTime > maxCastMs) continue;
+    if (minCastMs !== undefined && castTime < minCastMs) continue;
+
+    const name = spell.fields[SF.NAME];
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    matches.push({ name, level, castTime, category, beneficial });
+  }
+
+  if (matches.length === 0) {
+    const range = maxCastMs !== undefined && minCastMs !== undefined
+      ? `${minCastMs}-${maxCastMs}ms`
+      : maxCastMs !== undefined ? `≤${maxCastMs}ms` : `≥${minCastMs}ms`;
+    return `No ${classFullName} spells with cast time ${range}.`;
+  }
+
+  // Sort by cast time, then level
+  matches.sort((a, b) => a.castTime - b.castTime || a.level - b.level);
+
+  const rangeDesc = maxCastMs !== undefined && minCastMs !== undefined
+    ? `${minCastMs}-${maxCastMs}ms`
+    : maxCastMs !== undefined ? `≤${maxCastMs}ms` : minCastMs !== undefined ? `≥${minCastMs}ms` : 'all';
+
+  const lines = [`# ${classFullName} Spells — Cast Time ${rangeDesc}`, ''];
+  lines.push(`**${matches.length} spells found**`, '');
+
+  // Cap output at 100
+  const shown = matches.slice(0, 100);
+  lines.push('| Cast Time | Level | Spell | Category | Type |');
+  lines.push('|-----------|-------|-------|----------|------|');
+
+  for (const s of shown) {
+    const timeStr = s.castTime === 0 ? 'Instant' : `${(s.castTime / 1000).toFixed(1)}s`;
+    const type = s.beneficial ? 'Buff' : 'Debuff';
+    lines.push(`| ${timeStr} | ${s.level} | ${s.name} | ${s.category} | ${type} |`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*Showing first 100 of ${matches.length}. Narrow your search with level or cast time filters.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ RACE-CLASS MATRIX ============
+
+export function getRaceClassMatrix(): string {
+  const lines = ['# Race-Class Availability Matrix', ''];
+
+  // Build header: Race | WAR | CLR | PAL | ...
+  const classIds = Object.keys(CLASS_IDS).map(Number).sort((a, b) => a - b);
+  const header = ['Race', ...classIds.map(id => CLASS_SHORT[id])];
+  lines.push('| ' + header.join(' | ') + ' |');
+  lines.push('|' + header.map(() => '---').join('|') + '|');
+
+  for (const [raceId, raceName] of Object.entries(RACE_IDS)) {
+    const id = parseInt(raceId);
+    const raceClasses = RACE_CLASSES[id] || [];
+    const cells = classIds.map(cid => raceClasses.includes(cid) ? 'X' : '-');
+    lines.push(`| **${raceName}** | ${cells.join(' | ')} |`);
+  }
+
+  lines.push('');
+
+  // Summary: count per class
+  lines.push('### Races per Class');
+  lines.push('');
+  for (const cid of classIds) {
+    let count = 0;
+    for (const raceClasses of Object.values(RACE_CLASSES)) {
+      if (raceClasses.includes(cid)) count++;
+    }
+    lines.push(`- **${CLASS_IDS[cid]}** (${CLASS_SHORT[cid]}): ${count} races`);
+  }
+
+  lines.push('');
+  lines.push('### Classes per Race');
+  lines.push('');
+  for (const [raceId, raceName] of Object.entries(RACE_IDS)) {
+    const count = (RACE_CLASSES[parseInt(raceId)] || []).length;
+    lines.push(`- **${raceName}**: ${count} classes`);
+  }
+
+  return lines.join('\n');
+}

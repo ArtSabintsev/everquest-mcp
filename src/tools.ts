@@ -107,6 +107,9 @@ import {
   listAugmentSlotTypes,
   searchItemLoreGroups,
   getClassAbilitiesAtLevel,
+  listSpellEffectTypes,
+  searchSpellsByCastTime,
+  getRaceClassMatrix,
 } from './sources/index.js';
 
 export const tools = [
@@ -1540,6 +1543,46 @@ export const tools = [
     }
   },
   {
+    name: 'list_spell_effect_types',
+    description: 'List all spell effect types (SPA IDs) that can be used with search_spells_by_effect. Shows direct effects and focus/AA limit effects separately.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'search_spells_by_cast_time',
+    description: 'Search spells by cast time for a class. Find instant casts, fast heals, or slow nukes. Cast time is in milliseconds (1000 = 1 second).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Cleric", "Wizard")'
+        },
+        max_cast_ms: {
+          type: 'number',
+          description: 'Maximum cast time in milliseconds (e.g., 0 for instant, 1000 for ≤1s, 3000 for ≤3s)'
+        },
+        min_cast_ms: {
+          type: 'number',
+          description: 'Minimum cast time in milliseconds (e.g., 5000 for ≥5s casts)'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'get_race_class_matrix',
+    description: 'Show a visual matrix of all race-class combinations in EverQuest. Shows which races can play which classes and counts per race/class.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -2784,6 +2827,25 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!className) return 'Error: "class" parameter is required';
         if (!level || level < 1) return 'Error: "level" parameter is required (1-125)';
         return getClassAbilitiesAtLevel(className, level);
+      }
+
+      case 'list_spell_effect_types': {
+        return listSpellEffectTypes();
+      }
+
+      case 'search_spells_by_cast_time': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const maxCastMs = typeof args.max_cast_ms === 'number' ? args.max_cast_ms : undefined;
+        const minCastMs = typeof args.min_cast_ms === 'number' ? args.min_cast_ms : undefined;
+        if (maxCastMs === undefined && minCastMs === undefined) {
+          return 'Error: Specify at least one of "max_cast_ms" or "min_cast_ms"';
+        }
+        return searchSpellsByCastTime(className, maxCastMs, minCastMs);
+      }
+
+      case 'get_race_class_matrix': {
+        return getRaceClassMatrix();
       }
 
       case 'search_help_topics': {
