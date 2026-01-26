@@ -624,6 +624,7 @@ let loreNameIndex: Map<string, number> | null = null; // lowercase title -> inde
 // Enhanced achievement data
 let achievementCategories: Map<number, AchievementCategory> | null = null;
 let achievementToCategories: Map<number, number[]> | null = null; // achievementId -> categoryIds
+let categoryToAchievements: Map<number, number[]> | null = null; // categoryId -> achievementIds
 let achievementComponents: Map<number, AchievementComponent[]> | null = null;
 
 // Game strings (eqstr_us.txt)
@@ -1845,6 +1846,7 @@ async function loadAchievementCategories(): Promise<void> {
   if (!isGameDataAvailable()) {
     achievementCategories = new Map();
     achievementToCategories = new Map();
+    categoryToAchievements = new Map();
     return;
   }
 
@@ -1860,7 +1862,7 @@ async function loadAchievementCategories(): Promise<void> {
       const fields = line.split('^');
       if (fields.length < 6) continue;
 
-      const parentId = parseInt(fields[0]);
+      const parentId = fields[0] ? parseInt(fields[0]) : 0; // 0 = top-level
       const order = parseInt(fields[1]);
       const id = parseInt(fields[2]);
       const name = fields[3] || '';
@@ -1878,6 +1880,7 @@ async function loadAchievementCategories(): Promise<void> {
   // Load category-to-achievement associations
   console.error('[LocalData] Loading AchievementCategoryAssociationsClient.txt...');
   achievementToCategories = new Map();
+  categoryToAchievements = new Map();
 
   try {
     const data = await readGameFile(join('Resources', 'Achievements', 'AchievementCategoryAssociationsClient.txt'));
@@ -1892,9 +1895,15 @@ async function loadAchievementCategories(): Promise<void> {
       const achievementId = parseInt(fields[2]);
       if (isNaN(categoryId) || isNaN(achievementId)) continue;
 
+      // achievement -> categories (existing)
       const existing = achievementToCategories.get(achievementId) || [];
       existing.push(categoryId);
       achievementToCategories.set(achievementId, existing);
+
+      // category -> achievements (reverse map)
+      const catAchs = categoryToAchievements.get(categoryId) || [];
+      catAchs.push(achievementId);
+      categoryToAchievements.set(categoryId, catAchs);
     }
 
     console.error(`[LocalData] Loaded category associations for ${achievementToCategories.size} achievements`);
@@ -3487,15 +3496,39 @@ export async function getBaseStats(className: string, level?: number): Promise<s
 
 // ============ PUBLIC API: ACHIEVEMENTS ============
 
-export async function searchAchievements(query: string): Promise<SearchResult[]> {
+export async function searchAchievements(query: string, category?: string): Promise<SearchResult[]> {
   await loadAchievements();
+  await loadAchievementCategories();
   if (!achievements || achievements.size === 0) return [];
 
   const normalized = query.toLowerCase();
   const results: SearchResult[] = [];
 
+  // If category filter specified, find matching category IDs
+  let filterCategoryIds: Set<number> | null = null;
+  if (category && achievementCategories && categoryToAchievements) {
+    const catNorm = category.toLowerCase();
+    filterCategoryIds = new Set<number>();
+    for (const [catId, cat] of achievementCategories) {
+      if (cat.name.toLowerCase().includes(catNorm) || cat.description.toLowerCase().includes(catNorm)) {
+        // Add this category's achievements
+        const achIds = categoryToAchievements.get(catId);
+        if (achIds) achIds.forEach(id => filterCategoryIds!.add(id));
+        // Also add achievements from child categories
+        for (const [childId, childCat] of achievementCategories) {
+          if (childCat.parentId === catId) {
+            const childAchIds = categoryToAchievements.get(childId);
+            if (childAchIds) childAchIds.forEach(id => filterCategoryIds!.add(id));
+          }
+        }
+      }
+    }
+  }
+
   for (const [id, ach] of achievements) {
     if (results.length >= 25) break;
+    // Apply category filter if specified
+    if (filterCategoryIds && !filterCategoryIds.has(id)) continue;
     if (ach.name.toLowerCase().includes(normalized) ||
         ach.description.toLowerCase().includes(normalized)) {
       results.push({
@@ -3559,6 +3592,126 @@ export async function getAchievement(id: string): Promise<string> {
     for (const comp of components.sort((a, b) => a.componentNum - b.componentNum)) {
       lines.push(`${comp.componentNum}. ${comp.description}`);
     }
+  }
+
+  return lines.join('\n');
+}
+
+export async function listAchievementCategories(): Promise<string> {
+  await loadAchievementCategories();
+  await loadAchievements();
+  if (!achievementCategories || achievementCategories.size === 0) return 'Achievement category data not available.';
+
+  // Build top-level -> subcategory tree
+  const topLevel: AchievementCategory[] = [];
+  const children: Map<number, AchievementCategory[]> = new Map();
+
+  for (const [, cat] of achievementCategories) {
+    if (!cat.parentId) {
+      topLevel.push(cat);
+    } else {
+      const existing = children.get(cat.parentId) || [];
+      existing.push(cat);
+      children.set(cat.parentId, existing);
+    }
+  }
+
+  // Sort top-level by order
+  topLevel.sort((a, b) => a.order - b.order);
+
+  const lines = ['## Achievement Categories', ''];
+
+  for (const top of topLevel) {
+    // Count achievements in this top-level category (sum of all subcategories)
+    let totalCount = 0;
+    const subs = children.get(top.id) || [];
+    subs.sort((a, b) => a.order - b.order);
+
+    // Count direct achievements in top-level category
+    const directCount = categoryToAchievements?.get(top.id)?.length || 0;
+    totalCount += directCount;
+    for (const sub of subs) {
+      totalCount += categoryToAchievements?.get(sub.id)?.length || 0;
+    }
+
+    lines.push(`### ${top.name} (ID: ${top.id}) — ${totalCount} achievements`);
+    if (subs.length > 0) {
+      for (const sub of subs) {
+        const count = categoryToAchievements?.get(sub.id)?.length || 0;
+        lines.push(`  - ${sub.name} (ID: ${sub.id}) — ${count} achievements`);
+      }
+    }
+    lines.push('');
+  }
+
+  lines.push(`*${achievementCategories.size} total categories, ${achievements?.size || 0} total achievements*`);
+  return lines.join('\n');
+}
+
+export async function getAchievementsByCategory(categoryId: string): Promise<string> {
+  await loadAchievementCategories();
+  await loadAchievements();
+  if (!achievementCategories || !achievements) return 'Achievement data not available.';
+
+  const catId = parseInt(categoryId);
+  const cat = achievementCategories.get(catId);
+  if (!cat) return `Achievement category with ID ${categoryId} not found.`;
+
+  const lines = [`## ${cat.name}`];
+  if (cat.description && cat.description !== cat.name) {
+    lines.push(`*${cat.description}*`);
+  }
+  lines.push('');
+
+  // Check if this is a top-level category with subcategories
+  const subs: AchievementCategory[] = [];
+  for (const [, c] of achievementCategories) {
+    if (c.parentId === catId) subs.push(c);
+  }
+
+  if (subs.length > 0) {
+    // Top-level category: show subcategories with their achievements
+    subs.sort((a, b) => a.order - b.order);
+    for (const sub of subs) {
+      const achIds = categoryToAchievements?.get(sub.id) || [];
+      lines.push(`### ${sub.name} (ID: ${sub.id}) — ${achIds.length} achievements`);
+      // Show first 15 achievements per subcategory
+      const shown = achIds.slice(0, 15);
+      for (const achId of shown) {
+        const ach = achievements.get(achId);
+        if (ach) {
+          lines.push(`- **${ach.name}** (ID: ${achId}) — ${ach.points} pts`);
+        }
+      }
+      if (achIds.length > 15) {
+        lines.push(`  *...and ${achIds.length - 15} more*`);
+      }
+      lines.push('');
+    }
+  }
+
+  // Also show direct achievements in this category
+  const directAchIds = categoryToAchievements?.get(catId) || [];
+  if (directAchIds.length > 0) {
+    if (subs.length > 0) {
+      lines.push('### Direct Achievements');
+    }
+    lines.push(`*${directAchIds.length} achievements*`, '');
+    const shown = directAchIds.slice(0, 50);
+    for (const achId of shown) {
+      const ach = achievements.get(achId);
+      if (ach) {
+        const desc = ach.description.length > 80 ? ach.description.substring(0, 80) + '...' : ach.description;
+        lines.push(`- **${ach.name}** (ID: ${achId}) — ${ach.points} pts — ${desc}`);
+      }
+    }
+    if (directAchIds.length > 50) {
+      lines.push(`*...and ${directAchIds.length - 50} more*`);
+    }
+  }
+
+  if (subs.length === 0 && directAchIds.length === 0) {
+    lines.push('No achievements found in this category.');
   }
 
   return lines.join('\n');

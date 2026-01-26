@@ -32,6 +32,8 @@ import {
   getBaseStats,
   searchAchievements,
   getAchievement,
+  listAchievementCategories,
+  getAchievementsByCategory,
   getACMitigation,
   getSpellStackingInfo,
   getSpellsByClass,
@@ -527,13 +529,17 @@ export const tools = [
   },
   {
     name: 'search_achievements',
-    description: 'Search EverQuest achievements by name or description from local game data.',
+    description: 'Search EverQuest achievements by name or description from local game data. Optionally filter by category (e.g., "Exploration", "Raids", "Ring of Scale").',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description: 'Achievement name or description to search for'
+        },
+        category: {
+          type: 'string',
+          description: 'Optional category filter (e.g., "Exploration", "Raids", "Ring of Scale", "Tradeskill")'
         }
       },
       required: ['query']
@@ -551,6 +557,29 @@ export const tools = [
         }
       },
       required: ['id']
+    }
+  },
+  {
+    name: 'list_achievement_categories',
+    description: 'List all achievement categories organized by expansion and type (General, Tradeskill, Slayer, Hero\'s Journey, etc.) with subcategories and achievement counts.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_achievement_category',
+    description: 'Get all achievements in a specific category by ID. For top-level categories, shows subcategories with achievement lists. Use list_achievement_categories to find category IDs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        category_id: {
+          type: 'string',
+          description: 'Category ID (from list_achievement_categories)'
+        }
+      },
+      required: ['category_id']
     }
   },
   {
@@ -1888,7 +1917,8 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const error = validateQuery(args);
         if (error) return error;
         const query = (args.query as string).trim();
-        const results = await searchAchievements(query);
+        const category = typeof args.category === 'string' ? args.category.trim() : undefined;
+        const results = await searchAchievements(query, category);
         return formatSearchResults(results, query);
       }
 
@@ -1897,6 +1927,16 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const id = (args.id as string).trim();
         return getAchievement(id);
+      }
+
+      case 'list_achievement_categories': {
+        return listAchievementCategories();
+      }
+
+      case 'get_achievement_category': {
+        const categoryId = typeof args.category_id === 'string' ? args.category_id.trim() : '';
+        if (!categoryId) return 'Error: "category_id" parameter is required';
+        return getAchievementsByCategory(categoryId);
       }
 
       case 'get_ac_mitigation': {

@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 73 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 75 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **73 tools** for querying EverQuest data
+- **75 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (70)
+## Available Tools (75)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -158,8 +158,10 @@ Then restart Claude Desktop.
 ### Local Data - Achievements & AA
 | Tool | Description |
 |------|-------------|
-| `search_achievements` | Search achievements by name |
+| `search_achievements` | Search achievements by name, optionally filter by category/expansion |
 | `get_achievement` | Get achievement details with components |
+| `list_achievement_categories` | List all achievement categories by expansion with subcategories and counts |
+| `get_achievement_category` | Browse achievements in a specific category |
 | `search_aa` | Search 2700+ AA abilities |
 | `get_aa` | Get AA ability details |
 
@@ -230,7 +232,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (73 tools)
+├── tools.ts          # Tool definitions and handlers (75 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
