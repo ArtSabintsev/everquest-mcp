@@ -121,6 +121,9 @@ import {
   getFactionOverview,
   searchSpellsByPushback,
   getDeityClassMatrix,
+  searchSpellsByRecoveryTime,
+  compareFactions,
+  getZoneLevelStatistics,
 } from './sources/index.js';
 
 export const tools = [
@@ -1763,6 +1766,55 @@ export const tools = [
     }
   },
   {
+    name: 'search_spells_by_recovery_time',
+    description: 'Search spells by recovery time (delay after casting before next action) for a class. Shows cast time + recovery = total lockout. Specify at least one of max or min recovery in milliseconds.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Wizard", "Cleric")'
+        },
+        max_recovery_ms: {
+          type: 'number',
+          description: 'Maximum recovery time in milliseconds'
+        },
+        min_recovery_ms: {
+          type: 'number',
+          description: 'Minimum recovery time in milliseconds'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'compare_factions',
+    description: 'Compare two EverQuest factions side by side — expansion, value ranges, starting values by race. Search by name or ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        faction1: {
+          type: 'string',
+          description: 'First faction name or ID'
+        },
+        faction2: {
+          type: 'string',
+          description: 'Second faction name or ID'
+        }
+      },
+      required: ['faction1', 'faction2']
+    }
+  },
+  {
+    name: 'get_zone_level_statistics',
+    description: 'Statistics on EverQuest zones by level — zone count per 10-level band with bar chart, peak levels with most zone options, widest level range zone.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3103,6 +3155,29 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_deity_class_matrix': {
         return getDeityClassMatrix();
+      }
+
+      case 'search_spells_by_recovery_time': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const maxRec = typeof args.max_recovery_ms === 'number' ? args.max_recovery_ms : undefined;
+        const minRec = typeof args.min_recovery_ms === 'number' ? args.min_recovery_ms : undefined;
+        if (maxRec === undefined && minRec === undefined) {
+          return 'Error: Specify at least one of "max_recovery_ms" or "min_recovery_ms"';
+        }
+        return searchSpellsByRecoveryTime(className, maxRec, minRec);
+      }
+
+      case 'compare_factions': {
+        const faction1 = typeof args.faction1 === 'string' ? args.faction1.trim() : '';
+        const faction2 = typeof args.faction2 === 'string' ? args.faction2.trim() : '';
+        if (!faction1) return 'Error: "faction1" parameter is required';
+        if (!faction2) return 'Error: "faction2" parameter is required';
+        return compareFactions(faction1, faction2);
+      }
+
+      case 'get_zone_level_statistics': {
+        return getZoneLevelStatistics();
       }
 
       case 'search_help_topics': {

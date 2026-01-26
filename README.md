@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 113 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 116 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **113 tools** for querying EverQuest data
+- **116 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (113)
+## Available Tools (116)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -140,6 +140,7 @@ Then restart Claude Desktop.
 | `search_spells_by_mana_cost` | Search spells by mana or endurance cost (find cheap efficient spells or expensive high-impact ones) |
 | `search_spells_by_duration` | Search spells by buff/debuff duration (find short emergency spells or long-lasting buffs) |
 | `search_spells_by_pushback` | Search spells with knockback/pushback effects (push back and push up values) |
+| `search_spells_by_recovery_time` | Search spells by recovery time (delay after casting before next action) |
 
 ### Local Data - Character
 | Tool | Description |
@@ -171,6 +172,7 @@ Then restart Claude Desktop.
 | `search_zones_by_level` | Find zones appropriate for a character level range |
 | `search_teleport_spells` | Find all spells that teleport to a specific zone |
 | `get_leveling_zones_guide` | Complete leveling guide — all zones grouped by level tier |
+| `get_zone_level_statistics` | Zone count statistics by level band with bar chart and peak level analysis |
 
 ### Local Data - Factions & Currencies
 | Tool | Description |
@@ -185,6 +187,7 @@ Then restart Claude Desktop.
 | `search_tributes` | Search tribute items |
 | `get_tribute` | Get tribute item details |
 | `get_faction_overview` | Faction system overview with counts by expansion, value ranges, starting modifier stats |
+| `compare_factions` | Compare two factions side by side (expansion, value ranges, starting values by race) |
 
 ### Local Data - Achievements & AA
 | Tool | Description |
@@ -270,7 +273,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (113 tools)
+├── tools.ts          # Tool definitions and handlers (116 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

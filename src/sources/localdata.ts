@@ -8895,3 +8895,231 @@ export function getDeityClassMatrix(): string {
 
   return lines.join('\n');
 }
+
+// ============ SPELL RECOVERY TIME SEARCH ============
+
+export async function searchSpellsByRecoveryTime(className: string, maxRecoveryMs?: number, minRecoveryMs?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const matches: { name: string; level: number; recoveryTime: number; castTime: number; category: string; beneficial: boolean }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const recoveryTime = parseInt(spell.fields[SF.RECOVERY_TIME]) || 0;
+    if (maxRecoveryMs !== undefined && recoveryTime > maxRecoveryMs) continue;
+    if (minRecoveryMs !== undefined && recoveryTime < minRecoveryMs) continue;
+
+    const name = spell.fields[SF.NAME];
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    matches.push({ name, level, recoveryTime, castTime, category, beneficial });
+  }
+
+  if (matches.length === 0) {
+    const range = maxRecoveryMs !== undefined && minRecoveryMs !== undefined
+      ? `${minRecoveryMs}-${maxRecoveryMs}ms`
+      : maxRecoveryMs !== undefined ? `≤${maxRecoveryMs}ms` : `≥${minRecoveryMs}ms`;
+    return `No ${classFullName} spells with recovery time ${range}.`;
+  }
+
+  matches.sort((a, b) => a.recoveryTime - b.recoveryTime || a.level - b.level);
+
+  const rangeDesc = maxRecoveryMs !== undefined && minRecoveryMs !== undefined
+    ? `${minRecoveryMs}-${maxRecoveryMs}ms`
+    : maxRecoveryMs !== undefined ? `≤${maxRecoveryMs}ms` : minRecoveryMs !== undefined ? `≥${minRecoveryMs}ms` : 'all';
+
+  const lines = [`# ${classFullName} Spells — Recovery Time ${rangeDesc}`, ''];
+  lines.push(`Recovery time is the delay after casting before you can take another action.`, '');
+  lines.push(`**${matches.length} spells found**`, '');
+
+  const shown = matches.slice(0, 100);
+  lines.push('| Recovery | Cast Time | Total | Level | Spell | Category |');
+  lines.push('|----------|-----------|-------|-------|-------|----------|');
+
+  for (const s of shown) {
+    const recStr = s.recoveryTime === 0 ? 'None' : `${(s.recoveryTime / 1000).toFixed(1)}s`;
+    const castStr = s.castTime === 0 ? 'Instant' : `${(s.castTime / 1000).toFixed(1)}s`;
+    const totalMs = s.recoveryTime + s.castTime;
+    const totalStr = totalMs === 0 ? 'Instant' : `${(totalMs / 1000).toFixed(1)}s`;
+    lines.push(`| ${recStr} | ${castStr} | ${totalStr} | ${s.level} | ${s.name} | ${s.category} |`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*Showing first 100 of ${matches.length}. Narrow your search.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ COMPARE FACTIONS ============
+
+export async function compareFactions(faction1: string, faction2: string): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  // Find factions by name or ID
+  const findFaction = (query: string): FactionEntry | undefined => {
+    const id = parseInt(query);
+    if (!isNaN(id) && factions!.has(id)) return factions!.get(id);
+    const lower = query.toLowerCase();
+    for (const faction of factions!.values()) {
+      if (faction.name.toLowerCase() === lower) return faction;
+    }
+    for (const faction of factions!.values()) {
+      if (faction.name.toLowerCase().includes(lower)) return faction;
+    }
+    return undefined;
+  };
+
+  const f1 = findFaction(faction1);
+  const f2 = findFaction(faction2);
+  if (!f1) return `Faction not found: "${faction1}"`;
+  if (!f2) return `Faction not found: "${faction2}"`;
+
+  const lines = [`# Faction Comparison: ${f1.name} vs ${f2.name}`, ''];
+
+  lines.push('| Property | ' + f1.name + ' | ' + f2.name + ' |');
+  lines.push('|----------|' + '-'.repeat(f1.name.length + 2) + '|' + '-'.repeat(f2.name.length + 2) + '|');
+  lines.push(`| ID | ${f1.id} | ${f2.id} |`);
+  lines.push(`| Expansion | ${f1.category || 'Unknown'} | ${f2.category || 'Unknown'} |`);
+  lines.push(`| Min Value | ${f1.minValue} | ${f2.minValue} |`);
+  lines.push(`| Max Value | ${f1.maxValue} | ${f2.maxValue} |`);
+  lines.push(`| Value Range | ${f1.maxValue - f1.minValue} | ${f2.maxValue - f2.minValue} |`);
+  lines.push(`| Starting Modifiers | ${f1.startingValues?.length || 0} | ${f2.startingValues?.length || 0} |`);
+
+  // Compare starting values by race
+  if ((f1.startingValues && f1.startingValues.length > 0) || (f2.startingValues && f2.startingValues.length > 0)) {
+    const f1Map = new Map(f1.startingValues?.map(sv => [sv.modifierId, sv.value]) || []);
+    const f2Map = new Map(f2.startingValues?.map(sv => [sv.modifierId, sv.value]) || []);
+
+    const allModifiers = new Set([...f1Map.keys(), ...f2Map.keys()]);
+    const raceModifiers: { name: string; v1: number; v2: number }[] = [];
+
+    for (const modId of allModifiers) {
+      const name = factionModifierNames?.get(modId) || `Modifier ${modId}`;
+      if (!name.startsWith('Race:') && !PLAYABLE_RACE_MODIFIER_IDS.has(modId)) continue;
+      const raceName = name.replace(/^Race:\s*/, '');
+      raceModifiers.push({
+        name: raceName,
+        v1: f1Map.get(modId) || 0,
+        v2: f2Map.get(modId) || 0,
+      });
+    }
+
+    if (raceModifiers.length > 0) {
+      raceModifiers.sort((a, b) => a.name.localeCompare(b.name));
+      lines.push('', '## Starting Faction by Race', '');
+      lines.push(`| Race | ${f1.name} | ${f2.name} |`);
+      lines.push(`|------|${'-'.repeat(f1.name.length + 2)}|${'-'.repeat(f2.name.length + 2)}|`);
+      for (const rm of raceModifiers) {
+        if (rm.v1 !== 0 || rm.v2 !== 0) {
+          lines.push(`| ${rm.name} | ${rm.v1} | ${rm.v2} |`);
+        }
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ ZONE LEVEL STATISTICS ============
+
+export async function getZoneLevelStatistics(): Promise<string> {
+  await loadZones();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  const lines = ['# EverQuest Zone Level Statistics', ''];
+
+  // Count zones by level bands
+  const bands: { label: string; min: number; max: number; zones: string[] }[] = [
+    { label: '1-10', min: 1, max: 10, zones: [] },
+    { label: '11-20', min: 11, max: 20, zones: [] },
+    { label: '21-30', min: 21, max: 30, zones: [] },
+    { label: '31-40', min: 31, max: 40, zones: [] },
+    { label: '41-50', min: 41, max: 50, zones: [] },
+    { label: '51-60', min: 51, max: 60, zones: [] },
+    { label: '61-70', min: 61, max: 70, zones: [] },
+    { label: '71-80', min: 71, max: 80, zones: [] },
+    { label: '81-90', min: 81, max: 90, zones: [] },
+    { label: '91-100', min: 91, max: 100, zones: [] },
+    { label: '101-110', min: 101, max: 110, zones: [] },
+    { label: '111-120', min: 111, max: 120, zones: [] },
+    { label: '121+', min: 121, max: 999, zones: [] },
+  ];
+
+  let hasLevel = 0;
+  let noLevel = 0;
+  let widestRange = { name: '', range: 0 };
+
+  for (const zone of zones.values()) {
+    if (zone.levelMin <= 0 && zone.levelMax <= 0) {
+      noLevel++;
+      continue;
+    }
+    hasLevel++;
+
+    const effectiveMax = zone.levelMax > 0 ? zone.levelMax : zone.levelMin;
+    const range = effectiveMax - zone.levelMin;
+    if (range > widestRange.range) {
+      widestRange = { name: zone.name, range };
+    }
+
+    for (const band of bands) {
+      if (zone.levelMin <= band.max && effectiveMax >= band.min) {
+        band.zones.push(zone.name);
+      }
+    }
+  }
+
+  lines.push(`**${zones.size} total zones** — ${hasLevel} with level data, ${noLevel} without`, '');
+
+  lines.push('## Zone Count by Level Band', '');
+  lines.push('| Level Range | Zones | % of Leveled |');
+  lines.push('|-------------|-------|--------------|');
+  for (const band of bands) {
+    const pct = hasLevel > 0 ? ((band.zones.length / hasLevel) * 100).toFixed(1) : '0';
+    const bar = '█'.repeat(Math.round(band.zones.length / 3));
+    lines.push(`| ${band.label.padEnd(8)} | ${band.zones.length.toString().padStart(4)} | ${pct}% ${bar} |`);
+  }
+
+  if (widestRange.range > 0) {
+    lines.push('', `**Widest level range:** ${widestRange.name} (${widestRange.range} levels)`);
+  }
+
+  // Peak level distribution (which levels have the most zones)
+  const levelCounts = new Map<number, number>();
+  for (const zone of zones.values()) {
+    if (zone.levelMin <= 0) continue;
+    const effectiveMax = zone.levelMax > 0 ? zone.levelMax : zone.levelMin;
+    for (let l = zone.levelMin; l <= Math.min(effectiveMax, 130); l++) {
+      levelCounts.set(l, (levelCounts.get(l) || 0) + 1);
+    }
+  }
+
+  const peakLevels = [...levelCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  if (peakLevels.length > 0) {
+    lines.push('', '## Peak Levels (Most Zone Options)', '');
+    lines.push('| Level | Zones Available |');
+    lines.push('|-------|----------------|');
+    for (const [level, count] of peakLevels) {
+      lines.push(`| ${level} | ${count} |`);
+    }
+  }
+
+  return lines.join('\n');
+}
