@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 140 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 143 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **140 tools** for querying EverQuest data
+- **143 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -159,6 +159,7 @@ Then restart Claude Desktop.
 | `get_ac_mitigation` | AC mitigation values by class and level |
 | `get_ac_mitigation_comparison` | Compare AC soft caps and multipliers across all 16 classes — armor tier groupings and rankings |
 | `search_creature_types` | Search 980+ creature/NPC race types (Aviaks, Werewolves, Giants, etc.) |
+| `get_creature_type_overview` | Overview of all 973 creature/NPC race types — alphabetical breakdown, common name words, and statistics |
 | `compare_races` | Compare two races side by side (stats, classes, deities) |
 | `compare_classes` | Compare two classes side by side (races, spell counts, category breakdown) |
 | `compare_deities` | Compare two deities side by side (follower races, classes, lore) |
@@ -227,6 +228,7 @@ Then restart Claude Desktop.
 | `get_overseer_quest` | Quest details: slots, traits, risks, success/failure outcomes |
 | `get_overseer_incapacitations` | List incapacitation types and durations |
 | `get_overseer_quest_summary` | Overseer system overview with categories, difficulties, durations, agent stats |
+| `get_overseer_job_overview` | Complete overseer system overview — jobs, archetypes, categories, difficulties, traits, incapacitations, minion rarity breakdown |
 | `search_overseer_agents_by_trait` | Search overseer agents by trait (race/creature type) with auto-list of available traits |
 
 ### Local Data - Mercenaries
@@ -252,6 +254,7 @@ Then restart Claude Desktop.
 | `search_lore` | Search 50+ in-game lore stories |
 | `get_lore` | Read a lore story |
 | `get_lore_overview` | Lore overview — story count, word count stats, longest/shortest stories, complete listing |
+| `get_starting_city_lore` | Browse all 29 starting city lore descriptions from character creation |
 | `search_game_strings` | Search 7000+ game UI strings |
 | `search_game_events` | Search 550+ in-game event announcements |
 | `get_game_event` | Get event announcement details |
@@ -297,7 +300,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (140 tools)
+├── tools.ts          # Tool definitions and handlers (143 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

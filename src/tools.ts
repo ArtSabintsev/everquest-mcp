@@ -148,6 +148,9 @@ import {
   searchSpellsByEndurance,
   getACMitigationComparison,
   getTributeOverview,
+  getStartingCityLore,
+  getCreatureTypeOverview,
+  getOverseerJobOverview,
 } from './sources/index.js';
 
 export const tools = [
@@ -2125,6 +2128,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_starting_city_lore',
+    description: 'Browse all starting city lore descriptions from EverQuest character creation, showing the flavor text for each starting city.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_creature_type_overview',
+    description: 'Overview of all creature/NPC race types in EverQuest — alphabetical breakdown, common name words, name statistics, and ID range analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_overseer_job_overview',
+    description: 'Complete overview of the EverQuest Overseer system — all jobs, archetypes, quest categories, difficulty levels, traits, incapacitations, and minion rarity breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3614,6 +3644,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_tribute_overview': {
         return getTributeOverview();
+      }
+
+      case 'get_starting_city_lore': {
+        return getStartingCityLore();
+      }
+
+      case 'get_creature_type_overview': {
+        return getCreatureTypeOverview();
+      }
+
+      case 'get_overseer_job_overview': {
+        return getOverseerJobOverview();
       }
 
       case 'search_help_topics': {

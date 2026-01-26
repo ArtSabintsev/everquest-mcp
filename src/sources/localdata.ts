@@ -10907,3 +10907,208 @@ export async function getTributeOverview(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: STARTING CITY LORE ============
+
+export async function getStartingCityLore(): Promise<string> {
+  await loadStartingCityLore();
+  await loadRaceClassInfo();
+  if (!startingCityLore || startingCityLore.size === 0) return 'Starting city lore data not available.';
+
+  const lines = ['# Starting City Lore', ''];
+  lines.push(`**${startingCityLore.size} starting city descriptions available**`, '');
+
+  // Build city ID to name mapping from race data
+  // City IDs from dbstr type 15 correspond to starting cities
+  const sorted = [...startingCityLore.entries()].sort((a, b) => a[0] - b[0]);
+
+  for (const [id, text] of sorted) {
+    const cleanText = text.replace(/\r/g, '').trim();
+    lines.push(`## City ID ${id}`, '');
+    lines.push(cleanText);
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CREATURE TYPE OVERVIEW ============
+
+export async function getCreatureTypeOverview(): Promise<string> {
+  await loadCreatureTypes();
+  if (!creatureTypes || creatureTypes.size === 0) return 'Creature type data not available.';
+
+  const lines = ['# Creature/NPC Race Type Overview', ''];
+  lines.push(`**${creatureTypes.size} creature race types defined**`, '');
+
+  // Alphabetical grouping
+  const byLetter = new Map<string, string[]>();
+  for (const [, name] of creatureTypes) {
+    const letter = name.charAt(0).toUpperCase();
+    if (!byLetter.has(letter)) byLetter.set(letter, []);
+    byLetter.get(letter)!.push(name);
+  }
+
+  const sortedLetters = [...byLetter.keys()].sort();
+  lines.push('## By First Letter', '');
+  lines.push('| Letter | Count | Examples |');
+  lines.push('|--------|-------|----------|');
+
+  for (const letter of sortedLetters) {
+    const names = byLetter.get(letter)!.sort();
+    const examples = names.slice(0, 5).join(', ');
+    const more = names.length > 5 ? `, ... (+${names.length - 5})` : '';
+    lines.push(`| ${letter} | ${names.length} | ${examples}${more} |`);
+  }
+
+  // Common word analysis
+  const wordCounts = new Map<string, number>();
+  for (const [, name] of creatureTypes) {
+    const words = name.toLowerCase().split(/[\s_]+/);
+    for (const word of words) {
+      if (word.length > 2) {
+        wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+      }
+    }
+  }
+  const topWords = [...wordCounts.entries()]
+    .filter(([, c]) => c >= 3)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 25);
+
+  if (topWords.length > 0) {
+    lines.push('', '## Most Common Name Words', '');
+    for (const [word, count] of topWords) {
+      lines.push(`- **${word}:** ${count} types`);
+    }
+  }
+
+  // Name length statistics
+  const lengths = [...creatureTypes.values()].map(n => n.length);
+  lengths.sort((a, b) => a - b);
+  const avgLen = Math.round(lengths.reduce((s, l) => s + l, 0) / lengths.length);
+  const shortest = [...creatureTypes.entries()].sort((a, b) => a[1].length - b[1].length).slice(0, 5);
+  const longest = [...creatureTypes.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 5);
+
+  lines.push('', '## Name Statistics', '');
+  lines.push(`- **Average name length:** ${avgLen} characters`);
+  lines.push(`- **Shortest:** ${shortest.map(([, n]) => `"${n}"`).join(', ')}`);
+  lines.push(`- **Longest:** ${longest.map(([, n]) => `"${n}"`).join(', ')}`);
+
+  // ID range analysis
+  const ids = [...creatureTypes.keys()].sort((a, b) => a - b);
+  lines.push('', '## ID Range', '');
+  lines.push(`- **Lowest ID:** ${ids[0]}`);
+  lines.push(`- **Highest ID:** ${ids[ids.length - 1]}`);
+  lines.push(`- **ID span:** ${ids[ids.length - 1] - ids[0] + 1} (${((creatureTypes.size / (ids[ids.length - 1] - ids[0] + 1)) * 100).toFixed(1)}% density)`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: OVERSEER JOB OVERVIEW ============
+
+export async function getOverseerJobOverview(): Promise<string> {
+  await loadOverseerEnhancements();
+  await loadOverseerMinions();
+
+  const lines = ['# Overseer System Overview', ''];
+
+  // Jobs
+  if (overseerJobNames && overseerJobNames.size > 0) {
+    const jobs = [...overseerJobNames.entries()].sort((a, b) => a[0] - b[0]);
+    lines.push(`## Jobs (${jobs.length})`, '');
+    lines.push('| ID | Job Name |');
+    lines.push('|----|----------|');
+    for (const [id, name] of jobs) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+  }
+
+  // Archetypes
+  if (overseerArchetypeNames && overseerArchetypeNames.size > 0) {
+    const archetypes = [...overseerArchetypeNames.entries()].sort((a, b) => a[0] - b[0]);
+    lines.push('', `## Archetypes (${archetypes.length})`, '');
+    lines.push('| ID | Archetype |');
+    lines.push('|----|-----------|');
+    for (const [id, name] of archetypes) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+  }
+
+  // Categories
+  if (overseerCategories && overseerCategories.size > 0) {
+    const cats = [...overseerCategories.entries()].sort((a, b) => a[0] - b[0]);
+    lines.push('', `## Quest Categories (${cats.length})`, '');
+    for (const [id, name] of cats) {
+      lines.push(`- **${name}** (ID: ${id})`);
+    }
+  }
+
+  // Difficulties
+  if (overseerDifficulties && overseerDifficulties.size > 0) {
+    const diffs = [...overseerDifficulties.entries()].sort((a, b) => a[0] - b[0]);
+    lines.push('', `## Difficulty Levels (${diffs.length})`, '');
+    for (const [id, name] of diffs) {
+      lines.push(`- **${name}** (ID: ${id})`);
+    }
+  }
+
+  // Job class descriptions
+  if (overseerJobClassDescs && overseerJobClassDescs.size > 0) {
+    const descs = [...overseerJobClassDescs.entries()].sort((a, b) => a[0] - b[0]);
+    lines.push('', `## Job Class Descriptions (${descs.length})`, '');
+    for (const [id, desc] of descs.slice(0, 30)) {
+      const shortDesc = desc.length > 100 ? desc.substring(0, 100) + '...' : desc;
+      lines.push(`- **ID ${id}:** ${shortDesc}`);
+    }
+    if (descs.length > 30) {
+      lines.push(`- ... and ${descs.length - 30} more`);
+    }
+  }
+
+  // Trait descriptions
+  if (overseerTraitDescs && overseerTraitDescs.size > 0) {
+    lines.push('', `## Traits (${overseerTraitDescs.size})`, '');
+    const traits = [...overseerTraitDescs.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [id, desc] of traits.slice(0, 30)) {
+      const shortDesc = desc.length > 80 ? desc.substring(0, 80) + '...' : desc;
+      lines.push(`- **ID ${id}:** ${shortDesc}`);
+    }
+    if (traits.length > 30) {
+      lines.push(`- ... and ${traits.length - 30} more`);
+    }
+  }
+
+  // Minion count summary
+  if (overseerMinions && overseerMinions.size > 0) {
+    lines.push('', '## Minion Summary', '');
+    lines.push(`- **Total minions:** ${overseerMinions.size}`);
+
+    // Count by rarity
+    const rarityCounts = new Map<number, number>();
+    for (const minion of overseerMinions.values()) {
+      rarityCounts.set(minion.rarity, (rarityCounts.get(minion.rarity) || 0) + 1);
+    }
+    const rarityNames: Record<number, string> = { 1: 'Common', 2: 'Uncommon', 3: 'Rare', 4: 'Elite', 5: 'Legendary' };
+    const sortedRarities = [...rarityCounts.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [rarity, count] of sortedRarities) {
+      lines.push(`- **${rarityNames[rarity] || `Rarity ${rarity}`}:** ${count} minions`);
+    }
+  }
+
+  // Incapacitation summary
+  if (overseerIncapNames && overseerIncapNames.size > 0) {
+    lines.push('', `## Incapacitations (${overseerIncapNames.size})`, '');
+    const incaps = [...overseerIncapNames.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [id, name] of incaps) {
+      const desc = overseerIncapDescs?.get(id);
+      const dur = overseerIncapDurations?.get(id);
+      let extra = '';
+      if (dur) extra += ` (${Math.round(dur.duration / 3600)}h)`;
+      if (desc) extra += ` — ${desc.substring(0, 60)}`;
+      lines.push(`- **${name}**${extra}`);
+    }
+  }
+
+  return lines.join('\n');
+}
