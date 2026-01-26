@@ -2917,6 +2917,243 @@ export async function searchSpellsByName(query: string): Promise<string> {
   return lines.join('\n');
 }
 
+export async function searchSpellsByResist(resistType: string, className?: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve resist type
+  const lowerResist = resistType.toLowerCase();
+  let resistTypeId: number | undefined;
+  for (const [id, name] of Object.entries(RESIST_TYPES)) {
+    if (name.toLowerCase() === lowerResist || name.toLowerCase().startsWith(lowerResist)) {
+      resistTypeId = parseInt(id);
+      break;
+    }
+  }
+  if (resistTypeId === undefined) {
+    const validResists = Object.values(RESIST_TYPES).join(', ');
+    return `Unknown resist type: "${resistType}". Valid types: ${validResists}`;
+  }
+
+  // Optional class filter
+  let classId: number | undefined;
+  let classIndex: number | undefined;
+  if (className) {
+    classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (!classId) {
+      return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+    }
+    classIndex = classId - 1;
+  }
+
+  const CLASS_NAMES_SHORT = ['WAR','CLR','PAL','RNG','SHD','DRU','MNK','BRD','ROG','SHM','NEC','WIZ','MAG','ENC','BST','BER'];
+  const matches: { id: number; name: string; level: number; classes: string[]; category?: string; beneficial: boolean }[] = [];
+
+  for (const [id, spell] of spells) {
+    const f = spell.fields;
+
+    // Resist type filter
+    const spellResist = parseInt(f[SF.RESIST_TYPE]);
+    if (spellResist !== resistTypeId) continue;
+
+    // Class filter
+    let classLevel = 0;
+    if (classIndex !== undefined) {
+      const lvl = parseInt(f[SF.CLASS_LEVEL_START + classIndex]);
+      if (isNaN(lvl) || lvl === 255 || lvl <= 0) continue;
+      classLevel = lvl;
+    }
+
+    // Get class info
+    const classes: string[] = [];
+    let minLevel = 255;
+    for (let c = 0; c < 16; c++) {
+      const lvl = parseInt(f[SF.CLASS_LEVEL_START + c]);
+      if (!isNaN(lvl) && lvl > 0 && lvl < 255) {
+        classes.push(`${CLASS_NAMES_SHORT[c]}(${lvl})`);
+        if (lvl < minLevel) minLevel = lvl;
+      }
+    }
+
+    let category: string | undefined;
+    if (spellCategories) {
+      const catId = parseInt(f[SF.CATEGORY]);
+      if (!isNaN(catId) && catId > 0) category = spellCategories.get(catId);
+    }
+
+    matches.push({
+      id,
+      name: spell.name,
+      level: classLevel || (minLevel < 255 ? minLevel : 0),
+      classes,
+      category,
+      beneficial: f[SF.BENEFICIAL] === '1',
+    });
+
+    if (matches.length >= 100) break;
+  }
+
+  if (matches.length === 0) {
+    const classLabel = classId ? ` for ${CLASS_IDS[classId]}` : '';
+    return `No ${RESIST_TYPES[resistTypeId]} spells found${classLabel}.`;
+  }
+
+  // Sort by level then name
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const classLabel = classId ? ` - ${CLASS_IDS[classId]}` : '';
+  const lines = [
+    `## ${RESIST_TYPES[resistTypeId]} Spells${classLabel}`,
+    `*${matches.length} spells found${matches.length >= 100 ? ' (limited to 100)' : ''}*`,
+    '',
+  ];
+
+  for (const m of matches) {
+    const catStr = m.category ? ` [${m.category}]` : '';
+    const classStr = !classId && m.classes.length > 0 ? ` - ${m.classes.join(', ')}` : '';
+    lines.push(`- **${m.name}** (ID: ${m.id})${catStr}${classStr}`);
+  }
+
+  return lines.join('\n');
+}
+
+export async function searchSpellsByTarget(targetType: string, className?: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve target type - support common aliases
+  const lowerTarget = targetType.toLowerCase();
+  const TARGET_ALIASES: Record<string, number[]> = {
+    'single': [5],
+    'self': [6],
+    'group': [3, 41],
+    'ae': [4, 8, 2, 40, 42, 44, 46],
+    'pb ae': [4], 'pbae': [4], 'pbaoe': [4],
+    'targeted ae': [8], 'target ae': [8], 'rain': [8],
+    'directional': [42], 'cone': [42],
+    'beam': [44],
+    'target ring': [46], 'ring': [46],
+    'pet': [14],
+    'corpse': [15],
+    'undead': [10],
+    'animal': [9],
+    'lifetap': [13],
+    'free target': [36],
+    'los': [1], 'line of sight': [1],
+  };
+
+  let targetIds: number[] | undefined;
+  // Check aliases first
+  for (const [alias, ids] of Object.entries(TARGET_ALIASES)) {
+    if (alias === lowerTarget || alias.startsWith(lowerTarget)) {
+      targetIds = ids;
+      break;
+    }
+  }
+  // Also check TARGET_TYPES names directly
+  if (!targetIds) {
+    for (const [id, name] of Object.entries(TARGET_TYPES)) {
+      if (name.toLowerCase().includes(lowerTarget)) {
+        targetIds = targetIds || [];
+        targetIds.push(parseInt(id));
+      }
+    }
+  }
+  if (!targetIds || targetIds.length === 0) {
+    const validTypes = ['Single', 'Self', 'Group', 'AE (all AE types)', 'PB AE', 'Targeted AE', 'Directional/Cone', 'Beam', 'Target Ring', 'Pet', 'Corpse', 'Undead', 'Animal', 'Lifetap'];
+    return `Unknown target type: "${targetType}". Valid types: ${validTypes.join(', ')}`;
+  }
+
+  const targetIdSet = new Set(targetIds);
+
+  // Optional class filter
+  let classId: number | undefined;
+  let classIndex: number | undefined;
+  if (className) {
+    classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (!classId) {
+      return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+    }
+    classIndex = classId - 1;
+  }
+
+  const CLASS_NAMES_SHORT = ['WAR','CLR','PAL','RNG','SHD','DRU','MNK','BRD','ROG','SHM','NEC','WIZ','MAG','ENC','BST','BER'];
+  const matches: { id: number; name: string; level: number; classes: string[]; category?: string; targetName: string }[] = [];
+
+  for (const [id, spell] of spells) {
+    const f = spell.fields;
+
+    // Target type filter
+    const spellTarget = parseInt(f[SF.TARGET_TYPE]);
+    if (!targetIdSet.has(spellTarget)) continue;
+
+    // Class filter
+    let classLevel = 0;
+    if (classIndex !== undefined) {
+      const lvl = parseInt(f[SF.CLASS_LEVEL_START + classIndex]);
+      if (isNaN(lvl) || lvl === 255 || lvl <= 0) continue;
+      classLevel = lvl;
+    }
+
+    // Get class info
+    const classes: string[] = [];
+    let minLevel = 255;
+    for (let c = 0; c < 16; c++) {
+      const lvl = parseInt(f[SF.CLASS_LEVEL_START + c]);
+      if (!isNaN(lvl) && lvl > 0 && lvl < 255) {
+        classes.push(`${CLASS_NAMES_SHORT[c]}(${lvl})`);
+        if (lvl < minLevel) minLevel = lvl;
+      }
+    }
+
+    let category: string | undefined;
+    if (spellCategories) {
+      const catId = parseInt(f[SF.CATEGORY]);
+      if (!isNaN(catId) && catId > 0) category = spellCategories.get(catId);
+    }
+
+    matches.push({
+      id,
+      name: spell.name,
+      level: classLevel || (minLevel < 255 ? minLevel : 0),
+      classes,
+      category,
+      targetName: TARGET_TYPES[spellTarget] || `Type ${spellTarget}`,
+    });
+
+    if (matches.length >= 100) break;
+  }
+
+  if (matches.length === 0) {
+    const classLabel = classId ? ` for ${CLASS_IDS[classId]}` : '';
+    return `No spells found with target type "${targetType}"${classLabel}.`;
+  }
+
+  // Sort by level then name
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const classLabel = classId ? ` - ${CLASS_IDS[classId]}` : '';
+  const targetLabel = targetIds.length === 1
+    ? (TARGET_TYPES[targetIds[0]] || targetType)
+    : targetType.charAt(0).toUpperCase() + targetType.slice(1);
+  const lines = [
+    `## ${targetLabel} Spells${classLabel}`,
+    `*${matches.length} spells found${matches.length >= 100 ? ' (limited to 100)' : ''}*`,
+    '',
+  ];
+
+  for (const m of matches) {
+    const catStr = m.category ? ` [${m.category}]` : '';
+    const targetStr = targetIds.length > 1 ? ` {${m.targetName}}` : '';
+    const classStr = !classId && m.classes.length > 0 ? ` - ${m.classes.join(', ')}` : '';
+    lines.push(`- **${m.name}** (ID: ${m.id})${catStr}${targetStr}${classStr}`);
+  }
+
+  return lines.join('\n');
+}
+
 export async function getLocalSpell(id: string): Promise<SpellData | null> {
   await loadSpells();
   await loadSpellStrings();
@@ -3350,7 +3587,7 @@ export async function getSpellStackingInfo(spellId: string): Promise<string> {
 
 // ============ PUBLIC API: SPELLS BY CLASS ============
 
-export async function getSpellsByClass(className: string, level?: number, category?: string): Promise<string> {
+export async function getSpellsByClass(className: string, level?: number, category?: string, resistType?: string): Promise<string> {
   await loadSpells();
   await loadSpellDescriptions(); // For category data
   if (!spells || spells.size === 0) return 'Spell data not available.';
@@ -3358,6 +3595,22 @@ export async function getSpellsByClass(className: string, level?: number, catego
   const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
   if (!classId) {
     return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  // Resolve resist type filter
+  let resistTypeId: number | undefined;
+  if (resistType) {
+    const lowerResist = resistType.toLowerCase();
+    for (const [id, name] of Object.entries(RESIST_TYPES)) {
+      if (name.toLowerCase() === lowerResist || name.toLowerCase().startsWith(lowerResist)) {
+        resistTypeId = parseInt(id);
+        break;
+      }
+    }
+    if (resistTypeId === undefined) {
+      const validResists = Object.values(RESIST_TYPES).filter(r => r !== 'Unresistable').join(', ');
+      return `Unknown resist type: "${resistType}". Valid types: ${validResists}`;
+    }
   }
 
   const classIndex = classId - 1; // 0-based index into class level fields
@@ -3371,6 +3624,12 @@ export async function getSpellsByClass(className: string, level?: number, catego
     if (isNaN(classLevel) || classLevel === 255 || classLevel <= 0) continue;
 
     if (level !== undefined && classLevel !== level) continue;
+
+    // Resist type filter
+    if (resistTypeId !== undefined) {
+      const spellResist = parseInt(spell.fields[SF.RESIST_TYPE]);
+      if (spellResist !== resistTypeId) continue;
+    }
 
     // Category filter
     let spellCat: string | undefined;
@@ -3392,13 +3651,14 @@ export async function getSpellsByClass(className: string, level?: number, catego
 
   matchingSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
 
+  const resistLabel = resistType ? ` - ${RESIST_TYPES[resistTypeId!] || resistType}` : '';
   if (matchingSpells.length === 0) {
-    return `No spells found for ${CLASS_IDS[classId]}${level ? ` at level ${level}` : ''}${category ? ` in category "${category}"` : ''}.`;
+    return `No spells found for ${CLASS_IDS[classId]}${level ? ` at level ${level}` : ''}${category ? ` in category "${category}"` : ''}${resistLabel}.`;
   }
 
   const catLabel = category ? ` - ${category}` : '';
   const lines = [
-    `## ${CLASS_IDS[classId]} Spells${level ? ` (Level ${level})` : ''}${catLabel}`,
+    `## ${CLASS_IDS[classId]} Spells${level ? ` (Level ${level})` : ''}${catLabel}${resistLabel}`,
     `*${matchingSpells.length} spells found*`,
     '',
   ];

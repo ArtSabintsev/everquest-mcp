@@ -1,13 +1,13 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 69 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 71 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **69 tools** for querying EverQuest data
+- **71 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
-- **Spell analysis** - Effects, categories, stacking groups, class lists, effect-type search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
+- **Spell analysis** - Effects, categories, stacking groups, class lists, effect-type search, resist-type search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
 - **Character data** - Race/class info with starting city lore and Drakkin heritages, skill caps, base stats, AC mitigation, deities
 - **Creature encyclopedia** - 980+ NPC/monster race types searchable by name
 - **Overseer system** - Agents with archetypes/traits/jobs, quests with slot details and success/failure outcomes
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (68)
+## Available Tools (70)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -114,8 +114,10 @@ Then restart Claude Desktop.
 | Tool | Description |
 |------|-------------|
 | `get_spell_data` | Get complete spell data from game files (effects, classes, duration, resist, recourse links, teleport zone, cast messages, endurance cost, timer group) |
-| `get_spells_by_class` | List spells by class, optionally filtered by level and/or category |
+| `get_spells_by_class` | List spells by class, optionally filtered by level, category, and/or resist type |
 | `search_spells_by_effect` | Search spells by effect type (Stun, Haste, Charm, Root, etc.) |
+| `search_spells_by_resist` | Search spells by resist type (Fire, Cold, Magic, Poison, etc.) with optional class filter |
+| `search_spells_by_target` | Search spells by target type (Single, Self, Group, AE, Beam, etc.) with optional class filter |
 | `get_spell_stacking` | Check spell stacking conflicts and overwrite rules |
 | `list_spell_categories` | List all 176 spell categories for filtering |
 | `search_spells_by_name` | Search spells by name, find all ranks/versions of a spell line |
@@ -226,7 +228,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (69 tools)
+├── tools.ts          # Tool definitions and handlers (71 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

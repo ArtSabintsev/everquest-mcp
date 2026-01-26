@@ -77,6 +77,8 @@ import {
   searchLocalZonesByLevel,
   searchTeleportSpells,
   searchSpellsByName,
+  searchSpellsByResist,
+  searchSpellsByTarget,
 } from './sources/index.js';
 
 export const tools = [
@@ -389,7 +391,7 @@ export const tools = [
   },
   {
     name: 'get_spells_by_class',
-    description: 'List all spells available to a specific class, optionally filtered by level and/or spell category. Uses local game data for complete, authoritative spell lists.',
+    description: 'List all spells available to a specific class, optionally filtered by level, spell category, and/or resist type. Uses local game data for complete, authoritative spell lists.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -404,6 +406,10 @@ export const tools = [
         category: {
           type: 'string',
           description: 'Optional: filter by spell category (e.g., "Heals", "Fire", "Cold", "Direct Damage", "DoT", "Charm", "Fear")'
+        },
+        resist_type: {
+          type: 'string',
+          description: 'Optional: filter by resist type (Magic, Fire, Cold, Poison, Disease, Chromatic, Prismatic, Physical, Corruption)'
         }
       },
       required: ['class']
@@ -421,6 +427,42 @@ export const tools = [
         }
       },
       required: ['query']
+    }
+  },
+  {
+    name: 'search_spells_by_resist',
+    description: 'Search EverQuest spells by resist type (Fire, Cold, Magic, Poison, Disease, Chromatic, Prismatic, Physical, Corruption). Optionally filter by class. Uses local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        resist_type: {
+          type: 'string',
+          description: 'Resist type to search for (Magic, Fire, Cold, Poison, Disease, Chromatic, Prismatic, Physical, Corruption)'
+        },
+        class: {
+          type: 'string',
+          description: 'Optional: filter to a specific class (e.g., "Wizard", "WIZ", "Necromancer", "NEC")'
+        }
+      },
+      required: ['resist_type']
+    }
+  },
+  {
+    name: 'search_spells_by_target',
+    description: 'Search EverQuest spells by target type (Single, Self, Group, AE, PB AE, Targeted AE, Directional/Cone, Beam, Target Ring, Pet, Corpse, Undead, Animal). Optionally filter by class. Uses local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target_type: {
+          type: 'string',
+          description: 'Target type to search for (Single, Self, Group, AE, PB AE, Targeted AE, Cone, Beam, Ring, Pet, Corpse, Undead, Animal)'
+        },
+        class: {
+          type: 'string',
+          description: 'Optional: filter to a specific class (e.g., "Wizard", "WIZ", "Enchanter", "ENC")'
+        }
+      },
+      required: ['target_type']
     }
   },
   {
@@ -1763,12 +1805,27 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         return searchSpellsByName(query);
       }
 
+      case 'search_spells_by_resist': {
+        const resistType = typeof args.resist_type === 'string' ? args.resist_type.trim() : '';
+        if (!resistType) return 'Error: "resist_type" parameter is required';
+        const className = typeof args.class === 'string' ? args.class.trim() : undefined;
+        return searchSpellsByResist(resistType, className);
+      }
+
+      case 'search_spells_by_target': {
+        const targetType = typeof args.target_type === 'string' ? args.target_type.trim() : '';
+        if (!targetType) return 'Error: "target_type" parameter is required';
+        const className = typeof args.class === 'string' ? args.class.trim() : undefined;
+        return searchSpellsByTarget(targetType, className);
+      }
+
       case 'get_spells_by_class': {
         const className = typeof args.class === 'string' ? args.class.trim() : '';
         if (!className) return 'Error: "class" parameter is required';
         const level = typeof args.level === 'number' ? args.level : undefined;
         const category = typeof args.category === 'string' ? args.category.trim() : undefined;
-        return getSpellsByClass(className, level, category);
+        const resistType = typeof args.resist_type === 'string' ? args.resist_type.trim() : undefined;
+        return getSpellsByClass(className, level, category, resistType);
       }
 
       case 'get_skill_caps': {
