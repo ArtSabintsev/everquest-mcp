@@ -509,6 +509,13 @@ interface OverseerMinion {
   traitIds: number[];
 }
 
+interface OverseerSlotDetail {
+  slotId: number;
+  jobTypeId: number;
+  isRequired: boolean;
+  bonusTraitIds: number[];
+}
+
 interface OverseerQuest {
   id: number;
   categoryId: number;
@@ -518,6 +525,7 @@ interface OverseerQuest {
   duration: number;
   requiredSlots: number;
   optionalSlots: number;
+  slotDetails: OverseerSlotDetail[];
 }
 
 interface MercenaryEntry {
@@ -619,12 +627,13 @@ interface TributeEntry {
 let tributes: Map<number, TributeEntry> | null = null;
 let tributeNameIndex: Map<string, number[]> | null = null;
 
-// Overseer category/difficulty/incapacitation/trait names
+// Overseer category/difficulty/incapacitation/trait/job names
 let overseerCategories: Map<number, string> | null = null;
 let overseerDifficulties: Map<number, string> | null = null;
 let overseerTraitDescs: Map<number, string> | null = null;
 let overseerIncapNames: Map<number, string> | null = null;
 let overseerIncapDescs: Map<number, string> | null = null;
+let overseerJobNames: Map<number, string> | null = null;
 
 let dataAvailable: boolean | null = null;
 
@@ -1291,6 +1300,9 @@ const DBSTR_TYPES = {
   GUILD_TRIBUTE_NAME: 50,
   GUILD_TRIBUTE_DESC: 51,
   OVERSEER_TRAIT_DESC: 55,
+  OVERSEER_JOB_NAME: 62,
+  OVERSEER_JOB_DESC: 63,
+  OVERSEER_ARCHETYPE_NAME: 64,
   OVERSEER_INCAP_NAME: 58,
   OVERSEER_INCAP_DESC: 59,
   OVERSEER_DIFFICULTY: 66,
@@ -1764,7 +1776,7 @@ async function loadOverseerQuests(): Promise<void> {
       const rawDesc = questDescs.get(id) || '';
       const description = stripHtmlTags(rawDesc.replace(/<c\s+"[^"]*">/gi, '').replace(/<\/c>/gi, ''));
 
-      overseerQuests.set(id, { id, categoryId, name, description, difficulty, duration, requiredSlots: 0, optionalSlots: 0 });
+      overseerQuests.set(id, { id, categoryId, name, description, difficulty, duration, requiredSlots: 0, optionalSlots: 0, slotDetails: [] });
 
       const lowerName = name.toLowerCase();
       const existing = overseerQuestNameIndex!.get(lowerName) || [];
@@ -1772,20 +1784,56 @@ async function loadOverseerQuests(): Promise<void> {
       overseerQuestNameIndex!.set(lowerName, existing);
     }
 
-    // Load slot associations and slot data to count required/optional slots per quest
+    // Load slot data: slot definitions, quest-slot associations, slot-trait mappings, trait groups
     try {
+      // 1. Parse slot definitions: slotId -> { jobTypeId, isRequired }
       const slotData = await readGameFile(join('Resources', 'OvrQstMinionSlotClient.txt'));
-      const slotRequired = new Map<number, boolean>(); // slotId -> required
+      const slotInfo = new Map<number, { jobTypeId: number; isRequired: boolean }>();
 
       for (const line of slotData.split('\n')) {
         if (!line.trim() || line.startsWith('#')) continue;
         const fields = line.split('^');
         if (fields.length < 5) continue;
         const slotId = parseInt(fields[0]);
+        const jobTypeId = parseInt(fields[1]);
         const required = fields[4] === '1';
-        if (!isNaN(slotId)) slotRequired.set(slotId, required);
+        if (!isNaN(slotId)) slotInfo.set(slotId, { jobTypeId, isRequired: required });
       }
 
+      // 2. Parse trait groups: traitGroupId -> traitId[] (bonus traits)
+      const traitGroupData = await readGameFile(join('Resources', 'OvrQstTraitClient.txt'));
+      const traitGroups = new Map<number, number[]>();
+      for (const line of traitGroupData.split('\n')) {
+        if (!line.trim() || line.startsWith('#')) continue;
+        const fields = line.split('^');
+        if (fields.length < 3) continue;
+        const groupId = parseInt(fields[0]);
+        const traitId = parseInt(fields[1]);
+        if (isNaN(groupId) || isNaN(traitId)) continue;
+        const existing = traitGroups.get(groupId) || [];
+        if (!existing.includes(traitId)) existing.push(traitId);
+        traitGroups.set(groupId, existing);
+      }
+
+      // 3. Parse slot -> trait group mappings
+      const slotTraitData = await readGameFile(join('Resources', 'OvrQstSlotTraitGroup.txt'));
+      const slotTraits = new Map<number, number[]>(); // slotId -> traitId[]
+      for (const line of slotTraitData.split('\n')) {
+        if (!line.trim() || line.startsWith('#')) continue;
+        const fields = line.split('^');
+        if (fields.length < 2) continue;
+        const slotId = parseInt(fields[0]);
+        const traitGroupId = parseInt(fields[1]);
+        if (isNaN(slotId) || isNaN(traitGroupId)) continue;
+        const traits = traitGroups.get(traitGroupId) || [];
+        const existing = slotTraits.get(slotId) || [];
+        for (const t of traits) {
+          if (!existing.includes(t)) existing.push(t);
+        }
+        slotTraits.set(slotId, existing);
+      }
+
+      // 4. Associate slots to quests
       const assocData = await readGameFile(join('Resources', 'OvrQstMinionSlotAssoc.txt'));
       for (const line of assocData.split('\n')) {
         if (!line.trim() || line.startsWith('#')) continue;
@@ -1796,12 +1844,19 @@ async function loadOverseerQuests(): Promise<void> {
         if (isNaN(questId) || isNaN(slotId)) continue;
 
         const quest = overseerQuests.get(questId);
-        if (quest) {
-          if (slotRequired.get(slotId)) {
+        const slot = slotInfo.get(slotId);
+        if (quest && slot) {
+          if (slot.isRequired) {
             quest.requiredSlots++;
           } else {
             quest.optionalSlots++;
           }
+          quest.slotDetails.push({
+            slotId,
+            jobTypeId: slot.jobTypeId,
+            isRequired: slot.isRequired,
+            bonusTraitIds: slotTraits.get(slotId) || [],
+          });
         }
       }
     } catch {
@@ -2150,26 +2205,29 @@ async function loadOverseerEnhancements(): Promise<void> {
   overseerTraitDescs = new Map();
   overseerIncapNames = new Map();
   overseerIncapDescs = new Map();
+  overseerJobNames = new Map();
   if (!isGameDataAvailable()) return;
 
   await loadDbStrings([
     DBSTR_TYPES.OVERSEER_QUEST_CATEGORY, DBSTR_TYPES.OVERSEER_DIFFICULTY,
     DBSTR_TYPES.OVERSEER_TRAIT_DESC, DBSTR_TYPES.OVERSEER_INCAP_NAME,
-    DBSTR_TYPES.OVERSEER_INCAP_DESC,
+    DBSTR_TYPES.OVERSEER_INCAP_DESC, DBSTR_TYPES.OVERSEER_JOB_NAME,
   ]);
   const cats = dbStrings?.get(DBSTR_TYPES.OVERSEER_QUEST_CATEGORY) || new Map();
   const diffs = dbStrings?.get(DBSTR_TYPES.OVERSEER_DIFFICULTY) || new Map();
   const traitDs = dbStrings?.get(DBSTR_TYPES.OVERSEER_TRAIT_DESC) || new Map();
   const incapNs = dbStrings?.get(DBSTR_TYPES.OVERSEER_INCAP_NAME) || new Map();
   const incapDs = dbStrings?.get(DBSTR_TYPES.OVERSEER_INCAP_DESC) || new Map();
+  const jobNs = dbStrings?.get(DBSTR_TYPES.OVERSEER_JOB_NAME) || new Map();
 
   for (const [id, name] of cats) overseerCategories.set(id, name);
   for (const [id, name] of diffs) overseerDifficulties.set(id, name);
   for (const [id, desc] of traitDs) overseerTraitDescs.set(id, desc);
   for (const [id, name] of incapNs) overseerIncapNames.set(id, name);
   for (const [id, desc] of incapDs) overseerIncapDescs.set(id, desc);
+  for (const [id, name] of jobNs) overseerJobNames.set(id, name);
 
-  console.error(`[LocalData] Loaded ${overseerCategories.size} categories, ${overseerDifficulties.size} difficulties, ${overseerIncapNames.size} incapacitations`);
+  console.error(`[LocalData] Loaded ${overseerCategories.size} categories, ${overseerDifficulties.size} difficulties, ${overseerIncapNames.size} incapacitations, ${overseerJobNames.size} job types`);
 }
 
 // ============ MAP POI PARSER (On-Demand) ============
@@ -3240,6 +3298,7 @@ export async function searchOverseerQuests(query: string): Promise<SearchResult[
 export async function getOverseerQuest(id: string): Promise<string> {
   await loadOverseerQuests();
   await loadOverseerEnhancements();
+  await loadOverseerMinions(); // for trait names
   if (!overseerQuests) return 'Overseer quest data not available.';
 
   const questId = parseInt(id);
@@ -3248,6 +3307,9 @@ export async function getOverseerQuest(id: string): Promise<string> {
 
   const categoryName = overseerCategories?.get(quest.categoryId) || `Category ${quest.categoryId}`;
   const difficultyName = overseerDifficulties?.get(quest.difficulty) || `${quest.difficulty}`;
+
+  // Get trait names from dbstr
+  const traitNames = dbStrings?.get(DBSTR_TYPES.OVERSEER_TRAIT) || new Map<number, string>();
 
   const lines = [
     `## ${quest.name}`,
@@ -3260,15 +3322,45 @@ export async function getOverseerQuest(id: string): Promise<string> {
     `**Agent Slots:** ${quest.requiredSlots} required${quest.optionalSlots > 0 ? `, ${quest.optionalSlots} optional` : ''}`,
   ];
 
-  // Show possible incapacitation risks based on quest category
-  if (overseerIncapNames && overseerIncapNames.size > 0) {
-    lines.push('', '### Possible Incapacitation Risks');
-    const seenIncap = new Set<string>();
+  // Show slot details with job types and bonus traits
+  if (quest.slotDetails.length > 0) {
+    lines.push('', '### Agent Slot Details');
+    let slotNum = 1;
+    for (const slot of quest.slotDetails) {
+      const jobName = overseerJobNames?.get(slot.jobTypeId) || `Job ${slot.jobTypeId}`;
+      const reqLabel = slot.isRequired ? 'Required' : 'Optional';
+      let slotLine = `${slotNum}. **${jobName}** (${reqLabel})`;
+
+      if (slot.bonusTraitIds.length > 0) {
+        const traitNamesList = slot.bonusTraitIds
+          .map(tid => traitNames.get(tid) || `Trait ${tid}`)
+          .slice(0, 5);
+        slotLine += ` — Bonus: ${traitNamesList.join(', ')}`;
+        if (slot.bonusTraitIds.length > 5) {
+          slotLine += ` +${slot.bonusTraitIds.length - 5} more`;
+        }
+      }
+
+      lines.push(slotLine);
+      slotNum++;
+    }
+  }
+
+  // Show primary incapacitation risk based on quest category
+  const categoryIncapMap: Record<string, string> = {
+    'Plunder': 'Wounded', 'Stealth': 'Captured', 'Military': 'Shaken',
+    'Crafting': 'Discouraged', 'Harvesting': 'Exhausted', 'Research': 'Discredited',
+    'Diplomacy': 'Banished', 'Merchant': 'Blacklisted', 'Exploration': 'Missing',
+  };
+  const primaryIncap = categoryIncapMap[categoryName];
+  if (primaryIncap && overseerIncapNames) {
+    // Find the description for this incapacitation type
     for (const [incapId, incapName] of overseerIncapNames) {
-      if (seenIncap.has(incapName)) continue;
-      seenIncap.add(incapName);
-      const incapDesc = overseerIncapDescs?.get(incapId) || '';
-      lines.push(`- **${incapName}:** ${stripHtmlTags(incapDesc)}`);
+      if (incapName === primaryIncap) {
+        const incapDesc = overseerIncapDescs?.get(incapId) || '';
+        lines.push('', `**Primary Risk:** ${primaryIncap} — ${stripHtmlTags(incapDesc)}`);
+        break;
+      }
     }
   }
 
