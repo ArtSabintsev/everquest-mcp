@@ -8311,3 +8311,403 @@ export async function getMercenaryOverview(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ SPELL RECAST TIME SEARCH ============
+
+export async function searchSpellsByRecastTime(className: string, maxRecastSec?: number, minRecastSec?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const matches: { name: string; level: number; recastTime: number; category: string; timerId: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const recastTime = parseInt(spell.fields[SF.RECAST_TIME]) || 0; // in milliseconds
+    const recastSec = recastTime / 1000;
+    if (maxRecastSec !== undefined && recastSec > maxRecastSec) continue;
+    if (minRecastSec !== undefined && recastSec < minRecastSec) continue;
+
+    const name = spell.fields[SF.NAME];
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const timerId = parseInt(spell.fields[SF.TIMER_ID]) || 0;
+
+    matches.push({ name, level, recastTime: recastSec, category, timerId });
+  }
+
+  if (matches.length === 0) {
+    const range = maxRecastSec !== undefined && minRecastSec !== undefined
+      ? `${minRecastSec}-${maxRecastSec}s`
+      : maxRecastSec !== undefined ? `≤${maxRecastSec}s` : `≥${minRecastSec}s`;
+    return `No ${classFullName} spells with recast time ${range}.`;
+  }
+
+  matches.sort((a, b) => b.recastTime - a.recastTime || a.level - b.level);
+
+  const rangeDesc = maxRecastSec !== undefined && minRecastSec !== undefined
+    ? `${minRecastSec}-${maxRecastSec}s`
+    : maxRecastSec !== undefined ? `≤${maxRecastSec}s` : minRecastSec !== undefined ? `≥${minRecastSec}s` : 'all';
+
+  const lines = [`# ${classFullName} Spells — Recast Time ${rangeDesc}`, ''];
+  lines.push(`**${matches.length} spells found**`, '');
+
+  const shown = matches.slice(0, 100);
+  lines.push('| Recast | Level | Spell | Category | Timer Group |');
+  lines.push('|--------|-------|-------|----------|------------|');
+
+  for (const s of shown) {
+    let timeStr: string;
+    if (s.recastTime === 0) timeStr = 'None';
+    else if (s.recastTime < 60) timeStr = `${s.recastTime}s`;
+    else if (s.recastTime < 3600) timeStr = `${Math.floor(s.recastTime / 60)}m ${s.recastTime % 60 > 0 ? Math.round(s.recastTime % 60) + 's' : ''}`.trim();
+    else timeStr = `${Math.floor(s.recastTime / 3600)}h ${Math.floor((s.recastTime % 3600) / 60)}m`;
+
+    const timerStr = s.timerId > 0 ? `Group ${s.timerId}` : '-';
+    lines.push(`| ${timeStr} | ${s.level} | ${s.name} | ${s.category} | ${timerStr} |`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*Showing first 100 of ${matches.length}. Narrow with recast time filters.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ CHARACTER CREATION GUIDE ============
+
+export async function getCharacterCreationGuide(role?: string): Promise<string> {
+  await loadRaceClassInfo();
+  await loadSpells();
+
+  const lines = ['# EverQuest Character Creation Guide', ''];
+
+  // Define roles
+  const roles: Record<string, { classes: number[]; description: string }> = {
+    'tank': {
+      classes: [1, 3, 5],
+      description: 'Tanks absorb damage and hold aggro, protecting the group. Warrior is the premier tank, Paladin adds healing, Shadow Knight adds damage/utility.'
+    },
+    'healer': {
+      classes: [2, 6, 10],
+      description: 'Healers keep the group alive. Cleric is the strongest single-target healer, Druid adds versatility, Shaman adds buffs/debuffs.'
+    },
+    'melee dps': {
+      classes: [7, 9, 16, 4, 8, 15],
+      description: 'Melee DPS deal physical damage up close. Monk and Rogue are pure DPS, Berserker is AoE-focused, Ranger/Bard/Beastlord are hybrid DPS.'
+    },
+    'caster dps': {
+      classes: [12, 13, 11],
+      description: 'Caster DPS deal magic damage from range. Wizard has highest burst, Magician has pets and sustained damage, Necromancer has DoTs and pets.'
+    },
+    'crowd control': {
+      classes: [14, 8],
+      description: 'CC classes control enemies through mesmerize, charm, and debuffs. Enchanter is the CC specialist, Bard provides AoE mezz and group utility.'
+    },
+    'utility': {
+      classes: [8, 14, 10, 6],
+      description: 'Utility classes provide group-wide benefits: buffs, debuffs, mana regen, travel, and versatility. Bard, Enchanter, Shaman, and Druid are top utility.'
+    },
+  };
+
+  if (role) {
+    const lowerRole = role.toLowerCase();
+    const matched = Object.entries(roles).find(([key]) => key.includes(lowerRole) || lowerRole.includes(key));
+
+    if (!matched) {
+      lines.push(`Unknown role: "${role}". Available roles: ${Object.keys(roles).join(', ')}`);
+      return lines.join('\n');
+    }
+
+    const [roleName, roleData] = matched;
+    lines.push(`## ${roleName.charAt(0).toUpperCase() + roleName.slice(1)} Classes`, '');
+    lines.push(roleData.description, '');
+
+    for (const classId of roleData.classes) {
+      const className = CLASS_IDS[classId];
+      const desc = classDescriptions?.get(classId);
+      const races: string[] = [];
+      for (const [raceId, raceClasses] of Object.entries(RACE_CLASSES)) {
+        if (raceClasses.includes(classId)) {
+          races.push(RACE_IDS[parseInt(raceId)] || '?');
+        }
+      }
+
+      lines.push(`### ${className} (${CLASS_SHORT[classId]})`);
+      if (desc?.short) lines.push(desc.short);
+      lines.push(`- **Available Races:** ${races.join(', ')}`);
+      lines.push('');
+    }
+  } else {
+    // Show all roles overview
+    lines.push('## Roles Overview', '');
+
+    for (const [roleName, roleData] of Object.entries(roles)) {
+      const classNames = roleData.classes.map(id => `${CLASS_IDS[id]} (${CLASS_SHORT[id]})`);
+      lines.push(`### ${roleName.charAt(0).toUpperCase() + roleName.slice(1)}`);
+      lines.push(roleData.description);
+      lines.push(`**Classes:** ${classNames.join(', ')}`, '');
+    }
+
+    lines.push('## Quick Reference', '');
+    lines.push('| Class | Role | Type | Races |');
+    lines.push('|-------|------|------|-------|');
+
+    const classRoles: Record<number, string> = {
+      1: 'Tank', 2: 'Healer', 3: 'Tank/Healer', 4: 'Melee DPS',
+      5: 'Tank/DPS', 6: 'Healer/Utility', 7: 'Melee DPS', 8: 'Utility/CC',
+      9: 'Melee DPS', 10: 'Healer/Utility', 11: 'Caster DPS', 12: 'Caster DPS',
+      13: 'Caster DPS', 14: 'CC/Utility', 15: 'Melee DPS', 16: 'Melee DPS',
+    };
+
+    const meleeClasses = new Set([1, 7, 9, 16]);
+    const hybridClasses = new Set([3, 4, 5, 8, 10, 15]);
+
+    for (const [classId, className] of Object.entries(CLASS_IDS)) {
+      const id = parseInt(classId);
+      const role = classRoles[id] || '?';
+      const type = meleeClasses.has(id) ? 'Melee' : hybridClasses.has(id) ? 'Hybrid' : 'Caster';
+      let raceCount = 0;
+      for (const raceClasses of Object.values(RACE_CLASSES)) {
+        if (raceClasses.includes(id)) raceCount++;
+      }
+      lines.push(`| ${className} | ${role} | ${type} | ${raceCount} races |`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ SPELL RANGE SEARCH ============
+
+export async function searchSpellsByRange(className: string, maxRange?: number, minRange?: number, aeOnly?: boolean): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const matches: { name: string; level: number; range: number; aeRange: number; category: string; target: string; beneficial: boolean }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const range = parseInt(spell.fields[SF.RANGE]) || 0;
+    const aeRange = parseInt(spell.fields[SF.AE_RANGE]) || 0;
+    const searchRange = aeOnly ? aeRange : range;
+
+    if (maxRange !== undefined && searchRange > maxRange) continue;
+    if (minRange !== undefined && searchRange < minRange) continue;
+
+    const name = spell.fields[SF.NAME];
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const target = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    matches.push({ name, level, range, aeRange, category, target, beneficial });
+  }
+
+  if (matches.length === 0) {
+    const rangeType = aeOnly ? 'AE range' : 'range';
+    const rangeDesc = maxRange !== undefined && minRange !== undefined
+      ? `${minRange}-${maxRange}`
+      : maxRange !== undefined ? `≤${maxRange}` : `≥${minRange}`;
+    return `No ${classFullName} spells with ${rangeType} ${rangeDesc}.`;
+  }
+
+  const sortField = aeOnly ? 'aeRange' : 'range';
+  matches.sort((a, b) => {
+    const valA = aeOnly ? a.aeRange : a.range;
+    const valB = aeOnly ? b.aeRange : b.range;
+    return valB - valA || a.level - b.level;
+  });
+
+  const rangeType = aeOnly ? 'AE Range' : 'Range';
+  const rangeDesc = maxRange !== undefined && minRange !== undefined
+    ? `${minRange}-${maxRange}`
+    : maxRange !== undefined ? `≤${maxRange}` : minRange !== undefined ? `≥${minRange}` : 'all';
+
+  const lines = [`# ${classFullName} Spells — ${rangeType} ${rangeDesc}`, ''];
+  lines.push(`**${matches.length} spells found**`, '');
+
+  const shown = matches.slice(0, 100);
+  lines.push('| Range | AE Range | Level | Spell | Target | Category |');
+  lines.push('|-------|----------|-------|-------|--------|----------|');
+
+  for (const s of shown) {
+    lines.push(`| ${s.range} | ${s.aeRange} | ${s.level} | ${s.name} | ${s.target} | ${s.category} |`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*Showing first 100 of ${matches.length}. Narrow your search.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ SPELL MANA COST SEARCH ============
+
+export async function searchSpellsByManaCost(className: string, maxMana?: number, minMana?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const matches: { name: string; level: number; mana: number; endurance: number; category: string; beneficial: boolean; castTime: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    const cost = mana > 0 ? mana : endurance;
+
+    if (maxMana !== undefined && cost > maxMana) continue;
+    if (minMana !== undefined && cost < minMana) continue;
+
+    const name = spell.fields[SF.NAME];
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+
+    matches.push({ name, level, mana, endurance, category, beneficial, castTime });
+  }
+
+  if (matches.length === 0) {
+    const rangeDesc = maxMana !== undefined && minMana !== undefined
+      ? `${minMana}-${maxMana}`
+      : maxMana !== undefined ? `≤${maxMana}` : `≥${minMana}`;
+    return `No ${classFullName} spells with mana/endurance cost ${rangeDesc}.`;
+  }
+
+  matches.sort((a, b) => {
+    const costA = a.mana > 0 ? a.mana : a.endurance;
+    const costB = b.mana > 0 ? b.mana : b.endurance;
+    return costB - costA || a.level - b.level;
+  });
+
+  const rangeDesc = maxMana !== undefined && minMana !== undefined
+    ? `${minMana}-${maxMana}`
+    : maxMana !== undefined ? `≤${maxMana}` : minMana !== undefined ? `≥${minMana}` : 'all';
+
+  const lines = [`# ${classFullName} Spells — Mana/Endurance Cost ${rangeDesc}`, ''];
+  lines.push(`**${matches.length} spells found**`, '');
+
+  const shown = matches.slice(0, 100);
+  lines.push('| Cost | Type | Level | Spell | Category | Cast Time |');
+  lines.push('|------|------|-------|-------|----------|-----------|');
+
+  for (const s of shown) {
+    const costType = s.mana > 0 ? 'Mana' : s.endurance > 0 ? 'End' : 'Free';
+    const costVal = s.mana > 0 ? s.mana : s.endurance > 0 ? s.endurance : 0;
+    const castStr = s.castTime === 0 ? 'Instant' : `${(s.castTime / 1000).toFixed(1)}s`;
+    lines.push(`| ${costVal} | ${costType} | ${s.level} | ${s.name} | ${s.category} | ${castStr} |`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*Showing first 100 of ${matches.length}. Narrow your search.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ SPELL DURATION SEARCH ============
+
+export async function searchSpellsByDuration(className: string, maxDurationSec?: number, minDurationSec?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const matches: { name: string; level: number; durationSec: number; durationStr: string; category: string; beneficial: boolean; target: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const durationFormula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const durationValue = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const ticks = calculateDurationTicks(durationFormula, durationValue);
+    if (ticks <= 0) continue;
+    const durationSec = ticks * 6;
+
+    if (maxDurationSec !== undefined && durationSec > maxDurationSec) continue;
+    if (minDurationSec !== undefined && durationSec < minDurationSec) continue;
+
+    const name = spell.fields[SF.NAME];
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const target = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const durationStr = formatDuration(durationFormula, durationValue);
+
+    matches.push({ name, level, durationSec, durationStr, category, beneficial, target });
+  }
+
+  if (matches.length === 0) {
+    const rangeDesc = maxDurationSec !== undefined && minDurationSec !== undefined
+      ? `${minDurationSec}-${maxDurationSec}s`
+      : maxDurationSec !== undefined ? `≤${maxDurationSec}s` : `≥${minDurationSec}s`;
+    return `No ${classFullName} spells with duration ${rangeDesc}.`;
+  }
+
+  matches.sort((a, b) => b.durationSec - a.durationSec || a.level - b.level);
+
+  const rangeDesc = maxDurationSec !== undefined && minDurationSec !== undefined
+    ? `${minDurationSec}-${maxDurationSec}s`
+    : maxDurationSec !== undefined ? `≤${maxDurationSec}s` : minDurationSec !== undefined ? `≥${minDurationSec}s` : 'all';
+
+  const lines = [`# ${classFullName} Spells — Duration ${rangeDesc}`, ''];
+  lines.push(`**${matches.length} spells found**`, '');
+
+  const shown = matches.slice(0, 100);
+  lines.push('| Duration | Level | Spell | Target | Category | Type |');
+  lines.push('|----------|-------|-------|--------|----------|------|');
+
+  for (const s of shown) {
+    const type = s.beneficial ? 'Buff' : 'Debuff';
+    lines.push(`| ${s.durationStr} | ${s.level} | ${s.name} | ${s.target} | ${s.category} | ${type} |`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*Showing first 100 of ${matches.length}. Narrow your search.*`);
+  }
+
+  return lines.join('\n');
+}

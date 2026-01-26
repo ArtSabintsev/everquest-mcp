@@ -115,6 +115,9 @@ import {
   getMercenaryOverview,
   searchSpellsByRecastTime,
   getCharacterCreationGuide,
+  searchSpellsByRange,
+  searchSpellsByManaCost,
+  searchSpellsByDuration,
 } from './sources/index.js';
 
 export const tools = [
@@ -1651,6 +1654,76 @@ export const tools = [
     }
   },
   {
+    name: 'search_spells_by_range',
+    description: 'Search spells by casting range or AE (area effect) range for a class. Find long-range nukes, close-range AE spells, etc. Specify at least one of max or min range.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Wizard", "Cleric")'
+        },
+        max_range: {
+          type: 'number',
+          description: 'Maximum range value (e.g., 200 for close-range only)'
+        },
+        min_range: {
+          type: 'number',
+          description: 'Minimum range value (e.g., 200 for long-range spells)'
+        },
+        ae_only: {
+          type: 'boolean',
+          description: 'If true, search by AE range instead of casting range'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'search_spells_by_mana_cost',
+    description: 'Search spells by mana or endurance cost for a class. Find cheap efficient spells or expensive high-impact ones. Specify at least one of max or min cost.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Cleric", "Warrior")'
+        },
+        max_cost: {
+          type: 'number',
+          description: 'Maximum mana/endurance cost'
+        },
+        min_cost: {
+          type: 'number',
+          description: 'Minimum mana/endurance cost'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'search_spells_by_duration',
+    description: 'Search spells by buff/debuff duration for a class. Find short-duration emergency spells or long-lasting buffs. Specify at least one of max or min duration in seconds.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Enchanter", "Shaman")'
+        },
+        max_duration_sec: {
+          type: 'number',
+          description: 'Maximum duration in seconds (e.g., 60 for ≤1 minute spells)'
+        },
+        min_duration_sec: {
+          type: 'number',
+          description: 'Minimum duration in seconds (e.g., 3600 for 1+ hour buffs)'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -2942,6 +3015,40 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       case 'get_character_creation_guide': {
         const role = typeof args.role === 'string' ? args.role.trim() : undefined;
         return getCharacterCreationGuide(role);
+      }
+
+      case 'search_spells_by_range': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const maxRange = typeof args.max_range === 'number' ? args.max_range : undefined;
+        const minRange = typeof args.min_range === 'number' ? args.min_range : undefined;
+        if (maxRange === undefined && minRange === undefined) {
+          return 'Error: Specify at least one of "max_range" or "min_range"';
+        }
+        const aeOnly = args.ae_only === true;
+        return searchSpellsByRange(className, maxRange, minRange, aeOnly);
+      }
+
+      case 'search_spells_by_mana_cost': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const maxCost = typeof args.max_cost === 'number' ? args.max_cost : undefined;
+        const minCost = typeof args.min_cost === 'number' ? args.min_cost : undefined;
+        if (maxCost === undefined && minCost === undefined) {
+          return 'Error: Specify at least one of "max_cost" or "min_cost"';
+        }
+        return searchSpellsByManaCost(className, maxCost, minCost);
+      }
+
+      case 'search_spells_by_duration': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const maxDur = typeof args.max_duration_sec === 'number' ? args.max_duration_sec : undefined;
+        const minDur = typeof args.min_duration_sec === 'number' ? args.min_duration_sec : undefined;
+        if (maxDur === undefined && minDur === undefined) {
+          return 'Error: Specify at least one of "max_duration_sec" or "min_duration_sec"';
+        }
+        return searchSpellsByDuration(className, maxDur, minDur);
       }
 
       case 'search_help_topics': {
