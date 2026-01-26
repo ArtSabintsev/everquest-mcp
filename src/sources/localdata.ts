@@ -15837,3 +15837,407 @@ export async function getClassPowerMilestoneTimeline(className: string): Promise
 
   return lines.join('\n');
 }
+
+// ============ RESIST TYPE BY LEVEL ANALYSIS ============
+
+export async function getResistTypeByLevelAnalysis(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Resist Type Distribution by Level', ''];
+  lines.push('*Which resist types dominate detrimental spells at each level bracket — useful for gearing decisions.*', '');
+
+  const RESIST_NAMES: Record<number, string> = {
+    0: 'Unresistable', 1: 'Magic', 2: 'Fire', 3: 'Cold',
+    4: 'Poison', 5: 'Disease', 6: 'Chromatic', 7: 'Prismatic',
+    8: 'Physical', 9: 'Corruption'
+  };
+
+  // For each level bracket, count detrimental spells by resist type
+  const brackets = [
+    [1, 10], [11, 20], [21, 30], [31, 40], [41, 50],
+    [51, 60], [61, 70], [71, 80], [81, 90], [91, 100],
+    [101, 110], [111, 120], [121, 125]
+  ];
+
+  const bracketData: { range: string; counts: Record<number, number>; total: number }[] = [];
+  const overallCounts: Record<number, number> = {};
+
+  for (const [lo, hi] of brackets) {
+    const counts: Record<number, number> = {};
+    let total = 0;
+
+    for (const spell of spells.values()) {
+      if (spell.fields[SF.BENEFICIAL] === '1') continue;
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+      // Find minimum class level for this spell
+      let minLevel = 255;
+      for (let i = 1; i <= 16; i++) {
+        const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+        if (level > 0 && level < minLevel) minLevel = level;
+      }
+      if (minLevel < lo || minLevel > hi) continue;
+
+      const resistType = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+      counts[resistType] = (counts[resistType] || 0) + 1;
+      overallCounts[resistType] = (overallCounts[resistType] || 0) + 1;
+      total++;
+    }
+
+    if (total > 0) {
+      bracketData.push({ range: `${lo}-${hi}`, counts, total });
+    }
+  }
+
+  // Overall distribution
+  const totalOverall = Object.values(overallCounts).reduce((s, v) => s + v, 0);
+  lines.push('## Overall Resist Type Distribution (Detrimental Spells)', '');
+  lines.push('| Resist Type | Count | % |');
+  lines.push('|-------------|------:|--:|');
+  const sortedOverall = Object.entries(overallCounts).sort((a, b) => parseInt(b[1].toString()) - parseInt(a[1].toString()));
+  for (const [rt, count] of sortedOverall) {
+    const name = RESIST_NAMES[parseInt(rt)] || `Unknown(${rt})`;
+    const pct = ((count / totalOverall) * 100).toFixed(1);
+    lines.push(`| ${name} | ${count.toLocaleString()} | ${pct}% |`);
+  }
+
+  // Matrix: bracket vs resist type
+  const activeResists = [...new Set(Object.keys(overallCounts).map(Number))].sort((a, b) => a - b);
+  lines.push('', '## Resist Type by Level Bracket', '');
+  const header = ['Bracket', ...activeResists.map(r => RESIST_NAMES[r] || `R${r}`), 'Total', 'Dominant'];
+  lines.push('| ' + header.join(' | ') + ' |');
+  lines.push('|' + header.map(() => '---').join('|') + '|');
+
+  for (const bd of bracketData) {
+    let maxCount = 0;
+    let dominant = '';
+    const cells = [bd.range];
+    for (const r of activeResists) {
+      const count = bd.counts[r] || 0;
+      cells.push(count.toString());
+      if (count > maxCount) {
+        maxCount = count;
+        dominant = RESIST_NAMES[r] || `R${r}`;
+      }
+    }
+    cells.push(bd.total.toString());
+    cells.push(dominant);
+    lines.push('| ' + cells.join(' | ') + ' |');
+  }
+
+  // Percentage matrix
+  lines.push('', '## Resist Type % by Level Bracket', '');
+  const pctHeader = ['Bracket', ...activeResists.map(r => RESIST_NAMES[r] || `R${r}`)];
+  lines.push('| ' + pctHeader.join(' | ') + ' |');
+  lines.push('|' + pctHeader.map(() => '---').join('|') + '|');
+
+  for (const bd of bracketData) {
+    const cells = [bd.range];
+    for (const r of activeResists) {
+      const count = bd.counts[r] || 0;
+      const pct = bd.total > 0 ? ((count / bd.total) * 100).toFixed(0) : '0';
+      cells.push(pct + '%');
+    }
+    lines.push('| ' + cells.join(' | ') + ' |');
+  }
+
+  // Gear recommendation summary
+  lines.push('', '## Gearing Priority by Level Range', '');
+  for (const bd of bracketData) {
+    const sorted = Object.entries(bd.counts)
+      .filter(([rt]) => parseInt(rt) > 0) // exclude unresistable
+      .sort((a, b) => b[1] - a[1]);
+    if (sorted.length >= 2) {
+      const top = sorted.slice(0, 3).map(([rt, count]) => {
+        const name = RESIST_NAMES[parseInt(rt)] || `R${rt}`;
+        const pct = ((count / bd.total) * 100).toFixed(0);
+        return `${name} (${pct}%)`;
+      });
+      lines.push(`- **Level ${bd.range}:** ${top.join(' > ')}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ CLASS ROLE ANALYSIS ============
+
+export async function getClassRoleAnalysis(): Promise<string> {
+  await loadSpells();
+  await loadBaseStats();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Class Role Analysis', ''];
+  lines.push('*Each class classified by role based on spell effect distribution and base stat profile.*', '');
+
+  // Define role indicators by SPA
+  const HEAL_SPAS = new Set([0, 147]); // HP, Complete Heal
+  const TANK_SPAS = new Set([1, 55, 69, 162, 172]); // AC, Absorb Damage, Max HP, Hate, Spell Shield
+  const DPS_SPAS = new Set([0, 79, 85, 119, 330, 374, 413]); // HP (det), Spell Proc, Melee Proc, Crit, NukeDmg
+  const CC_SPAS = new Set([21, 22, 23, 31, 74]); // Stun, Charm, Fear, Snare, Mesmerize
+  const UTILITY_SPAS = new Set([3, 26, 57, 59, 106, 123]); // Movement, Gate, Levitate, Invis, Rez, Summon
+
+  interface ClassRoleProfile {
+    classId: number;
+    name: string;
+    short: string;
+    healSpells: number;
+    tankSpells: number;
+    dpsSpells: number;
+    ccSpells: number;
+    utilitySpells: number;
+    totalSpells: number;
+    beneficialPct: number;
+    hp: number;
+    mana: number;
+    endurance: number;
+    primaryRole: string;
+  }
+
+  const profiles: ClassRoleProfile[] = [];
+
+  for (let cid = 1; cid <= 16; cid++) {
+    let healSpells = 0, tankSpells = 0, dpsSpells = 0, ccSpells = 0, utilitySpells = 0;
+    let totalSpells = 0, beneficial = 0;
+
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+      totalSpells++;
+      if (spell.fields[SF.BENEFICIAL] === '1') beneficial++;
+
+      // Parse effects
+      let effectField = '';
+      for (let i = spell.fields.length - 1; i >= 0; i--) {
+        if (spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+      }
+      if (!effectField) continue;
+
+      const spas = new Set<number>();
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (!isNaN(spaId) && spaId > 0) spas.add(spaId);
+        }
+      }
+
+      const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+      for (const spa of spas) {
+        if (HEAL_SPAS.has(spa) && isBeneficial) healSpells++;
+        if (TANK_SPAS.has(spa)) tankSpells++;
+        if (DPS_SPAS.has(spa) && !isBeneficial) dpsSpells++;
+        if (CC_SPAS.has(spa)) ccSpells++;
+        if (UTILITY_SPAS.has(spa)) utilitySpells++;
+      }
+    }
+
+    // Get base stats at level 100
+    let hp = 0, mana = 0, endurance = 0;
+    if (baseStats) {
+      const stat = baseStats.find(s => s.classId === cid && s.level === 100);
+      if (stat) { hp = stat.hp; mana = stat.mana; endurance = stat.endurance; }
+    }
+
+    // Determine primary role
+    const scores = { Tank: tankSpells, Healer: healSpells, DPS: dpsSpells, 'Crowd Control': ccSpells, Utility: utilitySpells };
+    const primaryRole = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
+
+    profiles.push({
+      classId: cid,
+      name: CLASS_IDS[cid],
+      short: CLASS_SHORT[cid],
+      healSpells, tankSpells, dpsSpells, ccSpells, utilitySpells,
+      totalSpells,
+      beneficialPct: totalSpells > 0 ? (beneficial / totalSpells) * 100 : 0,
+      hp, mana, endurance,
+      primaryRole
+    });
+  }
+
+  // Role distribution table
+  lines.push('## Spell Role Distribution by Class', '');
+  lines.push('| Class | Total | Heal | Tank | DPS | CC | Utility | Buff % | Primary Role |');
+  lines.push('|-------|------:|-----:|-----:|----:|---:|--------:|-------:|-------------|');
+  for (const p of profiles) {
+    lines.push(`| ${p.name} (${p.short}) | ${p.totalSpells.toLocaleString()} | ${p.healSpells} | ${p.tankSpells} | ${p.dpsSpells} | ${p.ccSpells} | ${p.utilitySpells} | ${p.beneficialPct.toFixed(0)}% | ${p.primaryRole} |`);
+  }
+
+  // Stat profiles
+  if (baseStats && baseStats.length > 0) {
+    lines.push('', '## Base Stat Profiles at Level 100', '');
+    lines.push('| Class | HP | Mana | Endurance | HP/Mana Ratio | Archetype |');
+    lines.push('|-------|---:|-----:|----------:|--------------:|-----------|');
+    for (const p of profiles) {
+      const ratio = p.mana > 0 ? (p.hp / p.mana).toFixed(2) : 'N/A';
+      let archetype = 'Hybrid';
+      if (p.mana === 0 || (p.hp > 0 && p.mana > 0 && p.hp / p.mana > 2)) archetype = 'Melee';
+      else if (p.hp > 0 && p.mana > 0 && p.hp / p.mana < 1.2) archetype = 'Caster';
+      lines.push(`| ${p.name} (${p.short}) | ${p.hp.toLocaleString()} | ${p.mana.toLocaleString()} | ${p.endurance.toLocaleString()} | ${ratio} | ${archetype} |`);
+    }
+  }
+
+  // Role groupings
+  lines.push('', '## Class Groupings by Role Strength', '');
+  const roleNames = ['Tank', 'Healer', 'DPS', 'Crowd Control', 'Utility'];
+  for (const role of roleNames) {
+    const ranked = profiles
+      .map(p => ({
+        name: `${p.name} (${p.short})`,
+        score: role === 'Tank' ? p.tankSpells : role === 'Healer' ? p.healSpells : role === 'DPS' ? p.dpsSpells : role === 'Crowd Control' ? p.ccSpells : p.utilitySpells
+      }))
+      .filter(p => p.score > 0)
+      .sort((a, b) => b.score - a.score);
+    if (ranked.length > 0) {
+      lines.push(`- **${role}:** ${ranked.slice(0, 5).map(r => `${r.name} (${r.score})`).join(', ')}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ SPELL COST EFFICIENCY ANALYSIS ============
+
+export async function getSpellCostEfficiencyAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadBaseStats();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const cn = className.toUpperCase().trim();
+  let entry = Object.entries(CLASS_SHORT).find(([, short]) => short === cn);
+  if (!entry) {
+    entry = Object.entries(CLASS_IDS).find(([, name]) => name.toLowerCase() === className.toLowerCase().trim());
+  }
+  if (!entry) return `Unknown class: "${className}". Valid short codes: ${Object.values(CLASS_SHORT).join(', ')}. Full names: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classId = parseInt(entry[0]);
+  const classFullName = CLASS_IDS[classId];
+
+  const lines = [`# ${classFullName} Spell Cost Efficiency Analysis`, ''];
+  lines.push(`*Mana/endurance costs relative to resource pools — where spells become efficient or prohibitive.*`, '');
+
+  // Get base stats by level
+  const statsAtLevel = new Map<number, BaseStatEntry>();
+  if (baseStats) {
+    for (const s of baseStats) {
+      if (s.classId === classId) statsAtLevel.set(s.level, s);
+    }
+  }
+
+  // Collect spells by level with mana costs
+  const brackets = [
+    [1, 10], [11, 20], [21, 30], [31, 40], [41, 50],
+    [51, 60], [61, 70], [71, 80], [81, 90], [91, 100],
+    [101, 110], [111, 120], [121, 125]
+  ];
+
+  interface BracketStats {
+    range: string;
+    spellCount: number;
+    avgManaCost: number;
+    maxManaCost: number;
+    avgEndCost: number;
+    maxEndCost: number;
+    manaPool: number;
+    endPool: number;
+    castsPerPool: number;
+    mostExpensiveSpell: string;
+    mostExpensiveCost: number;
+  }
+
+  const bracketStats: BracketStats[] = [];
+
+  for (const [lo, hi] of brackets) {
+    let spellCount = 0;
+    let totalManaCost = 0;
+    let maxManaCost = 0;
+    let totalEndCost = 0;
+    let maxEndCost = 0;
+    let manaSpellCount = 0;
+    let endSpellCount = 0;
+    let mostExpensiveSpell = '';
+    let mostExpensiveCost = 0;
+
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+      if (level < lo || level > hi) continue;
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+      spellCount++;
+      const manaCost = parseInt(spell.fields[SF.MANA]) || 0;
+      const endCost = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+
+      if (manaCost > 0) {
+        totalManaCost += manaCost;
+        manaSpellCount++;
+        if (manaCost > maxManaCost) {
+          maxManaCost = manaCost;
+          mostExpensiveSpell = spell.name;
+          mostExpensiveCost = manaCost;
+        }
+      }
+      if (endCost > 0) {
+        totalEndCost += endCost;
+        endSpellCount++;
+        if (endCost > mostExpensiveCost) {
+          mostExpensiveCost = endCost;
+          mostExpensiveSpell = spell.name + ' (end)';
+        }
+        if (endCost > maxEndCost) maxEndCost = endCost;
+      }
+    }
+
+    if (spellCount === 0) continue;
+
+    const avgManaCost = manaSpellCount > 0 ? totalManaCost / manaSpellCount : 0;
+    const avgEndCost = endSpellCount > 0 ? totalEndCost / endSpellCount : 0;
+    const endLevelStats = statsAtLevel.get(hi);
+    const manaPool = endLevelStats?.mana || 0;
+    const endPool = endLevelStats?.endurance || 0;
+    const castsPerPool = avgManaCost > 0 && manaPool > 0 ? Math.floor(manaPool / avgManaCost) : 0;
+
+    bracketStats.push({
+      range: `${lo}-${hi}`,
+      spellCount, avgManaCost: Math.round(avgManaCost), maxManaCost,
+      avgEndCost: Math.round(avgEndCost), maxEndCost,
+      manaPool, endPool, castsPerPool,
+      mostExpensiveSpell, mostExpensiveCost
+    });
+  }
+
+  // Overview table
+  lines.push('## Cost vs Resource Pool by Level Bracket', '');
+  lines.push('| Bracket | Spells | Avg Mana | Max Mana | Mana Pool | Casts/Pool | Most Expensive |');
+  lines.push('|---------|-------:|---------:|---------:|----------:|-----------:|----------------|');
+  for (const bs of bracketStats) {
+    lines.push(`| ${bs.range} | ${bs.spellCount} | ${bs.avgManaCost} | ${bs.maxManaCost} | ${bs.manaPool.toLocaleString()} | ${bs.castsPerPool} | ${bs.mostExpensiveSpell} (${bs.mostExpensiveCost}) |`);
+  }
+
+  // Endurance table (if applicable)
+  const hasEndurance = bracketStats.some(bs => bs.avgEndCost > 0);
+  if (hasEndurance) {
+    lines.push('', '## Endurance Cost Analysis', '');
+    lines.push('| Bracket | Avg End | Max End | End Pool | Casts/Pool |');
+    lines.push('|---------|--------:|--------:|---------:|-----------:|');
+    for (const bs of bracketStats) {
+      if (bs.avgEndCost > 0) {
+        const endCasts = bs.endPool > 0 && bs.avgEndCost > 0 ? Math.floor(bs.endPool / bs.avgEndCost) : 0;
+        lines.push(`| ${bs.range} | ${bs.avgEndCost} | ${bs.maxEndCost} | ${bs.endPool.toLocaleString()} | ${endCasts} |`);
+      }
+    }
+  }
+
+  // Efficiency trend
+  lines.push('', '## Efficiency Trend', '');
+  lines.push('*Casts per full mana pool — higher = more sustainable.*', '');
+  for (const bs of bracketStats) {
+    if (bs.castsPerPool > 0) {
+      const bar = '#'.repeat(Math.min(bs.castsPerPool, 50));
+      lines.push(`- **${bs.range}:** ${bs.castsPerPool} casts ${bar}`);
+    }
+  }
+
+  return lines.join('\n');
+}

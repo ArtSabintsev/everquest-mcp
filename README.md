@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 185 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 188 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **185 tools** for querying EverQuest data
+- **188 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -168,6 +168,8 @@ Then restart Claude Desktop.
 | `get_spell_duration_formula_analysis` | Duration formula × value interactions — value ranges per formula, most common values, constant-value anomalies, beneficial vs detrimental patterns |
 | `get_spell_effect_combination_analysis` | Spell effect co-occurrence — most common SPA pairs, effects per spell distribution, dominant effect by slot position |
 | `get_spell_progression_analysis` | Class spell progression across levels — new SPA effects per bracket, key effect milestones, peak spell levels, progression timeline |
+| `get_resist_type_by_level_analysis` | Resist type distribution by level bracket — which resists dominate with gearing priority recommendations |
+| `get_spell_cost_efficiency_analysis` | Spell cost efficiency — mana/endurance costs vs resource pools per level bracket, casts per pool, efficiency trends |
 
 ### Local Data - Character
 | Tool | Description |
@@ -201,6 +203,7 @@ Then restart Claude Desktop.
 | `get_class_comparison_matrix` | All 16 classes compared — spell count, beneficial %, skills, base stats, pet availability |
 | `get_class_spell_diversity_index` | Class spell diversity — distinct SPA effects per class, class-exclusive effects, universal effects, overlap matrix |
 | `get_class_power_milestone_timeline` | Unified class power progression — spells, stats, and skill unlocks by level bracket with stat growth curve |
+| `get_class_role_analysis` | Class role analysis — each class classified by role (Tank/Healer/DPS/CC/Utility) based on spell effects and stat profile |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -342,7 +345,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (185 tools)
+├── tools.ts          # Tool definitions and handlers (188 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

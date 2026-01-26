@@ -193,6 +193,9 @@ import {
   getTeleportNetworkAnalysis,
   getZoneContentDensityRanking,
   getClassPowerMilestoneTimeline,
+  getResistTypeByLevelAnalysis,
+  getClassRoleAnalysis,
+  getSpellCostEfficiencyAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2609,6 +2612,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_resist_type_by_level_analysis',
+    description: 'Resist type distribution by level bracket — which resists (Magic, Fire, Cold, etc.) dominate at each level range with gearing priority recommendations.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_role_analysis',
+    description: 'Class role analysis — each class classified by role (Tank/Healer/DPS/CC/Utility) based on spell effect distribution and base stat profile.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_cost_efficiency_analysis',
+    description: 'Spell cost efficiency analysis — mana/endurance costs vs resource pools per level bracket, casts per pool, efficiency trends, most expensive spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class short name (WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER)'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4298,6 +4333,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required (e.g., WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER)';
         return getClassPowerMilestoneTimeline(className);
+      }
+
+      case 'get_resist_type_by_level_analysis': {
+        return getResistTypeByLevelAnalysis();
+      }
+
+      case 'get_class_role_analysis': {
+        return getClassRoleAnalysis();
+      }
+
+      case 'get_spell_cost_efficiency_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required (e.g., WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER)';
+        return getSpellCostEfficiencyAnalysis(className);
       }
 
       case 'search_help_topics': {
