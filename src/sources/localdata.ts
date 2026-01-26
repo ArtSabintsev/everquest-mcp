@@ -3587,6 +3587,63 @@ export async function getSpellStackingInfo(spellId: string): Promise<string> {
 
 // ============ PUBLIC API: SPELLS BY CLASS ============
 
+export async function searchSpellStackingGroups(query: string): Promise<string> {
+  await loadSpellStacking();
+  await loadSpells();
+  if (!spellStacking || !spellGroupNames || spellGroupNames.size === 0) return 'Spell stacking data not available.';
+
+  const normalized = query.toLowerCase();
+  const matchingGroups: { groupId: number; name: string; spells: { id: number; name: string; rank: number }[] }[] = [];
+
+  // Find matching group names
+  for (const [groupId, groupName] of spellGroupNames) {
+    if (groupName.toLowerCase().includes(normalized)) {
+      // Find all spells in this group
+      const groupSpells: { id: number; name: string; rank: number }[] = [];
+      if (spellStacking && spells) {
+        for (const [spellId, entries] of spellStacking) {
+          for (const entry of entries) {
+            if (entry.stackingGroup === groupId) {
+              const spell = spells.get(spellId);
+              if (spell) {
+                groupSpells.push({ id: spellId, name: spell.name, rank: entry.rank });
+              }
+            }
+          }
+        }
+      }
+      groupSpells.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
+      matchingGroups.push({ groupId, name: groupName, spells: groupSpells });
+    }
+  }
+
+  if (matchingGroups.length === 0) {
+    return `No spell stacking groups match "${query}". Use list_spell_categories for spell category names.`;
+  }
+
+  matchingGroups.sort((a, b) => a.name.localeCompare(b.name));
+
+  const lines = [`## Spell Stacking Groups matching "${query}"`, '', `*${matchingGroups.length} group${matchingGroups.length !== 1 ? 's' : ''} found*`, ''];
+
+  for (const group of matchingGroups.slice(0, 10)) {
+    lines.push(`### ${group.name} (Group ${group.groupId})`);
+    lines.push(`*${group.spells.length} spells in group*`);
+    for (const s of group.spells.slice(0, 20)) {
+      lines.push(`- ${s.name} (ID: ${s.id}, Rank: ${s.rank})`);
+    }
+    if (group.spells.length > 20) {
+      lines.push(`*... and ${group.spells.length - 20} more spells*`);
+    }
+    lines.push('');
+  }
+
+  if (matchingGroups.length > 10) {
+    lines.push(`*... and ${matchingGroups.length - 10} more groups*`);
+  }
+
+  return lines.join('\n');
+}
+
 export async function getSpellsByClass(className: string, level?: number, category?: string, resistType?: string): Promise<string> {
   await loadSpells();
   await loadSpellDescriptions(); // For category data

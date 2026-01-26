@@ -79,6 +79,7 @@ import {
   searchSpellsByName,
   searchSpellsByResist,
   searchSpellsByTarget,
+  searchSpellStackingGroups,
 } from './sources/index.js';
 
 export const tools = [
@@ -563,6 +564,20 @@ export const tools = [
         }
       },
       required: ['id']
+    }
+  },
+  {
+    name: 'search_stacking_groups',
+    description: 'Search spell stacking groups by name. Shows all spells that belong to a named stacking group (spells in the same group won\'t stack). Useful for finding what buffs/debuffs conflict.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Stacking group name to search for (e.g., "Haste", "Regen", "Shield", "Frenzy")'
+        }
+      },
+      required: ['query']
     }
   },
   {
@@ -1870,6 +1885,13 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const id = (args.id as string).trim();
         return getSpellStackingInfo(id);
+      }
+
+      case 'search_stacking_groups': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        return searchSpellStackingGroups(query);
       }
 
       case 'search_factions': {
