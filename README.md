@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 170 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 173 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **170 tools** for querying EverQuest data
+- **173 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -164,6 +164,7 @@ Then restart Claude Desktop.
 | `get_spell_stacking_overview` | Spell stacking group overview — group size distribution, stacking type breakdown, class coverage, largest groups |
 | `get_spell_ae_analysis` | AE spell analysis — AE type breakdown (PB AE, targeted, directional, beam, ring), radius distribution, largest AE spells, class comparison |
 | `get_spell_pushback_overview` | Spell pushback/positioning overview — pushback and pushup value distributions, highest knockback spells, spells with both effects, class comparison |
+| `get_spell_recourse_overview` | Spell recourse system overview — recourse statistics, multi-step chains, most common recourse targets, category and class distributions |
 
 ### Local Data - Character
 | Tool | Description |
@@ -221,6 +222,7 @@ Then restart Claude Desktop.
 | `search_tributes` | Search tribute items |
 | `get_tribute` | Get tribute item details |
 | `get_tribute_overview` | Tribute system overview — personal vs guild tributes, full listing, and common themes |
+| `get_tribute_benefit_analysis` | Tribute benefit analysis — keyword frequency (HP, mana, haste, resist), personal vs guild split, name patterns |
 | `get_faction_overview` | Faction system overview with counts by expansion, value ranges, starting modifier stats |
 | `compare_factions` | Compare two factions side by side (expansion, value ranges, starting values by race) |
 | `get_currency_overview` | Alternate currency overview — total count, description stats, keyword analysis, complete listing |
@@ -263,6 +265,7 @@ Then restart Claude Desktop.
 | `get_mercenary_stances` | List mercenary stances and descriptions |
 | `get_mercenary_overview` | Mercenary system overview with types, tiers, races, and stances |
 | `get_mercenary_ability_overview` | Overview of all 14 mercenary abilities with descriptions, themes, and type listing |
+| `get_mercenary_tier_analysis` | Mercenary tier and proficiency analysis — confidence/proficiency distributions, type-by-tier matrix, cross-tab, top races per type |
 
 ### Local Data - Items & Effects
 | Tool | Description |
@@ -327,7 +330,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (170 tools)
+├── tools.ts          # Tool definitions and handlers (173 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

@@ -178,6 +178,9 @@ import {
   getSpellPushbackOverview,
   getAchievementRequirementAnalysis,
   getFactionStartingValueAnalysis,
+  getMercenaryTierAnalysis,
+  getSpellRecourseOverview,
+  getTributeBenefitAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2449,6 +2452,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_mercenary_tier_analysis',
+    description: 'Mercenary tier and proficiency analysis — confidence/proficiency distributions, type-by-tier matrix, confidence-proficiency cross-tab, top races per mercenary type.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_recourse_overview',
+    description: 'Spell recourse system overview — recourse spell statistics, multi-step chains, most common recourse targets, category and class distributions.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_tribute_benefit_analysis',
+    description: 'Tribute system analysis — personal vs guild tributes, benefit keyword frequency (HP, mana, haste, resist, etc.), name patterns, sample tributes.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4074,6 +4104,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_faction_starting_value_analysis': {
         return getFactionStartingValueAnalysis();
+      }
+
+      case 'get_mercenary_tier_analysis': {
+        return getMercenaryTierAnalysis();
+      }
+
+      case 'get_spell_recourse_overview': {
+        return getSpellRecourseOverview();
+      }
+
+      case 'get_tribute_benefit_analysis': {
+        return getTributeBenefitAnalysis();
       }
 
       case 'search_help_topics': {

@@ -13935,3 +13935,344 @@ export async function getFactionStartingValueAnalysis(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: MERCENARY TIER ANALYSIS ============
+
+export async function getMercenaryTierAnalysis(): Promise<string> {
+  await loadMercenaries();
+  if (!mercenaries || mercenaries.size === 0) return 'Mercenary data not available.';
+
+  const lines = ['# Mercenary Tier & Proficiency Analysis', ''];
+
+  // Collect distributions
+  const byConfidence: Record<string, number> = {};
+  const byProficiency: Record<string, number> = {};
+  const byTier: Record<string, number> = {};
+  const byType: Record<string, number> = {};
+  const tierByType: Record<string, Record<string, number>> = {};
+  const confByProf: Record<string, Record<string, number>> = {};
+  const raceByType: Record<string, Record<string, number>> = {};
+  let withConfidence = 0;
+  let withProficiency = 0;
+
+  for (const merc of mercenaries.values()) {
+    const tier = merc.tier || 'Unknown';
+    const type = merc.type || 'Unknown';
+    const confidence = merc.confidence || 'Unknown';
+    const proficiency = merc.proficiency || 'Unknown';
+    const race = merc.race || 'Unknown';
+
+    byTier[tier] = (byTier[tier] || 0) + 1;
+    byType[type] = (byType[type] || 0) + 1;
+
+    if (merc.confidence) {
+      withConfidence++;
+      byConfidence[confidence] = (byConfidence[confidence] || 0) + 1;
+    }
+    if (merc.proficiency) {
+      withProficiency++;
+      byProficiency[proficiency] = (byProficiency[proficiency] || 0) + 1;
+    }
+
+    // Tier by type matrix
+    if (!tierByType[type]) tierByType[type] = {};
+    tierByType[type][tier] = (tierByType[type][tier] || 0) + 1;
+
+    // Confidence by proficiency cross-tab
+    if (merc.confidence && merc.proficiency) {
+      if (!confByProf[confidence]) confByProf[confidence] = {};
+      confByProf[confidence][proficiency] = (confByProf[confidence][proficiency] || 0) + 1;
+    }
+
+    // Race by type
+    if (merc.race) {
+      if (!raceByType[type]) raceByType[type] = {};
+      raceByType[type][race] = (raceByType[type][race] || 0) + 1;
+    }
+  }
+
+  lines.push(`- **Total mercenary templates:** ${mercenaries.size.toLocaleString()}`);
+  lines.push(`- **With confidence level:** ${withConfidence.toLocaleString()}`);
+  lines.push(`- **With proficiency level:** ${withProficiency.toLocaleString()}`);
+  lines.push(`- **Unique tiers:** ${Object.keys(byTier).length}`);
+  lines.push(`- **Unique types:** ${Object.keys(byType).length}`);
+
+  // Confidence distribution
+  if (Object.keys(byConfidence).length > 0) {
+    lines.push('', '## Confidence Level Distribution', '');
+    lines.push('| Confidence | Count | % |');
+    lines.push('|------------|-------|---|');
+    const sortedConf = Object.entries(byConfidence).sort((a, b) => b[1] - a[1]);
+    for (const [conf, count] of sortedConf) {
+      lines.push(`| ${conf} | ${count.toLocaleString()} | ${(count / mercenaries.size * 100).toFixed(1)}% |`);
+    }
+  }
+
+  // Proficiency distribution
+  if (Object.keys(byProficiency).length > 0) {
+    lines.push('', '## Proficiency Level Distribution', '');
+    lines.push('| Proficiency | Count | % |');
+    lines.push('|-------------|-------|---|');
+    const sortedProf = Object.entries(byProficiency).sort((a, b) => b[1] - a[1]);
+    for (const [prof, count] of sortedProf) {
+      lines.push(`| ${prof} | ${count.toLocaleString()} | ${(count / mercenaries.size * 100).toFixed(1)}% |`);
+    }
+  }
+
+  // Tier by type matrix
+  const types = Object.keys(tierByType).sort();
+  const allTiers = [...new Set(Object.values(tierByType).flatMap(t => Object.keys(t)))].sort();
+  if (types.length > 0 && allTiers.length > 0) {
+    lines.push('', '## Type by Tier Matrix', '');
+    lines.push(`| Type | ${allTiers.join(' | ')} | Total |`);
+    lines.push(`|------|${allTiers.map(() => '---').join('|')}|-------|`);
+    for (const type of types) {
+      const total = Object.values(tierByType[type]).reduce((a, b) => a + b, 0);
+      const cells = allTiers.map(tier => tierByType[type][tier] || 0);
+      lines.push(`| ${type} | ${cells.join(' | ')} | ${total} |`);
+    }
+  }
+
+  // Confidence by proficiency cross-tab
+  const confs = Object.keys(confByProf).sort();
+  const allProfs = [...new Set(Object.values(confByProf).flatMap(p => Object.keys(p)))].sort();
+  if (confs.length > 0 && allProfs.length > 0) {
+    lines.push('', '## Confidence by Proficiency Cross-Tab', '');
+    lines.push(`| Confidence | ${allProfs.join(' | ')} | Total |`);
+    lines.push(`|------------|${allProfs.map(() => '---').join('|')}|-------|`);
+    for (const conf of confs) {
+      const total = Object.values(confByProf[conf]).reduce((a, b) => a + b, 0);
+      const cells = allProfs.map(prof => confByProf[conf][prof] || 0);
+      lines.push(`| ${conf} | ${cells.join(' | ')} | ${total} |`);
+    }
+  }
+
+  // Race by type (top races per type)
+  if (Object.keys(raceByType).length > 0) {
+    lines.push('', '## Top Races by Mercenary Type', '');
+    for (const type of types) {
+      if (!raceByType[type]) continue;
+      const sorted = Object.entries(raceByType[type]).sort((a, b) => b[1] - a[1]).slice(0, 8);
+      lines.push(`### ${type}`);
+      for (const [race, count] of sorted) {
+        lines.push(`  - ${race}: ${count}`);
+      }
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL RECOURSE OVERVIEW ============
+
+export async function getSpellRecourseOverview(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  await loadSpellDescriptions();
+
+  const lines = ['# Spell Recourse System Overview', ''];
+  lines.push('*A recourse spell is automatically cast on the caster when the main spell successfully lands on a target.*', '');
+
+  // Collect all recourse relationships
+  const recourseSpells: { id: number; name: string; recourseId: number; recourseName: string; catId: number; beneficial: boolean }[] = [];
+  const recourseTargets = new Map<number, string[]>(); // recourseId -> [main spell names]
+
+  for (const [, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const recourseId = parseInt(spell.fields[SF.RECOURSE]);
+    if (!recourseId || recourseId <= 0 || recourseId === spell.id) continue;
+
+    const recourseSpell = spells.get(recourseId);
+    const recourseName = recourseSpell ? recourseSpell.name : `Spell #${recourseId}`;
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    recourseSpells.push({ id: spell.id, name: spell.name, recourseId, recourseName, catId, beneficial });
+
+    if (!recourseTargets.has(recourseId)) recourseTargets.set(recourseId, []);
+    recourseTargets.get(recourseId)!.push(spell.name);
+  }
+
+  lines.push(`- **Spells with recourse effects:** ${recourseSpells.length.toLocaleString()}`);
+  lines.push(`- **Unique recourse targets:** ${recourseTargets.size.toLocaleString()}`);
+  lines.push(`- **Beneficial with recourse:** ${recourseSpells.filter(s => s.beneficial).length}`);
+  lines.push(`- **Detrimental with recourse:** ${recourseSpells.filter(s => !s.beneficial).length}`);
+
+  // Check for recourse chains (A triggers B, B triggers C)
+  const chains: { chain: string[]; depth: number }[] = [];
+  for (const spell of recourseSpells) {
+    const chain = [spell.name];
+    let currentId = spell.recourseId;
+    const visited = new Set<number>([spell.id]);
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const next = spells.get(currentId);
+      if (!next) break;
+      chain.push(next.name);
+      const nextRecourse = parseInt(next.fields[SF.RECOURSE]);
+      if (!nextRecourse || nextRecourse <= 0 || nextRecourse === currentId) break;
+      currentId = nextRecourse;
+    }
+    if (chain.length > 2) {
+      chains.push({ chain, depth: chain.length });
+    }
+  }
+
+  if (chains.length > 0) {
+    lines.push(`- **Recourse chains (depth > 2):** ${chains.length}`);
+    lines.push('', '## Recourse Chains (Multi-Step)', '');
+    const sortedChains = chains.sort((a, b) => b.depth - a.depth).slice(0, 15);
+    for (const { chain } of sortedChains) {
+      lines.push(`- ${chain.join(' → ')}`);
+    }
+  }
+
+  // Most common recourse targets (spells triggered by many different spells)
+  const sortedTargets = [...recourseTargets.entries()].sort((a, b) => b[1].length - a[1].length);
+  lines.push('', '## Most Common Recourse Targets (Triggered by Multiple Spells)', '');
+  lines.push('| Recourse Spell | Triggered By | Sample Main Spells |');
+  lines.push('|----------------|-------------|-------------------|');
+  for (const [recId, mainSpells] of sortedTargets.slice(0, 20)) {
+    const recSpell = spells.get(recId);
+    const recName = recSpell ? recSpell.name : `#${recId}`;
+    const sample = mainSpells.slice(0, 3).join(', ');
+    lines.push(`| ${recName} | ${mainSpells.length} spells | ${sample} |`);
+  }
+
+  // Category distribution
+  const catCounts = new Map<string, number>();
+  for (const spell of recourseSpells) {
+    const catName = (spellCategories && spellCategories.get(spell.catId)) || 'Unknown';
+    catCounts.set(catName, (catCounts.get(catName) || 0) + 1);
+  }
+
+  lines.push('', '## Recourse Spells by Category', '');
+  lines.push('| Category | Count | % |');
+  lines.push('|----------|-------|---|');
+  const sortedCats = [...catCounts.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [cat, count] of sortedCats.slice(0, 15)) {
+    lines.push(`| ${cat} | ${count} | ${(count / recourseSpells.length * 100).toFixed(1)}% |`);
+  }
+
+  // Class distribution
+  lines.push('', '## Recourse Spells by Class', '');
+  lines.push('| Class | Recourse Spells |');
+  lines.push('|-------|----------------|');
+  for (let cid = 1; cid <= 16; cid++) {
+    let count = 0;
+    for (const spell of recourseSpells) {
+      const s = spells.get(spell.id);
+      if (!s) continue;
+      const level = parseInt(s.fields[SF.CLASS_LEVEL_START + cid - 1]);
+      if (!isNaN(level) && level >= 1 && level <= 254) count++;
+    }
+    if (count > 0) {
+      lines.push(`| ${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}) | ${count} |`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: TRIBUTE BENEFIT ANALYSIS ============
+
+export async function getTributeBenefitAnalysis(): Promise<string> {
+  await loadTributes();
+  if (!tributes || tributes.size === 0) return 'Tribute data not available.';
+
+  const lines = ['# Tribute System Analysis', ''];
+
+  let personalCount = 0;
+  let guildCount = 0;
+  let withDesc = 0;
+  let totalDescLen = 0;
+
+  const keywords = new Map<string, number>();
+  const keywordPatterns = [
+    'hit points', 'mana', 'endurance', 'attack', 'damage', 'healing',
+    'haste', 'resist', 'armor class', 'regenerat', 'accuracy', 'avoidance',
+    'strength', 'stamina', 'agility', 'dexterity', 'wisdom', 'intelligence', 'charisma',
+    'critical', 'flurry', 'shield', 'proc', 'spell', 'melee',
+    'focus', 'combat', 'experience', 'mod2', 'heroic',
+  ];
+
+  const nameWords = new Map<string, number>();
+
+  for (const tribute of tributes.values()) {
+    if (tribute.isGuild) guildCount++;
+    else personalCount++;
+
+    if (tribute.description && tribute.description.length > 0) {
+      withDesc++;
+      totalDescLen += tribute.description.length;
+
+      const lowerDesc = tribute.description.toLowerCase();
+      for (const kw of keywordPatterns) {
+        if (lowerDesc.includes(kw)) {
+          keywords.set(kw, (keywords.get(kw) || 0) + 1);
+        }
+      }
+    }
+
+    // Name word frequency
+    const words = tribute.name.toLowerCase().split(/\s+/);
+    for (const word of words) {
+      if (word.length > 2) {
+        nameWords.set(word, (nameWords.get(word) || 0) + 1);
+      }
+    }
+  }
+
+  lines.push(`- **Total tributes:** ${tributes.size.toLocaleString()}`);
+  lines.push(`- **Personal tributes:** ${personalCount.toLocaleString()}`);
+  lines.push(`- **Guild tributes:** ${guildCount.toLocaleString()}`);
+  lines.push(`- **With descriptions:** ${withDesc.toLocaleString()}`);
+  if (withDesc > 0) {
+    lines.push(`- **Average description length:** ${Math.round(totalDescLen / withDesc)} chars`);
+  }
+
+  // Keyword frequency
+  if (keywords.size > 0) {
+    lines.push('', '## Tribute Benefit Keywords', '');
+    lines.push('| Keyword | Tributes | % |');
+    lines.push('|---------|----------|---|');
+    const sortedKw = [...keywords.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [kw, count] of sortedKw) {
+      if (count > 0) {
+        lines.push(`| ${kw} | ${count} | ${(count / tributes.size * 100).toFixed(1)}% |`);
+      }
+    }
+  }
+
+  // Name word frequency
+  if (nameWords.size > 0) {
+    lines.push('', '## Most Common Tribute Name Words', '');
+    const sortedWords = [...nameWords.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+    for (const [word, count] of sortedWords) {
+      lines.push(`- **${word}**: ${count} tributes`);
+    }
+  }
+
+  // Sample tributes by type
+  const personalSample = [...tributes.values()].filter(t => !t.isGuild).slice(0, 10);
+  const guildSample = [...tributes.values()].filter(t => t.isGuild).slice(0, 10);
+
+  if (personalSample.length > 0) {
+    lines.push('', '## Sample Personal Tributes', '');
+    for (const t of personalSample) {
+      const desc = t.description ? t.description.substring(0, 80) : 'No description';
+      lines.push(`- **${t.name}**: ${desc}`);
+    }
+  }
+
+  if (guildSample.length > 0) {
+    lines.push('', '## Sample Guild Tributes', '');
+    for (const t of guildSample) {
+      const desc = t.description ? t.description.substring(0, 80) : 'No description';
+      lines.push(`- **${t.name}**: ${desc}`);
+    }
+  }
+
+  return lines.join('\n');
+}
