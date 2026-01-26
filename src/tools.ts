@@ -51,6 +51,8 @@ import {
   searchCombatAbilities,
   searchMercenaries,
   getMercenary,
+  getMercenaryStances,
+  getOverseerIncapacitations,
   getRaceInfo,
   getClassInfo,
   getDeityInfo,
@@ -684,6 +686,22 @@ export const tools = [
     }
   },
   {
+    name: 'get_mercenary_stances',
+    description: 'Get all EverQuest mercenary stances (Passive, Balanced, Efficient, Reactive, Aggressive, Assist, Burn, etc.) with descriptions, mercenary types, and mercenary abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'get_overseer_incapacitations',
+    description: 'Get all Overseer incapacitation types (Wounded, Captured, Shaken, etc.) with descriptions of duration and quest category associations.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
     name: 'get_race_info',
     description: 'Get detailed information about an EverQuest playable race, including lore description, available classes, and available deities.',
     inputSchema: {
@@ -1133,7 +1151,7 @@ function formatSources(): string {
   const lines = ['# Available EverQuest Data Sources', ''];
 
   const sourceInfo = [
-    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+), zones, skill caps, class stats, achievements, factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+), AC mitigation, spell stacking, map POIs (34K+), lore (50 stories), game strings (7K), Overseer agents (300+) & quests (800+ with slots), race/class info (16/16), deities (17 with lore), stats, tributes (266), alt currencies (54)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
+    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with 500+ effect types), zones, skill caps, class stats, achievements, factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+ with stances & abilities), AC mitigation, spell stacking, map POIs (34K+), lore (50 stories), game strings (7K), Overseer agents (300+ with trait descriptions & lore) & quests (800+ with slots & incapacitations), race/class info (16/16), deities (17 with lore), stats, tributes (266), alt currencies (54)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
     { name: 'Allakhazam', specialty: 'Primary database - spells, items, NPCs, zones, quests', url: 'https://everquest.allakhazam.com' },
     { name: "Almar's Guides", specialty: 'Quest walkthroughs, epic guides, leveling guides', url: 'https://www.almarsguides.com/eq' },
     { name: 'EQResource', specialty: 'Modern expansion content, progression, spells database', url: 'https://eqresource.com' },
@@ -1625,6 +1643,14 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (error) return error;
         const id = (args.id as string).trim();
         return getMercenary(id);
+      }
+
+      case 'get_mercenary_stances': {
+        return getMercenaryStances();
+      }
+
+      case 'get_overseer_incapacitations': {
+        return getOverseerIncapacitations();
       }
 
       case 'get_race_info': {

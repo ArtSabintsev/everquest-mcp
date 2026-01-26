@@ -151,30 +151,217 @@ const SPA_NAMES: Record<number, string> = {
   0: 'HP', 1: 'AC', 2: 'ATK', 3: 'Movement Speed',
   4: 'STR', 5: 'DEX', 6: 'AGI', 7: 'STA', 8: 'INT', 9: 'WIS', 10: 'CHA',
   11: 'Melee Haste', 12: 'Invisibility', 13: 'See Invisible',
-  14: 'Water Breathing', 15: 'Mana', 18: 'Pacify', 19: 'Faction',
+  14: 'Water Breathing', 15: 'Mana', 16: 'NPC Enchant Immunity',
+  17: 'Food/Water', 18: 'Pacify', 19: 'Faction',
   20: 'Blind', 21: 'Stun', 22: 'Charm', 23: 'Fear', 24: 'Stamina/Endurance',
-  25: 'Bind Affinity', 27: 'NPC Frenzy', 28: 'Ultravision', 29: 'Infravision',
+  25: 'Bind Affinity', 26: 'Gate', 27: 'NPC Frenzy',
+  28: 'Ultravision', 29: 'Infravision', 30: 'Identify',
   31: 'Snare', 32: 'Summon Item', 33: 'Summon Pet', 34: 'HP Regen',
-  35: 'Mana Regen', 36: 'Dispel Magic', 46: 'Fire Resist', 47: 'Cold Resist',
+  35: 'Mana Regen', 36: 'Dispel Magic', 37: 'NPC Buff',
+  38: 'Shadow Step', 39: 'Berserk', 40: 'Lycanthropy',
+  41: 'Vampirism', 42: 'Fire Resist (Mirrored)', 43: 'Transport',
+  44: 'Antigate', 45: 'Summon BST Pet',
+  46: 'Fire Resist', 47: 'Cold Resist',
   48: 'Poison Resist', 49: 'Disease Resist', 50: 'Magic Resist',
-  55: 'Damage Absorb', 58: 'Spin Stun', 59: 'Infravision',
-  69: 'Max HP', 71: 'Gate', 73: 'Bind Sight', 74: 'Mesmerize',
-  79: 'HP Limit', 85: 'Spell Proc', 86: 'Illusion', 87: 'Damage Shield',
-  91: 'Summon Corpse', 96: 'Intoxication', 97: 'Spell Shield',
-  100: 'Teleport', 101: 'HP Change', 104: 'Max HP Change',
-  111: 'Reverse Damage Shield', 114: 'Aggro', 116: 'Curse',
+  51: 'Detect Undead', 52: 'Detect Summoned', 53: 'Detect Animals',
+  54: 'Stoneskin', 55: 'Damage Absorb', 56: 'True North',
+  57: 'Levitate', 58: 'Spin Stun', 59: 'Infravision',
+  60: 'Undead Spell Resist', 61: 'Summoned Spell Resist',
+  62: 'Animal Spell Resist', 63: 'Absorb Magic Damage',
+  64: 'Sense Traps', 65: 'Disarm Traps', 66: 'Divination',
+  67: 'Destroy Undead', 68: 'Feign Death',
+  69: 'Max HP', 70: 'NPC Cannotmiss', 71: 'Gate',
+  72: 'Summon Skeleton Pet', 73: 'Bind Sight', 74: 'Mesmerize',
+  75: 'NPC Target', 76: 'Calm', 77: 'Dispel Detrimental',
+  78: 'Shadowstep', 79: 'HP Limit',
+  80: 'Resurrection', 81: 'Summon Player', 82: 'Teleport Zone',
+  83: 'Throw Skill', 84: 'Restrict Spell School',
+  85: 'Spell Proc', 86: 'Illusion', 87: 'Damage Shield',
+  88: 'Transfer Mana', 89: 'Add Reverse DS',
+  90: 'Spell Casting Level', 91: 'Summon Corpse',
+  92: 'Adjust Aggro', 93: 'Resist Adj', 94: 'Spin Target',
+  95: 'Amnesia', 96: 'Intoxication', 97: 'Spell Shield',
+  98: 'Reduce Target HP %', 99: 'Mental Stamina',
+  100: 'Teleport', 101: 'HP Change', 102: 'Stacking: Command',
+  103: 'Stacking: Overwrite', 104: 'Max HP Change',
+  105: 'Pet Shield', 106: 'Max Mana Change', 107: 'Endurance',
+  108: 'Endurance Regen', 109: 'Familiarize', 110: 'Add Stun Resist',
+  111: 'Reverse Damage Shield', 112: 'Screech', 113: 'Improved Spell Range',
+  114: 'Aggro', 115: 'Mana/HP Return', 116: 'Curse',
+  117: 'Make Vulnerable', 118: 'Timer Lockout',
   119: 'Melee Proc', 120: 'Range Proc', 121: 'Illusion: Other',
-  127: 'Spell Haste', 128: 'Spell Duration Increase',
-  132: 'Mitigate Melee Damage', 148: 'Stacking Block',
+  122: 'Mass Group Buff', 123: 'Group Fear Immunity', 124: 'Rampage',
+  125: 'AE Taunt', 126: 'Flesh to Bone', 127: 'Spell Haste',
+  128: 'Spell Duration Increase', 129: 'Spell Duration Decrease',
+  130: 'Strikethrough', 131: 'Stun Resist',
+  132: 'Mitigate Melee Damage', 133: 'Mitigate Spell Damage',
+  134: 'Shielding', 135: 'Revenge Spell', 136: 'Skill Damage',
+  137: 'Endurance Regen', 138: 'Taunt', 139: 'Proc Rate Modifier',
+  140: 'Twincast Chance', 141: 'NPC Assist Radius',
+  142: 'Melee AE Range', 143: 'NPC Maxrange', 144: 'HP Regen Per Tick',
+  145: 'Cure Corruption', 146: 'Corruption Resist',
+  147: 'Slow', 148: 'Stacking Block', 149: 'Strip Buffs',
+  150: 'Song DoT', 151: 'Song DoT2', 152: 'Shielding Duration',
+  153: 'Shrink', 154: 'Gate Disabled',
+  158: 'Hate', 159: 'Weather Control', 160: 'Fragile',
+  161: 'Sacrifice', 162: 'Silence', 163: 'Max Mana',
+  164: 'Bard AE DoT', 165: 'Max Endurance',
+  167: 'Pet Haste', 168: 'Decrease Chance to Land',
+  169: 'Crit HoT', 170: 'Absorb Rune', 171: 'AC Soft Cap',
+  172: 'Corruption', 173: 'Primary Melee Double',
+  174: 'Skill Damage Mod', 175: 'Skill Damage Mod2',
+  176: 'Parry Chance', 177: 'Dodge Chance', 178: 'Riposte Chance',
+  179: 'Absorb Damage', 180: 'Pet Crit Melee', 181: 'Pet Crit Spell',
+  182: 'Pet Max HP', 183: 'Pet Avoidance', 184: 'Accuracy',
+  185: 'Headshot', 186: 'Pet Crit Melee2', 187: 'Slay Undead',
+  188: 'Increase Skill Damage', 189: 'Double Riposte',
+  190: 'AE Stun Resist', 191: 'Stun Resist',
+  192: 'Frontal Backstab Chance', 193: 'Chaotic Stab',
+  194: 'Shield Block Chance', 195: 'Shroud of Stealth',
+  196: 'Extended Pet Duration', 197: 'Pet Power Increase',
+  198: 'Backstab from Front', 199: 'Chaotic Stab',
+  200: 'Spell Crit Chance', 201: 'Shield Bash Stun',
+  202: 'Melee Crit Chance', 203: 'Spell Crit Damage',
+  204: 'Dodge Chance', 205: 'Mend Companion',
+  206: 'Doppelganger', 207: 'Archery Damage Mod',
+  208: 'Offhand Damage Mod', 209: 'Pet Melee Crit Damage',
+  210: 'Triple Backstab', 211: 'Combat Stability',
+  212: 'Add Singing Mod', 213: 'Song Mod Cap',
+  214: 'Increase Trap Count', 215: 'Change Padder',
+  216: 'Increase Archery', 217: 'Increase Singing',
+  218: 'DoT Damage', 219: 'Heal Amount', 220: 'Heal Amount2',
+  221: 'Nuke Damage', 222: 'All Avoidance',
+  225: 'Pet Discipline', 226: 'Limit: Detrimental',
+  227: 'Limit: Beneficial', 228: 'Limit: Spell Type',
+  229: 'Limit: Min Mana', 230: 'Limit: Spell Class',
+  231: 'Limit: Spell Subclass', 232: 'Limit: Combat Skills',
+  233: 'Limit: Non-Combat Skills',
+  250: 'Increase Damage', 251: 'Manaburn', 252: 'Endurance Burn',
+  253: 'Limit: Spell Group',
   254: 'Placeholder',
-  289: 'Improved Spell Effect', 311: 'Limit: Max Level',
+  255: 'Triple Attack', 256: 'Spell Proc',
+  258: 'Sympathetic Proc', 259: 'Raise Stats Cap',
+  260: 'Reduce Timer Special', 261: 'No Break AE Sneak',
+  262: 'Spell Slots', 263: 'Buff Slots', 264: 'Max Negative HP',
+  265: 'DeathSave', 266: 'HP Regen from Spells',
+  267: 'Mana Regen from Spells', 268: 'Endurance Regen from Spells',
+  269: 'Max HP Mod', 270: 'Max Mana Mod',
+  271: 'Max Endurance Mod', 272: 'AC vs Type',
+  273: 'Max HP', 274: 'Max Mana', 275: 'Max Endurance',
+  276: 'Pet Flurry', 277: 'Pet Crit', 278: 'Shield Specialist',
+  279: 'Accuracy Mod', 280: 'Headshot Damage', 281: 'Assassinate Damage',
+  282: 'Finishing Blow Damage',
+  286: 'Limit: Min Level', 287: 'Limit: Max Level',
+  288: 'Limit: Cast Time', 289: 'Improved Spell Effect',
+  290: 'Limit: Spell', 291: 'Limit: Min Duration', 292: 'Limit: Effect',
+  293: 'Limit: Combat Skills', 294: 'Limit: Target',
+  295: 'Limit: Mana Min', 296: 'Limit: Mana Max',
+  297: 'Skill Attack', 298: 'Skill Accuracy Mod',
+  299: 'Change Height', 300: 'Wakethe Dead', 301: 'Doppelganger',
+  302: 'Archery Damage', 303: 'Secondary Bash',
+  304: 'Spell Damage Shield', 305: 'Reduce Weight', 306: 'Alchemist Mastery',
+  307: 'Block Behind', 308: 'Double Melee Round',
+  309: 'Limit: Mana Max', 310: 'Limit: Mana Min',
+  311: 'Limit: Max Level', 312: 'Limit: Resist Min',
+  313: 'Limit: Resist Max', 314: 'Cast if Cursed',
+  315: 'Cast if Cured', 316: 'Summon All Corpses',
+  317: 'Block DS', 318: 'Overheal', 319: 'Focus Pet',
+  320: 'AE Melee', 321: 'Frenzied Devastation',
+  322: 'Pet HP %', 323: 'Change Target', 324: 'AE Rampage',
+  325: 'AE Flurry', 326: 'Pet Flurry',
+  327: 'DS Mitigation', 328: 'Melee Damage Amt',
+  329: 'Auto Attack', 330: 'Wake the Dead',
+  331: 'Doppelganger', 332: 'Increase Range DS',
+  333: 'Fake Death', 334: 'Improved Rune',
+  335: 'Max HP Increase', 336: 'Max Mana Increase',
+  337: 'Stun Resist', 338: 'Strikethrough2',
   339: 'Trigger Spell', 340: 'Trigger Spell (Proc)',
+  341: 'Crit DoT Damage', 342: 'Crit Heal', 343: 'Crit HoT',
+  344: 'Crit Mend', 345: 'Dual Wield', 346: 'Double Attack',
+  347: 'Lifetap from Weapon', 348: 'Instrument Mod',
+  349: 'Resist All', 350: 'Cast on Fade',
+  351: 'Base Damage Adj', 352: 'Limit: HP Min',
+  353: 'HP Change per Tick', 354: 'Skill Specialization',
+  355: 'Incoming Damage Mod', 356: 'Worn Regen',
+  357: 'Ban Trade', 358: 'Song Range', 359: 'Reduce Skill Timer',
+  360: 'Song AOE', 361: 'Reduce Combat Skill Timer',
+  362: 'Limit: Resist', 363: 'Limit: No Focus',
+  364: 'Cast if Twincast', 365: 'AE Hate',
+  366: 'Spell Hate', 367: 'Worn Endurance Regen',
+  368: 'Limit: Min Cast Time', 369: 'Limit: No Detrimental',
+  370: 'Worn Purity', 371: 'Bodily Inhibition',
+  372: 'Crit Melee Damage', 373: 'Crit Spell Damage',
   374: 'Critical Heal Chance', 375: 'Critical Heal Amount',
-  385: 'Flurry Chance', 413: 'Spell Damage',
-  461: 'HP Absorb % Max', 462: 'HP Absorb Total', 463: 'Melee Threshold',
-  469: 'Mana Absorb', 471: 'DoT Crit Chance',
-  483: 'Limit: Cast Time Max', 484: 'Limit: Cast Time Min',
-  500: 'AC Limit', 501: 'Mana Limit', 507: 'Overshadow',
+  376: 'Crit HoT Chance', 377: 'Crit HoT Amount',
+  378: 'Melee Crit Guard', 379: 'Spell Crit Guard',
+  380: 'Melee Flurry', 381: 'Spell PB AE',
+  382: 'Trigger on Crit', 383: 'Crit Melee2',
+  384: 'Crit Spell2', 385: 'Flurry Chance',
+  386: 'Pet Flurry Chance', 387: 'Limit: Beneficial',
+  388: 'Improved Binding', 389: 'Feign Death Chance',
+  390: 'Limit: Detrimental', 391: 'Limit: Spell',
+  392: 'Limit: Target Type',
+  399: 'Worn HP Regen Cap', 400: 'Worn Mana Regen Cap',
+  401: 'Limit: Pet', 402: 'Skill Min Damage Mod',
+  403: 'Heal Rate', 404: 'Mana Drain',
+  405: 'Endurance Drain', 406: 'Limit: Class',
+  407: 'Limit: Race', 408: 'Base Damage',
+  409: 'Limit: Skill', 410: 'Limit: Item Class',
+  411: 'AC2', 412: 'Mana2', 413: 'Spell Damage',
+  414: 'Increase Healing', 415: 'Reverse DS Guard',
+  416: 'DoT Guard', 417: 'Melee Threshold Guard',
+  418: 'Spell Threshold Guard', 419: 'Trigger Spell on Kill',
+  420: 'Trigger Spell on Death', 421: 'Potion Belt Slots',
+  422: 'Bandolier Slots', 423: 'Triple Attack Chance',
+  424: 'Worn Attack Cap', 425: 'Group Shielding',
+  426: 'Trade Skill Mastery', 427: 'Reduce AA Timer',
+  428: 'No Fizzle', 429: 'Add Procs',
+  430: '2H Bash', 431: 'Reduce Falling Damage',
+  432: 'Cast on Fly', 433: 'Add Extended Target Slots',
+  434: 'Skill Base Damage Mod', 435: 'Limit: Skill',
+  436: 'Limit: Item Type', 437: 'Spell Damage Resist',
+  438: 'Shadow Knight Fear', 439: 'Fade',
+  440: 'Stun Resist', 441: 'Strikethrough3',
+  442: 'Skill Min Damage2', 443: 'Limit: HP %',
+  444: 'Limit: Mana %', 445: 'Limit: Endurance %',
+  446: 'Limit: Class2', 447: 'Limit: Race2',
+  448: 'Limit: Caster Class', 449: 'Limit: Same Caster',
+  450: 'Extend Tradeskill Cap', 451: 'Pushback',
+  452: 'Luck Chance', 453: 'Luck Amount',
+  454: 'Endurance Absorb', 455: 'Limit: SpellGroup',
+  456: 'Doom on Fade', 457: 'No Remove',
+  458: 'Spell Proc Guard', 459: 'Melee Proc Guard',
+  460: 'Pet Power', 461: 'HP Absorb % Max',
+  462: 'HP Absorb Total', 463: 'Melee Threshold',
+  464: 'Spell Threshold', 465: 'Triple Backstab',
+  466: 'Combat Agility', 467: 'Combat Stability',
+  468: 'Worn Attack', 469: 'Mana Absorb',
+  470: 'Endurance Absorb', 471: 'DoT Crit Chance',
+  472: 'Heal Crit Chance', 473: 'Mend Crit Chance',
+  474: 'Dual Wield Chance', 475: 'Double Attack Chance',
+  476: 'Limit: Min Level', 477: 'Limit: Max Level',
+  478: 'Limit: Min Cast Time', 479: 'Limit: Max Cast Time',
+  480: 'Limit: Min Mana', 481: 'Limit: Max Mana',
+  482: 'Limit: Spell Type', 483: 'Limit: Cast Time Max',
+  484: 'Limit: Cast Time Min', 485: 'Improved Taunt',
+  486: 'Add Melee Proc', 487: 'Add Range Proc',
+  488: 'Illusion: Other', 489: 'Mass Group Buff',
+  490: 'Group Stun Resist', 491: 'Rampage2',
+  492: 'AE Taunt2', 493: 'Flesh to Bone2',
+  494: 'HP/Tick', 495: 'Mana/Tick', 496: 'Endurance/Tick',
+  497: 'Hate Mod', 498: 'Chance Best in Spell Group',
+  499: 'Trigger Best in Spell Group',
+  500: 'AC Limit', 501: 'Mana Limit', 502: 'HP Limit',
+  503: 'Endurance Limit', 504: 'Add Hate %',
+  505: 'Spell Damage Shield Amt', 506: 'Manaburn2',
+  507: 'Overshadow', 508: 'Doom Dispeller',
+  509: 'Doom Melee', 510: 'Doom Spell',
+  511: 'Add Body Type', 512: 'Faction Mod',
+  513: 'Corruption Resist', 514: 'Corruption Damage',
+  515: 'Melee Delay', 516: 'Foraging',
+  517: 'Doom Entity', 518: 'Limit: Combat Skills',
+  519: 'Sanctuary', 520: 'DoT Damage Mod',
+  521: 'Nuke Damage Mod',
 };
 
 const SKILL_NAMES: Record<number, string> = {
@@ -319,6 +506,7 @@ interface OverseerMinion {
   fullName: string;
   bio: string;
   traits: string[];
+  traitIds: number[];
 }
 
 interface OverseerQuest {
@@ -392,6 +580,22 @@ let combatAbilityNameIndex: Map<string, number[]> | null = null;
 let mercenaries: Map<number, MercenaryEntry> | null = null;
 let mercenaryNameIndex: Map<string, number[]> | null = null;
 
+// Mercenary stances and abilities
+interface MercenaryStance {
+  id: number;
+  name: string;
+  description: string;
+  shortDesc: string;
+}
+interface MercenaryAbility {
+  id: number;
+  name: string;
+  description: string;
+}
+let mercenaryStances: Map<number, MercenaryStance> | null = null;
+let mercenaryTypes: Map<number, string> | null = null;
+let mercenaryAbilities: Map<number, MercenaryAbility> | null = null;
+
 // Race/class descriptions
 let raceDescriptions: Map<number, { short: string; long: string }> | null = null;
 let classDescriptions: Map<number, { short: string; long: string }> | null = null;
@@ -412,9 +616,12 @@ interface TributeEntry {
 let tributes: Map<number, TributeEntry> | null = null;
 let tributeNameIndex: Map<string, number[]> | null = null;
 
-// Overseer category/difficulty names
+// Overseer category/difficulty/incapacitation/trait names
 let overseerCategories: Map<number, string> | null = null;
 let overseerDifficulties: Map<number, string> | null = null;
+let overseerTraitDescs: Map<number, string> | null = null;
+let overseerIncapNames: Map<number, string> | null = null;
+let overseerIncapDescs: Map<number, string> | null = null;
 
 let dataAvailable: boolean | null = null;
 
@@ -516,6 +723,11 @@ async function loadSpellStrings(): Promise<void> {
   }
 }
 
+function formatEffectValue(base1: number, suffix: string = ''): string {
+  if (base1 > 0) return ` +${base1}${suffix}`;
+  return ` ${base1}${suffix}`;
+}
+
 function parseSpellEffects(fields: string[]): string[] {
   const effects: string[] = [];
 
@@ -537,37 +749,107 @@ function parseSpellEffects(fields: string[]): string[] {
           const spaName = SPA_NAMES[spa] || `SPA ${spa}`;
           let desc = `Slot ${slotNum}: ${spaName}`;
 
-          if (spa === 0 || spa === 79 || spa === 101) {
-            // HP effects
-            if (base1 > 0) desc += ` +${base1}`;
-            else desc += ` ${base1}`;
+          // HP effects (heal, nuke, limit)
+          if (spa === 0 || spa === 79 || spa === 101 || spa === 502) {
+            desc += formatEffectValue(base1);
             if (max > 0) desc += ` (max: ${max})`;
-          } else if (spa === 3 || spa === 31) {
-            // Movement speed / snare
+          }
+          // Percentage-based effects
+          else if (spa === 3 || spa === 31 || spa === 11 || spa === 130 ||
+                   spa === 140 || spa === 173 || spa === 200 || spa === 202 ||
+                   spa === 203 || spa === 218 || spa === 219 || spa === 220 ||
+                   spa === 221 || spa === 250 || spa === 255 || spa === 345 ||
+                   spa === 346 || spa === 372 || spa === 373 || spa === 374 ||
+                   spa === 375 || spa === 376 || spa === 377 || spa === 380 ||
+                   spa === 385 || spa === 386 || spa === 403 || spa === 423 ||
+                   spa === 452 || spa === 471 || spa === 472 || spa === 474 ||
+                   spa === 475 || spa === 520 || spa === 521) {
             desc += ` ${base1}%`;
-          } else if (spa >= 4 && spa <= 10) {
-            // Stats
-            if (base1 > 0) desc += ` +${base1}`;
-            else desc += ` ${base1}`;
-          } else if (spa === 11) {
-            // Haste
-            desc += ` ${base1}%`;
-          } else if (spa === 34 || spa === 35) {
-            // Regen
+            if (max > 0) desc += ` (max: ${max})`;
+          }
+          // Stat effects (STR, DEX, AGI, STA, INT, WIS, CHA, AC, ATK)
+          else if ((spa >= 4 && spa <= 10) || spa === 1 || spa === 2) {
+            desc += formatEffectValue(base1);
+          }
+          // Resist effects (fire, cold, poison, disease, magic, corruption)
+          else if ((spa >= 46 && spa <= 50) || spa === 146 || spa === 349) {
+            desc += formatEffectValue(base1);
+          }
+          // Regen/tick effects
+          else if (spa === 34 || spa === 35 || spa === 108 || spa === 137 ||
+                   spa === 144 || spa === 353 || spa === 494 || spa === 495 ||
+                   spa === 496) {
             desc += ` ${base1}/tick`;
-          } else if (spa >= 46 && spa <= 50) {
-            // Resists
-            if (base1 > 0) desc += ` +${base1}`;
-            else desc += ` ${base1}`;
-          } else if (spa === 86) {
+          }
+          // Max stat effects
+          else if (spa === 69 || spa === 106 || spa === 163 || spa === 165 ||
+                   spa === 269 || spa === 270 || spa === 271 || spa === 273 ||
+                   spa === 274 || spa === 275 || spa === 335 || spa === 336) {
+            desc += formatEffectValue(base1);
+          }
+          // Duration-based effects
+          else if (spa === 127 || spa === 128 || spa === 129) {
+            desc += ` ${base1}%`;
+          }
+          // Illusion
+          else if (spa === 86) {
             desc += `: ${base1}`;
-          } else if (spa === 87) {
+          }
+          // Damage shield
+          else if (spa === 87 || spa === 111) {
             desc += ` ${base1}`;
-          } else if (spa === 32) {
+          }
+          // Summon item
+          else if (spa === 32) {
             desc += ` (item ID: ${base1})`;
-          } else if (base1 !== 0) {
-            if (base1 > 0) desc += ` +${base1}`;
-            else desc += ` ${base1}`;
+          }
+          // Spell trigger/proc
+          else if (spa === 85 || spa === 289 || spa === 339 || spa === 340 ||
+                   spa === 350 || spa === 419 || spa === 420) {
+            desc += ` (spell ID: ${base1})`;
+            if (base2 > 0) desc += ` (${base2}% chance)`;
+          }
+          // Melee/range procs
+          else if (spa === 119 || spa === 120) {
+            desc += ` (spell ID: ${base1})`;
+            if (base2 > 0) desc += ` +${base2} rate mod`;
+          }
+          // Damage mitigation
+          else if (spa === 132 || spa === 133 || spa === 327 ||
+                   spa === 461 || spa === 462 || spa === 463 || spa === 464) {
+            desc += formatEffectValue(base1);
+            if (max > 0) desc += ` (max: ${max})`;
+          }
+          // Aggro
+          else if (spa === 114 || spa === 92 || spa === 158 || spa === 365 ||
+                   spa === 366 || spa === 497 || spa === 504) {
+            desc += formatEffectValue(base1);
+          }
+          // Skill damage
+          else if (spa === 136 || spa === 174 || spa === 175 || spa === 188 ||
+                   spa === 297 || spa === 328 || spa === 434) {
+            desc += formatEffectValue(base1);
+            if (base2 > 0) {
+              const skillName = SKILL_NAMES[base2] || `Skill ${base2}`;
+              desc += ` (${skillName})`;
+            }
+          }
+          // Absorb effects
+          else if (spa === 55 || spa === 54 || spa === 170 || spa === 179) {
+            desc += ` ${base1}`;
+            if (max > 0) desc += ` (max: ${max})`;
+          }
+          // Stacking/limit effects - show value
+          else if (spa === 148 || spa === 102 || spa === 103) {
+            desc += ` (${base1})`;
+          }
+          // Limit SPAs - show the limit value
+          else if (spaName.startsWith('Limit:')) {
+            desc += ` ${base1}`;
+          }
+          // Default: show numeric value if non-zero
+          else if (base1 !== 0) {
+            desc += formatEffectValue(base1);
           }
 
           effects.push(desc);
@@ -964,6 +1246,12 @@ const DBSTR_TYPES = {
   OVERSEER_MINION_BIO: 61,
   MERCENARY_TIER: 22,
   MERCENARY_DESC: 23,
+  MERCENARY_STANCE_NAME: 24,
+  MERCENARY_STANCE_DESC: 25,
+  MERCENARY_STANCE_SHORT: 26,
+  MERCENARY_TYPE: 36,
+  MERCENARY_ABILITY_NAME: 37,
+  MERCENARY_ABILITY_DESC: 38,
   RACE_NAME: 11,
   RACE_DESCRIPTION: 8,
   CLASS_DESCRIPTION: 9,
@@ -974,6 +1262,9 @@ const DBSTR_TYPES = {
   TRIBUTE_DESC: 49,
   GUILD_TRIBUTE_NAME: 50,
   GUILD_TRIBUTE_DESC: 51,
+  OVERSEER_TRAIT_DESC: 55,
+  OVERSEER_INCAP_NAME: 58,
+  OVERSEER_INCAP_DESC: 59,
   OVERSEER_DIFFICULTY: 66,
   OVERSEER_QUEST_CATEGORY: 67,
 };
@@ -1367,7 +1658,7 @@ async function loadOverseerMinions(): Promise<void> {
       const fullName = fullNames.get(id) || shortName;
       const bio = bios.get(id) || '';
 
-      overseerMinions.set(id, { id, rarity, shortName, fullName, bio, traits: [] });
+      overseerMinions.set(id, { id, rarity, shortName, fullName, bio, traits: [], traitIds: [] });
 
       const lowerName = fullName.toLowerCase();
       const existing = overseerMinionNameIndex!.get(lowerName) || [];
@@ -1393,6 +1684,7 @@ async function loadOverseerMinions(): Promise<void> {
         const traitName = traitNames.get(traitId);
         if (minion && traitName && !minion.traits.includes(traitName)) {
           minion.traits.push(traitName);
+          minion.traitIds.push(traitId);
         }
       }
     } catch {
@@ -1569,6 +1861,59 @@ async function loadMercenaries(): Promise<void> {
   }
 
   console.error(`[LocalData] Loaded ${mercenaries.size} mercenary types`);
+}
+
+async function loadMercenaryStances(): Promise<void> {
+  if (mercenaryStances !== null) return;
+
+  if (!isGameDataAvailable()) {
+    mercenaryStances = new Map();
+    mercenaryTypes = new Map();
+    mercenaryAbilities = new Map();
+    return;
+  }
+
+  await loadDbStrings([
+    DBSTR_TYPES.MERCENARY_STANCE_NAME,
+    DBSTR_TYPES.MERCENARY_STANCE_DESC,
+    DBSTR_TYPES.MERCENARY_STANCE_SHORT,
+    DBSTR_TYPES.MERCENARY_TYPE,
+    DBSTR_TYPES.MERCENARY_ABILITY_NAME,
+    DBSTR_TYPES.MERCENARY_ABILITY_DESC,
+  ]);
+
+  const stanceNames = dbStrings?.get(DBSTR_TYPES.MERCENARY_STANCE_NAME) || new Map();
+  const stanceDescs = dbStrings?.get(DBSTR_TYPES.MERCENARY_STANCE_DESC) || new Map();
+  const stanceShorts = dbStrings?.get(DBSTR_TYPES.MERCENARY_STANCE_SHORT) || new Map();
+  const types = dbStrings?.get(DBSTR_TYPES.MERCENARY_TYPE) || new Map();
+  const abilNames = dbStrings?.get(DBSTR_TYPES.MERCENARY_ABILITY_NAME) || new Map();
+  const abilDescs = dbStrings?.get(DBSTR_TYPES.MERCENARY_ABILITY_DESC) || new Map();
+
+  mercenaryStances = new Map();
+  for (const [id, name] of stanceNames) {
+    mercenaryStances.set(id, {
+      id,
+      name,
+      description: stanceDescs.get(id) || '',
+      shortDesc: stanceShorts.get(id) || '',
+    });
+  }
+
+  mercenaryTypes = new Map();
+  for (const [id, name] of types) {
+    mercenaryTypes.set(id, name);
+  }
+
+  mercenaryAbilities = new Map();
+  for (const [id, name] of abilNames) {
+    mercenaryAbilities.set(id, {
+      id,
+      name,
+      description: stripHtmlTags(abilDescs.get(id) || ''),
+    });
+  }
+
+  console.error(`[LocalData] Loaded ${mercenaryStances.size} mercenary stances, ${mercenaryTypes.size} types, ${mercenaryAbilities.size} abilities`);
 }
 
 // ============ RACE & CLASS INFO PARSER ============
@@ -1774,14 +2119,29 @@ async function loadOverseerEnhancements(): Promise<void> {
 
   overseerCategories = new Map();
   overseerDifficulties = new Map();
+  overseerTraitDescs = new Map();
+  overseerIncapNames = new Map();
+  overseerIncapDescs = new Map();
   if (!isGameDataAvailable()) return;
 
-  await loadDbStrings([DBSTR_TYPES.OVERSEER_QUEST_CATEGORY, DBSTR_TYPES.OVERSEER_DIFFICULTY]);
+  await loadDbStrings([
+    DBSTR_TYPES.OVERSEER_QUEST_CATEGORY, DBSTR_TYPES.OVERSEER_DIFFICULTY,
+    DBSTR_TYPES.OVERSEER_TRAIT_DESC, DBSTR_TYPES.OVERSEER_INCAP_NAME,
+    DBSTR_TYPES.OVERSEER_INCAP_DESC,
+  ]);
   const cats = dbStrings?.get(DBSTR_TYPES.OVERSEER_QUEST_CATEGORY) || new Map();
   const diffs = dbStrings?.get(DBSTR_TYPES.OVERSEER_DIFFICULTY) || new Map();
+  const traitDs = dbStrings?.get(DBSTR_TYPES.OVERSEER_TRAIT_DESC) || new Map();
+  const incapNs = dbStrings?.get(DBSTR_TYPES.OVERSEER_INCAP_NAME) || new Map();
+  const incapDs = dbStrings?.get(DBSTR_TYPES.OVERSEER_INCAP_DESC) || new Map();
 
   for (const [id, name] of cats) overseerCategories.set(id, name);
   for (const [id, name] of diffs) overseerDifficulties.set(id, name);
+  for (const [id, desc] of traitDs) overseerTraitDescs.set(id, desc);
+  for (const [id, name] of incapNs) overseerIncapNames.set(id, name);
+  for (const [id, desc] of incapDs) overseerIncapDescs.set(id, desc);
+
+  console.error(`[LocalData] Loaded ${overseerCategories.size} categories, ${overseerDifficulties.size} difficulties, ${overseerIncapNames.size} incapacitations`);
 }
 
 // ============ MAP POI PARSER (On-Demand) ============
@@ -2784,6 +3144,7 @@ export async function searchOverseerMinions(query: string): Promise<SearchResult
 
 export async function getOverseerMinion(id: string): Promise<string> {
   await loadOverseerMinions();
+  await loadOverseerEnhancements();
   if (!overseerMinions) return 'Overseer minion data not available.';
 
   const minionId = parseInt(id);
@@ -2797,7 +3158,17 @@ export async function getOverseerMinion(id: string): Promise<string> {
   ];
 
   if (minion.traits.length > 0) {
-    lines.push(`**Traits:** ${minion.traits.join(', ')}`);
+    lines.push('', '### Traits');
+    for (let i = 0; i < minion.traits.length; i++) {
+      const traitName = minion.traits[i];
+      const traitId = minion.traitIds[i];
+      const traitDesc = traitId !== undefined ? overseerTraitDescs?.get(traitId) : undefined;
+      if (traitDesc) {
+        lines.push(`- **${traitName}** - ${stripHtmlTags(traitDesc)}`);
+      } else {
+        lines.push(`- **${traitName}**`);
+      }
+    }
   }
 
   if (minion.bio) {
@@ -2854,6 +3225,37 @@ export async function getOverseerQuest(id: string): Promise<string> {
     `**Duration:** ${quest.duration}h`,
     `**Agent Slots:** ${quest.requiredSlots} required${quest.optionalSlots > 0 ? `, ${quest.optionalSlots} optional` : ''}`,
   ];
+
+  // Show possible incapacitation risks based on quest category
+  if (overseerIncapNames && overseerIncapNames.size > 0) {
+    lines.push('', '### Possible Incapacitation Risks');
+    const seenIncap = new Set<string>();
+    for (const [incapId, incapName] of overseerIncapNames) {
+      if (seenIncap.has(incapName)) continue;
+      seenIncap.add(incapName);
+      const incapDesc = overseerIncapDescs?.get(incapId) || '';
+      lines.push(`- **${incapName}:** ${stripHtmlTags(incapDesc)}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export async function getOverseerIncapacitations(): Promise<string> {
+  await loadOverseerEnhancements();
+  if (!overseerIncapNames || overseerIncapNames.size === 0) return 'Overseer incapacitation data not available.';
+
+  const lines = ['## Overseer Incapacitation Types', ''];
+  const seen = new Set<string>();
+
+  for (const [id, name] of overseerIncapNames) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const desc = overseerIncapDescs?.get(id) || '';
+    lines.push(`### ${name}`);
+    lines.push(stripHtmlTags(desc));
+    lines.push('');
+  }
 
   return lines.join('\n');
 }
@@ -2930,6 +3332,7 @@ export async function searchMercenaries(query: string): Promise<SearchResult[]> 
 
 export async function getMercenary(id: string): Promise<string> {
   await loadMercenaries();
+  await loadMercenaryStances();
   if (!mercenaries) return 'Mercenary data not available.';
 
   const mercId = parseInt(id);
@@ -2945,6 +3348,46 @@ export async function getMercenary(id: string): Promise<string> {
     '',
     merc.description,
   ];
+
+  // Add available stances
+  if (mercenaryStances && mercenaryStances.size > 0) {
+    lines.push('', '### Available Stances');
+    for (const [, stance] of mercenaryStances) {
+      lines.push(`- **${stance.name}:** ${stance.shortDesc}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export async function getMercenaryStances(): Promise<string> {
+  await loadMercenaryStances();
+  if (!mercenaryStances || mercenaryStances.size === 0) return 'Mercenary stance data not available.';
+
+  const lines = ['## Mercenary Stances', ''];
+
+  for (const [, stance] of mercenaryStances) {
+    lines.push(`### ${stance.name}`);
+    lines.push(stance.description);
+    lines.push('');
+  }
+
+  if (mercenaryTypes && mercenaryTypes.size > 0) {
+    lines.push('## Mercenary Types', '');
+    for (const [, name] of mercenaryTypes) {
+      lines.push(`- ${name}`);
+    }
+    lines.push('');
+  }
+
+  if (mercenaryAbilities && mercenaryAbilities.size > 0) {
+    lines.push('## Mercenary Abilities', '');
+    for (const [, ability] of mercenaryAbilities) {
+      lines.push(`### ${ability.name}`);
+      if (ability.description) lines.push(ability.description);
+      lines.push('');
+    }
+  }
 
   return lines.join('\n');
 }
@@ -3242,10 +3685,13 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Game Strings:** ${gameStrings ? gameStrings.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Overseer Minions:** ${overseerMinions ? overseerMinions.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Overseer Quests:** ${overseerQuests ? overseerQuests.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Overseer Incapacitations:** ${overseerIncapNames ? overseerIncapNames.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Achievement Categories:** ${achievementCategories ? achievementCategories.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Achievement Components:** ${achievementComponents ? achievementComponents.size.toLocaleString() + ' achievements' : 'Not loaded'}`);
   lines.push(`- **Combat Abilities:** ${combatAbilities ? combatAbilities.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Mercenaries:** ${mercenaries ? mercenaries.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Mercenary Stances:** ${mercenaryStances ? mercenaryStances.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Mercenary Abilities:** ${mercenaryAbilities ? mercenaryAbilities.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Race Descriptions:** ${raceDescriptions ? raceDescriptions.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Class Descriptions:** ${classDescriptions ? classDescriptions.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Deity Descriptions:** ${deityDescriptions ? deityDescriptions.size.toLocaleString() : 'Not loaded'}`);
