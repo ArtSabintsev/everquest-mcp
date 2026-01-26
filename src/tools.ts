@@ -133,6 +133,9 @@ import {
   getLoreOverview,
   getCurrencyOverview,
   getMapStatistics,
+  listDrakkinHeritages,
+  searchSpellsWithRecourse,
+  compareBaseStats,
 } from './sources/index.js';
 
 export const tools = [
@@ -1928,6 +1931,51 @@ export const tools = [
     }
   },
   {
+    name: 'list_drakkin_heritages',
+    description: 'List all Drakkin dragon heritages — heritage names, IDs, and available classes for each bloodline.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'search_spells_with_recourse',
+    description: 'Find spells that have recourse (follow-up) effects — spells that automatically cast a second spell on the caster when they land on a target. Optionally filter by class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name to filter by (e.g., "Cleric", "Wizard"). Omit to search all classes.'
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'compare_base_stats',
+    description: 'Compare base HP, mana, endurance, and regen progression between two classes at all level milestones or a specific level.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class1: {
+          type: 'string',
+          description: 'First class name (e.g., "Warrior")'
+        },
+        class2: {
+          type: 'string',
+          description: 'Second class name (e.g., "Cleric")'
+        },
+        level: {
+          type: 'number',
+          description: 'Optional specific level to compare at. Omit for milestone comparison.'
+        }
+      },
+      required: ['class1', 'class2']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3337,6 +3385,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_map_statistics': {
         return getMapStatistics();
+      }
+
+      case 'list_drakkin_heritages': {
+        return listDrakkinHeritages();
+      }
+
+      case 'search_spells_with_recourse': {
+        const className = typeof args.class === 'string' ? args.class.trim() : undefined;
+        return searchSpellsWithRecourse(className);
+      }
+
+      case 'compare_base_stats': {
+        const class1 = typeof args.class1 === 'string' ? args.class1.trim() : '';
+        const class2 = typeof args.class2 === 'string' ? args.class2.trim() : '';
+        if (!class1) return 'Error: "class1" parameter is required';
+        if (!class2) return 'Error: "class2" parameter is required';
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        return compareBaseStats(class1, class2, level);
       }
 
       case 'search_help_topics': {

@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 125 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 128 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **125 tools** for querying EverQuest data
+- **128 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -142,6 +142,7 @@ Then restart Claude Desktop.
 | `search_spells_by_pushback` | Search spells with knockback/pushback effects (push back and push up values) |
 | `search_spells_by_recovery_time` | Search spells by recovery time (delay after casting before next action) |
 | `search_spells_by_subcategory` | Search spells by subcategory (Twincast, Undead, etc.) with auto-list of available subcategories |
+| `search_spells_with_recourse` | Find spells with recourse (follow-up) effects — automatic cast on caster when spell lands |
 
 ### Local Data - Character
 | Tool | Description |
@@ -163,6 +164,8 @@ Then restart Claude Desktop.
 | `get_race_class_matrix` | Visual matrix of all race-class combinations with counts |
 | `get_character_creation_guide` | Role-based character creation advisor with class/race recommendations |
 | `get_deity_class_matrix` | Visual matrix of deity-class availability (which classes can worship each deity) |
+| `list_drakkin_heritages` | List all Drakkin dragon heritages with heritage IDs and available classes |
+| `compare_base_stats` | Compare HP, mana, endurance, and regen progression between two classes |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -282,7 +285,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (125 tools)
+├── tools.ts          # Tool definitions and handlers (128 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

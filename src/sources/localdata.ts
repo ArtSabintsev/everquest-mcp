@@ -9806,3 +9806,197 @@ export async function getMapStatistics(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: DRAKKIN HERITAGES ============
+
+export async function listDrakkinHeritages(): Promise<string> {
+  await loadDrakkinHeritages();
+  if (!drakkinHeritages || drakkinHeritages.length === 0) return 'Drakkin heritage data not available.';
+
+  const lines = ['# Drakkin Dragon Heritages', ''];
+  lines.push(`**${drakkinHeritages.length} heritages** available for the Drakkin race`, '');
+  lines.push('Each heritage represents a dragon bloodline that determines appearance and lore background.', '');
+
+  lines.push('| Heritage ID | Name | Available Classes |');
+  lines.push('|-------------|------|-------------------|');
+
+  for (const h of drakkinHeritages.sort((a, b) => a.id - b.id)) {
+    const classNames = h.classes.map(c => CLASS_IDS[c]).filter(Boolean).join(', ');
+    lines.push(`| ${h.id} | ${h.name} | ${classNames} |`);
+  }
+
+  // Summary: which classes can be Drakkin
+  const allClassIds = new Set<number>();
+  for (const h of drakkinHeritages) {
+    for (const c of h.classes) allClassIds.add(c);
+  }
+  const sortedClasses = [...allClassIds].sort((a, b) => a - b).map(c => CLASS_IDS[c]).filter(Boolean);
+  lines.push('', `**Drakkin can be:** ${sortedClasses.join(', ')} (${sortedClasses.length} classes)`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: RECOURSE SPELL SEARCH ============
+
+export async function searchSpellsWithRecourse(className?: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  await loadSpellDescriptions();
+
+  const lines = ['# Spells with Recourse Effects', ''];
+
+  let classId: number | undefined;
+  if (className) {
+    classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (!classId) {
+      return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+    }
+    lines[0] = `# ${CLASS_IDS[classId]} Spells with Recourse Effects`;
+  }
+
+  const results: { name: string; level: number; recourseId: number; recourseName: string; category: string }[] = [];
+
+  for (const [, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const recourseId = parseInt(spell.fields[SF.RECOURSE]);
+    if (!recourseId || recourseId <= 0) continue;
+
+    if (classId) {
+      const classLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]);
+      if (isNaN(classLevel) || classLevel > 254) continue;
+
+      const recourseSpell = spells.get(recourseId);
+      const recourseName = recourseSpell ? recourseSpell.name : `Spell #${recourseId}`;
+      const catId = parseInt(spell.fields[SF.CATEGORY]);
+      const category = (spellCategories && spellCategories.get(catId)) || '';
+
+      results.push({ name: spell.name, level: classLevel, recourseId, recourseName, category });
+    } else {
+      let minLevel = 255;
+      for (let c = 0; c < 16; c++) {
+        const lvl = parseInt(spell.fields[SF.CLASS_LEVEL_START + c]);
+        if (!isNaN(lvl) && lvl < minLevel) minLevel = lvl;
+      }
+      if (minLevel > 254) continue;
+
+      const recourseSpell = spells.get(recourseId);
+      const recourseName = recourseSpell ? recourseSpell.name : `Spell #${recourseId}`;
+      const catId = parseInt(spell.fields[SF.CATEGORY]);
+      const category = (spellCategories && spellCategories.get(catId)) || '';
+
+      results.push({ name: spell.name, level: minLevel, recourseId, recourseName, category });
+    }
+  }
+
+  results.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  lines.push(`**${results.length} spells** with recourse (follow-up) effects`, '');
+  lines.push('A recourse spell is automatically cast on the caster when the main spell successfully lands on a target.', '');
+
+  lines.push('| Level | Spell | Recourse Spell | Category |');
+  lines.push('|-------|-------|----------------|----------|');
+
+  for (const r of results.slice(0, 100)) {
+    lines.push(`| ${r.level} | ${r.name} | ${r.recourseName} | ${r.category} |`);
+  }
+
+  if (results.length > 100) {
+    lines.push('', `*Showing first 100 of ${results.length} results.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: BASE STAT COMPARISON ============
+
+export async function compareBaseStats(class1: string, class2: string, level?: number): Promise<string> {
+  await loadBaseStats();
+  if (!baseStats || baseStats.length === 0) return 'Base stat data not available.';
+
+  const classId1 = CLASS_NAME_TO_ID[class1.toLowerCase()];
+  const classId2 = CLASS_NAME_TO_ID[class2.toLowerCase()];
+  if (!classId1) return `Unknown class: "${class1}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (!classId2) return `Unknown class: "${class2}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (classId1 === classId2) return `Both classes are the same (${CLASS_IDS[classId1]}). Choose two different classes.`;
+
+  const name1 = CLASS_IDS[classId1];
+  const name2 = CLASS_IDS[classId2];
+
+  const entries1 = baseStats.filter(e => e.classId === classId1);
+  const entries2 = baseStats.filter(e => e.classId === classId2);
+
+  if (entries1.length === 0) return `No base stat data found for ${name1}.`;
+  if (entries2.length === 0) return `No base stat data found for ${name2}.`;
+
+  const lines = [`# Base Stat Comparison: ${name1} vs ${name2}`, ''];
+
+  if (level) {
+    const e1 = entries1.find(e => e.level === level);
+    const e2 = entries2.find(e => e.level === level);
+    if (!e1) return `No data for ${name1} at level ${level}.`;
+    if (!e2) return `No data for ${name2} at level ${level}.`;
+
+    lines.push(`## Level ${level}`, '');
+    lines.push(`| Stat | ${name1} | ${name2} | Difference |`);
+    lines.push('|------|' + '-'.repeat(name1.length + 2) + '|' + '-'.repeat(name2.length + 2) + '|------------|');
+
+    const stats = [
+      { label: 'HP', v1: e1.hp, v2: e2.hp },
+      { label: 'Mana', v1: e1.mana, v2: e2.mana },
+      { label: 'Endurance', v1: e1.endurance, v2: e2.endurance },
+      { label: 'HP Regen', v1: e1.hpRegen, v2: e2.hpRegen },
+      { label: 'Mana Regen', v1: e1.manaRegen, v2: e2.manaRegen },
+      { label: 'End Regen', v1: e1.enduranceRegen, v2: e2.enduranceRegen },
+    ];
+
+    for (const s of stats) {
+      const diff = s.v1 - s.v2;
+      const diffStr = diff > 0 ? `+${diff.toFixed(1)} ${name1}` : diff < 0 ? `+${(-diff).toFixed(1)} ${name2}` : 'Equal';
+      const fmt = (v: number) => v % 1 !== 0 ? v.toFixed(3) : v.toString();
+      lines.push(`| ${s.label} | ${fmt(s.v1)} | ${fmt(s.v2)} | ${diffStr} |`);
+    }
+  } else {
+    const milestones = [1, 10, 20, 30, 40, 50, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125];
+
+    lines.push('## HP Comparison', '');
+    lines.push(`| Level | ${name1} | ${name2} | Advantage |`);
+    lines.push('|-------|' + '-'.repeat(name1.length + 2) + '|' + '-'.repeat(name2.length + 2) + '|-----------|');
+
+    for (const lvl of milestones) {
+      const e1 = entries1.find(e => e.level === lvl);
+      const e2 = entries2.find(e => e.level === lvl);
+      if (!e1 || !e2) continue;
+      const diff = e1.hp - e2.hp;
+      const adv = diff > 0 ? `${name1} +${diff}` : diff < 0 ? `${name2} +${-diff}` : 'Equal';
+      lines.push(`| ${lvl} | ${e1.hp.toLocaleString()} | ${e2.hp.toLocaleString()} | ${adv} |`);
+    }
+
+    lines.push('', '## Mana Comparison', '');
+    lines.push(`| Level | ${name1} | ${name2} | Advantage |`);
+    lines.push('|-------|' + '-'.repeat(name1.length + 2) + '|' + '-'.repeat(name2.length + 2) + '|-----------|');
+
+    for (const lvl of milestones) {
+      const e1 = entries1.find(e => e.level === lvl);
+      const e2 = entries2.find(e => e.level === lvl);
+      if (!e1 || !e2) continue;
+      const diff = e1.mana - e2.mana;
+      const adv = diff > 0 ? `${name1} +${diff}` : diff < 0 ? `${name2} +${-diff}` : 'Equal';
+      lines.push(`| ${lvl} | ${e1.mana.toLocaleString()} | ${e2.mana.toLocaleString()} | ${adv} |`);
+    }
+
+    lines.push('', '## Endurance Comparison', '');
+    lines.push(`| Level | ${name1} | ${name2} | Advantage |`);
+    lines.push('|-------|' + '-'.repeat(name1.length + 2) + '|' + '-'.repeat(name2.length + 2) + '|-----------|');
+
+    for (const lvl of milestones) {
+      const e1 = entries1.find(e => e.level === lvl);
+      const e2 = entries2.find(e => e.level === lvl);
+      if (!e1 || !e2) continue;
+      const diff = e1.endurance - e2.endurance;
+      const adv = diff > 0 ? `${name1} +${diff}` : diff < 0 ? `${name2} +${-diff}` : 'Equal';
+      lines.push(`| ${lvl} | ${e1.endurance.toLocaleString()} | ${e2.endurance.toLocaleString()} | ${adv} |`);
+    }
+  }
+
+  return lines.join('\n');
+}
