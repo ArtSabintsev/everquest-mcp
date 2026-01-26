@@ -507,6 +507,7 @@ interface OverseerMinion {
   bio: string;
   traits: string[];
   traitIds: number[];
+  jobs: { jobTypeId: number; level: number }[];
 }
 
 interface OverseerSlotDetail {
@@ -1698,7 +1699,7 @@ async function loadOverseerMinions(): Promise<void> {
       const fullName = fullNames.get(id) || shortName;
       const bio = bios.get(id) || '';
 
-      overseerMinions.set(id, { id, rarity, shortName, fullName, bio, traits: [], traitIds: [] });
+      overseerMinions.set(id, { id, rarity, shortName, fullName, bio, traits: [], traitIds: [], jobs: [] });
 
       const lowerName = fullName.toLowerCase();
       const existing = overseerMinionNameIndex!.get(lowerName) || [];
@@ -1729,6 +1730,33 @@ async function loadOverseerMinions(): Promise<void> {
       }
     } catch {
       console.error('[LocalData] Could not load OvrMiniTraitClient.txt');
+    }
+
+    // Load agent jobs from OvrJobClient.txt
+    try {
+      const jobData = await readGameFile(join('Resources', 'OvrJobClient.txt'));
+      const jobLines = jobData.split('\n');
+
+      for (const line of jobLines) {
+        if (!line.trim() || line.startsWith('#')) continue;
+        const fields = line.split('^');
+        if (fields.length < 7) continue;
+
+        const jobTypeId = parseInt(fields[0]);
+        const minionId = parseInt(fields[1]);
+        const level = parseInt(fields[5]);
+        if (isNaN(jobTypeId) || isNaN(minionId)) continue;
+
+        const minion = overseerMinions.get(minionId);
+        if (minion) {
+          // Only add if not already present
+          if (!minion.jobs.some(j => j.jobTypeId === jobTypeId)) {
+            minion.jobs.push({ jobTypeId, level: isNaN(level) ? 1 : level });
+          }
+        }
+      }
+    } catch {
+      console.error('[LocalData] Could not load OvrJobClient.txt');
     }
 
     console.error(`[LocalData] Loaded ${overseerMinions.size} Overseer minions`);
@@ -3248,6 +3276,17 @@ export async function getOverseerMinion(id: string): Promise<string> {
     '',
     `**Rarity:** ${OVERSEER_RARITIES[minion.rarity] || 'Unknown'}`,
   ];
+
+  // Show jobs this agent can perform
+  if (minion.jobs.length > 0) {
+    const jobNames = minion.jobs
+      .map(j => {
+        const name = overseerJobNames?.get(j.jobTypeId) || `Job ${j.jobTypeId}`;
+        return `${name} (Lv${j.level})`;
+      })
+      .join(', ');
+    lines.push(`**Jobs:** ${jobNames}`);
+  }
 
   if (minion.traits.length > 0) {
     lines.push('', '### Traits');
