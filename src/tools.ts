@@ -21,6 +21,33 @@ import {
   eqinterface,
   getCacheStats,
   clearCache,
+  // Local game data functions
+  isGameDataAvailable,
+  searchLocalSpells,
+  getLocalSpell,
+  getLocalSpellByName,
+  searchLocalZones,
+  getLocalZone,
+  getSkillCaps,
+  getBaseStats,
+  searchAchievements,
+  getAchievement,
+  getACMitigation,
+  getSpellStackingInfo,
+  getSpellsByClass,
+  getLocalDataStatus,
+  searchFactions,
+  getFaction,
+  searchAAAbilities,
+  getAAAbility,
+  searchLore,
+  getLore,
+  searchGameStrings,
+  getGameString,
+  searchOverseerMinions,
+  getOverseerMinion,
+  searchOverseerQuests,
+  getOverseerQuest,
 } from './sources/index.js';
 
 export const tools = [
@@ -313,6 +340,305 @@ export const tools = [
       required: ['query']
     }
   },
+  // === LOCAL GAME DATA TOOLS ===
+  {
+    name: 'get_spell_data',
+    description: 'Get detailed spell data from local EQ game files (authoritative, offline). Includes cast time, mana, duration, target type, resist type, class levels, effects, and spell stacking info. Use spell ID or search by name.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Spell ID number'
+        },
+        name: {
+          type: 'string',
+          description: 'Spell name to look up (if ID not known)'
+        }
+      },
+    }
+  },
+  {
+    name: 'get_spells_by_class',
+    description: 'List all spells available to a specific class, optionally filtered by level. Uses local game data for complete, authoritative spell lists.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Cleric", "CLR", "Wizard", "WIZ")'
+        },
+        level: {
+          type: 'number',
+          description: 'Optional: filter to spells gained at this specific level'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'get_skill_caps',
+    description: 'Get skill caps for a class by level from local game data. Shows maximum skill values per class/level/skill combination.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Warrior", "WAR", "Cleric", "CLR")'
+        },
+        level: {
+          type: 'number',
+          description: 'Optional: specific level to look up'
+        },
+        skill: {
+          type: 'string',
+          description: 'Optional: specific skill name (e.g., "Dodge", "1H Slashing", "Meditate")'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'get_base_stats',
+    description: 'Get class base stats (HP, Mana, Endurance, regen rates) by class and level from local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Warrior", "WAR")'
+        },
+        level: {
+          type: 'number',
+          description: 'Optional: specific level to look up'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'search_achievements',
+    description: 'Search EverQuest achievements by name or description from local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Achievement name or description to search for'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_achievement',
+    description: 'Get detailed information about a specific achievement by ID from local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Achievement ID'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'get_ac_mitigation',
+    description: 'Get AC soft cap and mitigation data for a class by level from local game data. Shows the AC cap where diminishing returns begin.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Warrior", "WAR")'
+        },
+        level: {
+          type: 'number',
+          description: 'Optional: specific level to look up'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'get_spell_stacking',
+    description: 'Get spell stacking group information for a spell. Shows which stacking group a spell belongs to and other spells in the same group (which won\'t stack with it).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Spell ID to look up stacking info for'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'search_factions',
+    description: 'Search EverQuest factions by name from local game data. Returns faction names, IDs, and value ranges.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Faction name to search for (e.g., "Qeynos", "Firiona Vie", "Claws of Veeshan")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_faction',
+    description: 'Get detailed information about a specific faction by ID, including faction standing thresholds.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Faction ID'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'search_aa',
+    description: 'Search EverQuest Alternate Advancement (AA) abilities by name or description from local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'AA ability name or keyword (e.g., "Combat Agility", "Spell Casting Subtlety", "Origin")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_aa',
+    description: 'Get detailed information about a specific AA ability by ID, including full description and effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'AA ability ID'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'search_lore',
+    description: 'Search EverQuest storyline and lore entries from local game data. Returns narrative stories about game events, expansions, and world history.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query (e.g., "Firiona Vie", "Plane of Time", "Grozmok Stone", "discord")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_lore',
+    description: 'Get a specific EverQuest lore/storyline entry by filename or title.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Lore entry filename (e.g., "storyabysmal.txt") or title (e.g., "Abysmal Words")'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'search_game_strings',
+    description: 'Search EverQuest system messages and game text from local data. Includes combat messages, UI text, error messages, and other game strings.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Text to search for in game strings (e.g., "experience", "stunned", "range")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'search_overseer_agents',
+    description: 'Search Overseer system agents (minions) by name from local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Agent name to search for (e.g., "Firiona", "Mayong", "Phinigel")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_overseer_agent',
+    description: 'Get detailed information about an Overseer agent by ID, including rarity and traits.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Agent/minion ID'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'search_overseer_quests',
+    description: 'Search Overseer quests by name or description from local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Quest name or keyword (e.g., "recruitment", "recovery", "conversion")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_overseer_quest',
+    description: 'Get detailed information about an Overseer quest by ID, including description, difficulty, and duration.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Overseer quest ID'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'get_local_data_status',
+    description: 'Show status of local EverQuest game data integration - which data files are loaded and available.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
   {
     name: 'list_sources',
     description: 'List all available EverQuest data sources and their specialties.',
@@ -366,6 +692,11 @@ function formatSearchResults(results: SearchResult[], query: string): string {
 
 function formatSpell(spell: SpellData): string {
   const lines = [`# ${spell.name}`, `*Source: ${spell.source}*`, ''];
+
+  // Show description if available
+  if (spell.description) {
+    lines.push(spell.description, '');
+  }
 
   // Show effects first if available
   if (spell.effects && spell.effects.length > 0) {
@@ -652,6 +983,7 @@ function formatSources(): string {
   const lines = ['# Available EverQuest Data Sources', ''];
 
   const sourceInfo = [
+    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with descriptions), zones, skill caps, class stats, achievements (with categories & steps), factions (1600+), AA abilities (2700+), AC mitigation, spell stacking, map POIs (34K+ from Brewall maps), lore/storylines (50 stories), game strings (7K messages), Overseer agents (300+) & quests (800+)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
     { name: 'Allakhazam', specialty: 'Primary database - spells, items, NPCs, zones, quests', url: 'https://everquest.allakhazam.com' },
     { name: "Almar's Guides", specialty: 'Quest walkthroughs, epic guides, leveling guides', url: 'https://www.almarsguides.com/eq' },
     { name: 'EQResource', specialty: 'Modern expansion content, progression, spells database', url: 'https://eqresource.com' },
@@ -706,8 +1038,16 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const error = validateQuery(args);
         if (error) return error;
         const query = (args.query as string).trim();
-        const results = await searchAll(query);
-        return formatSearchResults(results, query);
+        // Search local data in parallel with web sources
+        const [localSpells, localZones, webResults] = await Promise.all([
+          searchLocalSpells(query).catch(() => [] as SearchResult[]),
+          searchLocalZones(query).catch(() => [] as SearchResult[]),
+          searchAll(query).catch(() => [] as SearchResult[]),
+        ]);
+        const localResults = [...localSpells.slice(0, 5), ...localZones.slice(0, 5)];
+        const seen = new Set(localResults.map(r => r.name.toLowerCase()));
+        const merged = [...localResults, ...webResults.filter(r => !seen.has(r.name.toLowerCase()))];
+        return formatSearchResults(merged.slice(0, 30), query);
       }
 
       case 'search_quests': {
@@ -739,8 +1079,15 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const error = validateQuery(args);
         if (error) return error;
         const query = (args.query as string).trim();
-        const results = await allakhazam.searchSpells(query);
-        return formatSearchResults(results, query);
+        // Search both local and web sources
+        const [localResults, webResults] = await Promise.all([
+          searchLocalSpells(query).catch(() => [] as SearchResult[]),
+          allakhazam.searchSpells(query).catch(() => [] as SearchResult[]),
+        ]);
+        // Merge: local results first, then web results (deduped by name)
+        const seen = new Set(localResults.map(r => r.name.toLowerCase()));
+        const merged = [...localResults, ...webResults.filter(r => !seen.has(r.name.toLowerCase()))];
+        return formatSearchResults(merged.slice(0, 30), query);
       }
 
       case 'search_items': {
@@ -763,14 +1110,38 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const error = validateQuery(args);
         if (error) return error;
         const query = (args.query as string).trim();
-        const results = await allakhazam.searchZones(query);
-        return formatSearchResults(results, query);
+        const [localResults, webResults] = await Promise.all([
+          searchLocalZones(query).catch(() => [] as SearchResult[]),
+          allakhazam.searchZones(query).catch(() => [] as SearchResult[]),
+        ]);
+        const seen = new Set(localResults.map(r => r.name.toLowerCase()));
+        const merged = [...localResults, ...webResults.filter(r => !seen.has(r.name.toLowerCase()))];
+        return formatSearchResults(merged.slice(0, 30), query);
       }
 
       case 'get_spell': {
         const error = validateId(args);
         if (error) return error;
         const id = (args.id as string).trim();
+        // Try local data first (authoritative), fall back to web
+        const localSpell = await getLocalSpell(id).catch(() => null);
+        if (localSpell) {
+          // Also try web for supplementary info (effects descriptions, etc.)
+          const webSpell = await allakhazam.getSpell(id).catch(() => null);
+          if (webSpell) {
+            // Merge: prefer local data but add web-only fields
+            if (!localSpell.effects?.length && webSpell.effects?.length) {
+              localSpell.effects = webSpell.effects;
+            }
+            if (!localSpell.expansion && webSpell.expansion) {
+              localSpell.expansion = webSpell.expansion;
+            }
+            if (webSpell.raw && !localSpell.raw) {
+              localSpell.raw = webSpell.raw;
+            }
+          }
+          return formatSpell(localSpell);
+        }
         const spell = await allakhazam.getSpell(id);
         if (!spell) {
           return `Spell with ID ${id} not found`;
@@ -804,11 +1175,29 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const error = validateId(args);
         if (error) return error;
         const id = (args.id as string).trim();
-        const zone = await allakhazam.getZone(id);
-        if (!zone) {
-          return `Zone with ID ${id} not found`;
+        // Try both local and web data
+        const [localZone, rawWebZone] = await Promise.all([
+          getLocalZone(id).catch(() => null),
+          allakhazam.getZone(id).catch(() => null),
+        ]);
+        // Filter out invalid web results (e.g., "Not Found" placeholder pages)
+        const webZone = rawWebZone && rawWebZone.name && !rawWebZone.name.toLowerCase().includes('not found') ? rawWebZone : null;
+        if (localZone && webZone) {
+          // Merge: prefer web for rich data, add local level range and POIs
+          if (!webZone.levelRange && localZone.levelRange) {
+            webZone.levelRange = localZone.levelRange;
+          }
+          if (localZone.notableLocations?.length) {
+            webZone.notableLocations = [
+              ...(webZone.notableLocations || []),
+              ...localZone.notableLocations,
+            ];
+          }
+          return formatZone(webZone);
         }
-        return formatZone(zone);
+        if (localZone) return formatZone(localZone);
+        if (webZone) return formatZone(webZone);
+        return `Zone with ID ${id} not found`;
       }
 
       case 'get_quest': {
@@ -893,6 +1282,163 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const query = (args.query as string).trim();
         const results = await searchUI(query);
         return formatSearchResults(results, query);
+      }
+
+      // === LOCAL GAME DATA TOOLS ===
+      case 'get_spell_data': {
+        const id = typeof args.id === 'string' ? args.id.trim() : '';
+        const name = typeof args.name === 'string' ? args.name.trim() : '';
+        if (!id && !name) {
+          return 'Error: Either "id" or "name" parameter is required';
+        }
+        let spell: SpellData | null = null;
+        if (id) {
+          spell = await getLocalSpell(id);
+        } else if (name) {
+          spell = await getLocalSpellByName(name);
+        }
+        if (!spell) {
+          return `Spell not found${id ? ` (ID: ${id})` : ''}${name ? ` (name: "${name}")` : ''}. Make sure local game data is available.`;
+        }
+        return formatSpell(spell);
+      }
+
+      case 'get_spells_by_class': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        return getSpellsByClass(className, level);
+      }
+
+      case 'get_skill_caps': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        const skill = typeof args.skill === 'string' ? args.skill.trim() : undefined;
+        return getSkillCaps(className, level, skill);
+      }
+
+      case 'get_base_stats': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        return getBaseStats(className, level);
+      }
+
+      case 'search_achievements': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchAchievements(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_achievement': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getAchievement(id);
+      }
+
+      case 'get_ac_mitigation': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        return getACMitigation(className, level);
+      }
+
+      case 'get_spell_stacking': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getSpellStackingInfo(id);
+      }
+
+      case 'search_factions': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchFactions(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_faction': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getFaction(id);
+      }
+
+      case 'search_aa': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchAAAbilities(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_aa': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getAAAbility(id);
+      }
+
+      case 'search_lore': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchLore(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_lore': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getLore(id);
+      }
+
+      case 'search_game_strings': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchGameStrings(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'search_overseer_agents': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchOverseerMinions(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_overseer_agent': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getOverseerMinion(id);
+      }
+
+      case 'search_overseer_quests': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchOverseerQuests(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_overseer_quest': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getOverseerQuest(id);
+      }
+
+      case 'get_local_data_status': {
+        return getLocalDataStatus();
       }
 
       case 'list_sources': {

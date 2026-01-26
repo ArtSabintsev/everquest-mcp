@@ -9,6 +9,7 @@ export { zliz } from './zliz.js';
 export { lucy } from './lucy.js';
 export { raidloot } from './raidloot.js';
 export { eqinterface } from './eqinterface.js';
+export * from './localdata.js';
 
 import { EQDataSource, SearchResult, normalizeQuery, fuzzyMatch } from './base.js';
 import { allakhazam } from './allakhazam.js';

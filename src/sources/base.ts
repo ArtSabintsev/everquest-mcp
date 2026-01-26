@@ -72,6 +72,7 @@ export interface SpellData {
   name: string;
   id: string;
   source: string;
+  description?: string;
   mana?: number;
   castTime?: string;
   recastTime?: string;
