@@ -10659,3 +10659,251 @@ export async function getExpansionTimeline(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SPELL ENDURANCE SEARCH ============
+
+export async function searchSpellsByEndurance(className: string, maxEndurance?: number, minEndurance?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const matches: { name: string; level: number; endurance: number; category: string; beneficial: boolean; castTime: number; recastTime: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    if (endurance <= 0) continue; // Only endurance-cost abilities
+
+    if (maxEndurance !== undefined && endurance > maxEndurance) continue;
+    if (minEndurance !== undefined && endurance < minEndurance) continue;
+
+    const name = spell.fields[SF.NAME];
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const recastTime = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+
+    matches.push({ name, level, endurance, category, beneficial, castTime, recastTime });
+  }
+
+  if (matches.length === 0) {
+    const rangeDesc = maxEndurance !== undefined && minEndurance !== undefined
+      ? `${minEndurance}-${maxEndurance}`
+      : maxEndurance !== undefined ? `≤${maxEndurance}` : minEndurance !== undefined ? `≥${minEndurance}` : 'any';
+    return `No ${classFullName} endurance abilities with cost ${rangeDesc}.`;
+  }
+
+  matches.sort((a, b) => b.endurance - a.endurance || a.level - b.level);
+
+  const rangeDesc = maxEndurance !== undefined && minEndurance !== undefined
+    ? `${minEndurance}-${maxEndurance}`
+    : maxEndurance !== undefined ? `≤${maxEndurance}` : minEndurance !== undefined ? `≥${minEndurance}` : 'all';
+
+  const lines = [`# ${classFullName} Endurance Abilities — Cost ${rangeDesc}`, ''];
+  lines.push(`**${matches.length} abilities found**`, '');
+
+  const shown = matches.slice(0, 100);
+  lines.push('| Endurance | Level | Ability | Category | Cast Time | Recast |');
+  lines.push('|-----------|-------|---------|----------|-----------|--------|');
+
+  for (const s of shown) {
+    const castStr = s.castTime === 0 ? 'Instant' : `${(s.castTime / 1000).toFixed(1)}s`;
+    const recastStr = s.recastTime === 0 ? '-' : `${(s.recastTime / 1000).toFixed(1)}s`;
+    lines.push(`| ${s.endurance} | ${s.level} | ${s.name} | ${s.category} | ${castStr} | ${recastStr} |`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*Showing first 100 of ${matches.length}. Narrow your search.*`);
+  }
+
+  // Summary
+  const totalEnd = matches.reduce((sum, m) => sum + m.endurance, 0);
+  const avgEnd = Math.round(totalEnd / matches.length);
+  const maxEnd = matches[0].endurance;
+  const minEnd = matches[matches.length - 1].endurance;
+
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total abilities:** ${matches.length}`);
+  lines.push(`- **Endurance range:** ${minEnd} - ${maxEnd}`);
+  lines.push(`- **Average cost:** ${avgEnd}`);
+
+  // Category breakdown
+  const catCounts = new Map<string, number>();
+  for (const m of matches) {
+    catCounts.set(m.category, (catCounts.get(m.category) || 0) + 1);
+  }
+  const sortedCats = [...catCounts.entries()].sort((a, b) => b[1] - a[1]);
+  if (sortedCats.length > 1) {
+    lines.push('', '**By category:**');
+    for (const [cat, count] of sortedCats.slice(0, 10)) {
+      lines.push(`- ${cat}: ${count}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: AC MITIGATION COMPARISON ============
+
+export async function getACMitigationComparison(level?: number): Promise<string> {
+  await loadACMitigation();
+  if (!acMitigation || acMitigation.length === 0) return 'AC mitigation data not available.';
+
+  const targetLevel = level ?? 125;
+
+  const classEntries: { classId: number; name: string; acCap: number; multiplier: number }[] = [];
+
+  for (let classId = 1; classId <= 16; classId++) {
+    const entry = acMitigation.find(e => e.classId === classId && e.level === targetLevel);
+    if (entry) {
+      classEntries.push({
+        classId,
+        name: CLASS_IDS[classId],
+        acCap: entry.acCap,
+        multiplier: entry.softCapMultiplier,
+      });
+    }
+  }
+
+  if (classEntries.length === 0) {
+    return `No AC mitigation data found for level ${targetLevel}. Try a different level (1-125).`;
+  }
+
+  // Sort by AC cap descending
+  classEntries.sort((a, b) => b.acCap - a.acCap);
+
+  const lines = [`# AC Mitigation Comparison — Level ${targetLevel}`, ''];
+  lines.push('AC Soft Cap is where additional AC returns diminish. Above the cap, each point of AC is worth (Soft Cap Multiplier) of its normal value.', '');
+
+  lines.push('| Rank | Class | AC Soft Cap | Soft Cap Mult | Effective Tier |');
+  lines.push('|------|-------|-------------|---------------|----------------|');
+
+  for (let i = 0; i < classEntries.length; i++) {
+    const c = classEntries[i];
+    const multPct = (c.multiplier * 100).toFixed(0) + '%';
+    // Tier assignment based on AC cap ranges
+    let tier = 'Light';
+    if (c.acCap >= classEntries[0].acCap * 0.9) tier = 'Plate';
+    else if (c.acCap >= classEntries[0].acCap * 0.7) tier = 'Chain';
+    else if (c.acCap >= classEntries[0].acCap * 0.5) tier = 'Leather';
+    lines.push(`| ${i + 1} | ${c.name} | ${c.acCap.toLocaleString()} | ${multPct} | ${tier} |`);
+  }
+
+  // Rankings
+  lines.push('', '## Analysis', '');
+
+  const highest = classEntries[0];
+  const lowest = classEntries[classEntries.length - 1];
+  lines.push(`**Highest AC cap:** ${highest.name} (${highest.acCap.toLocaleString()})`);
+  lines.push(`**Lowest AC cap:** ${lowest.name} (${lowest.acCap.toLocaleString()})`);
+  lines.push(`**Spread:** ${(highest.acCap - lowest.acCap).toLocaleString()} AC (${((highest.acCap / lowest.acCap - 1) * 100).toFixed(0)}% difference)`);
+
+  // Group by tier
+  const tiers: Record<string, string[]> = { 'Plate': [], 'Chain': [], 'Leather': [], 'Light': [] };
+  for (const c of classEntries) {
+    let tier = 'Light';
+    if (c.acCap >= classEntries[0].acCap * 0.9) tier = 'Plate';
+    else if (c.acCap >= classEntries[0].acCap * 0.7) tier = 'Chain';
+    else if (c.acCap >= classEntries[0].acCap * 0.5) tier = 'Leather';
+    tiers[tier].push(c.name);
+  }
+  lines.push('', '**Armor tiers:**');
+  for (const [tier, classes] of Object.entries(tiers)) {
+    if (classes.length > 0) {
+      lines.push(`- **${tier}:** ${classes.join(', ')}`);
+    }
+  }
+
+  // Multiplier analysis
+  const byMult = [...classEntries].sort((a, b) => b.multiplier - a.multiplier);
+  lines.push('', `**Best soft cap multiplier:** ${byMult[0].name} (${(byMult[0].multiplier * 100).toFixed(0)}%)`);
+  lines.push(`**Worst soft cap multiplier:** ${byMult[byMult.length - 1].name} (${(byMult[byMult.length - 1].multiplier * 100).toFixed(0)}%)`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: TRIBUTE OVERVIEW ============
+
+export async function getTributeOverview(): Promise<string> {
+  await loadTributes();
+  if (!tributes || tributes.size === 0) return 'Tribute data not available.';
+
+  const personal: TributeEntry[] = [];
+  const guild: TributeEntry[] = [];
+
+  for (const tribute of tributes.values()) {
+    if (tribute.isGuild) {
+      guild.push(tribute);
+    } else {
+      personal.push(tribute);
+    }
+  }
+
+  const lines = ['# Tribute System Overview', ''];
+
+  lines.push(`- **Personal tributes:** ${personal.length}`);
+  lines.push(`- **Guild tributes:** ${guild.length}`);
+  lines.push(`- **Total:** ${tributes.size}`);
+
+  // Personal tributes sorted alphabetically
+  lines.push('', '## Personal Tributes', '');
+  personal.sort((a, b) => a.name.localeCompare(b.name));
+
+  lines.push('| # | Tribute | Description |');
+  lines.push('|---|---------|-------------|');
+
+  for (let i = 0; i < personal.length; i++) {
+    const desc = personal[i].description.length > 80
+      ? personal[i].description.substring(0, 80) + '...'
+      : personal[i].description;
+    lines.push(`| ${i + 1} | ${personal[i].name} | ${desc} |`);
+  }
+
+  // Guild tributes
+  if (guild.length > 0) {
+    lines.push('', '## Guild Tributes', '');
+    guild.sort((a, b) => a.name.localeCompare(b.name));
+
+    lines.push('| # | Tribute | Description |');
+    lines.push('|---|---------|-------------|');
+
+    for (let i = 0; i < guild.length; i++) {
+      const desc = guild[i].description.length > 80
+        ? guild[i].description.substring(0, 80) + '...'
+        : guild[i].description;
+      lines.push(`| ${i + 1} | ${guild[i].name} | ${desc} |`);
+    }
+  }
+
+  // Word frequency in tribute descriptions for common themes
+  const wordCounts = new Map<string, number>();
+  const stopWords = new Set(['the', 'a', 'an', 'of', 'to', 'in', 'for', 'and', 'or', 'is', 'by', 'on', 'at', 'with', 'your', 'you', 'this', 'that', 'it', 'from', 'are', 'be', 'has', 'was', 'will', 'can', 'all', 'as', 'not', 'but', 'its', 'per', 'been', 'each']);
+  for (const tribute of tributes.values()) {
+    const words = tribute.description.toLowerCase().split(/\W+/);
+    for (const word of words) {
+      if (word.length > 3 && !stopWords.has(word)) {
+        wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+      }
+    }
+  }
+  const topWords = [...wordCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  if (topWords.length > 0) {
+    lines.push('', '## Common Tribute Themes', '');
+    for (const [word, count] of topWords) {
+      lines.push(`- **${word}:** mentioned in ${count} tributes`);
+    }
+  }
+
+  return lines.join('\n');
+}

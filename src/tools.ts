@@ -145,6 +145,9 @@ import {
   getDeityOverview,
   getClassComparisonMatrix,
   getExpansionTimeline,
+  searchSpellsByEndurance,
+  getACMitigationComparison,
+  getTributeOverview,
 } from './sources/index.js';
 
 export const tools = [
@@ -2089,6 +2092,39 @@ export const tools = [
     }
   },
   {
+    name: 'search_spells_by_endurance',
+    description: 'Search for class abilities that cost endurance (combat abilities, disciplines). Filter by endurance cost range. Complements mana cost search for melee/hybrid classes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g., "Warrior", "Monk", "Berserker")' },
+        max_endurance: { type: 'number', description: 'Maximum endurance cost (optional)' },
+        min_endurance: { type: 'number', description: 'Minimum endurance cost (optional)' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_ac_mitigation_comparison',
+    description: 'Compare AC soft caps and soft cap multipliers across all 16 classes at a given level. Shows armor tier groupings (Plate/Chain/Leather/Light) and rankings.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        level: { type: 'number', description: 'Character level to compare (default: 125)' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_tribute_overview',
+    description: 'Overview of the EverQuest tribute system showing all personal and guild tributes with descriptions and common themes.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3561,6 +3597,23 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_expansion_timeline': {
         return getExpansionTimeline();
+      }
+
+      case 'search_spells_by_endurance': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required';
+        const maxEndurance = typeof args.max_endurance === 'number' ? args.max_endurance : undefined;
+        const minEndurance = typeof args.min_endurance === 'number' ? args.min_endurance : undefined;
+        return searchSpellsByEndurance(className, maxEndurance, minEndurance);
+      }
+
+      case 'get_ac_mitigation_comparison': {
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        return getACMitigationComparison(level);
+      }
+
+      case 'get_tribute_overview': {
+        return getTributeOverview();
       }
 
       case 'search_help_topics': {

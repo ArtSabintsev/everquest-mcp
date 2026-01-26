@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 137 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 140 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **137 tools** for querying EverQuest data
+- **140 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -138,6 +138,7 @@ Then restart Claude Desktop.
 | `search_spells_by_recast_time` | Search spells by recast/cooldown time (find long-cooldown disciplines, short-recast nukes, etc.) |
 | `search_spells_by_range` | Search spells by casting range or AE range (find long-range nukes, close-range AE spells) |
 | `search_spells_by_mana_cost` | Search spells by mana or endurance cost (find cheap efficient spells or expensive high-impact ones) |
+| `search_spells_by_endurance` | Search endurance-cost abilities (combat abilities, disciplines) by endurance cost range for melee/hybrid classes |
 | `search_spells_by_duration` | Search spells by buff/debuff duration (find short emergency spells or long-lasting buffs) |
 | `search_spells_by_pushback` | Search spells with knockback/pushback effects (push back and push up values) |
 | `search_spells_by_recovery_time` | Search spells by recovery time (delay after casting before next action) |
@@ -156,6 +157,7 @@ Then restart Claude Desktop.
 | `get_skill_caps` | Skill caps by class and level |
 | `get_base_stats` | Base stats progression by class and level |
 | `get_ac_mitigation` | AC mitigation values by class and level |
+| `get_ac_mitigation_comparison` | Compare AC soft caps and multipliers across all 16 classes — armor tier groupings and rankings |
 | `search_creature_types` | Search 980+ creature/NPC race types (Aviaks, Werewolves, Giants, etc.) |
 | `compare_races` | Compare two races side by side (stats, classes, deities) |
 | `compare_classes` | Compare two classes side by side (races, spell counts, category breakdown) |
@@ -199,6 +201,7 @@ Then restart Claude Desktop.
 | `search_alt_currencies` | Search alternate currencies |
 | `search_tributes` | Search tribute items |
 | `get_tribute` | Get tribute item details |
+| `get_tribute_overview` | Tribute system overview — personal vs guild tributes, full listing, and common themes |
 | `get_faction_overview` | Faction system overview with counts by expansion, value ranges, starting modifier stats |
 | `compare_factions` | Compare two factions side by side (expansion, value ranges, starting values by race) |
 | `get_currency_overview` | Alternate currency overview — total count, description stats, keyword analysis, complete listing |
@@ -294,7 +297,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (137 tools)
+├── tools.ts          # Tool definitions and handlers (140 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
