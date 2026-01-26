@@ -15340,3 +15340,500 @@ export async function getSpellProgressionAnalysis(className: string): Promise<st
 
   return lines.join('\n');
 }
+
+// ============ TELEPORT NETWORK ANALYSIS ============
+
+export async function getTeleportNetworkAnalysis(): Promise<string> {
+  await loadSpells();
+  await loadZones();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Teleport Network Analysis', ''];
+  lines.push('*Zone connectivity via teleport spells — hub zones, class access, and network topology.*', '');
+
+  // Collect teleport spells with class info
+  interface TeleportEdge {
+    spellId: number;
+    spellName: string;
+    destZone: string;
+    classes: Set<string>;
+    minLevel: number;
+  }
+
+  const destMap = new Map<string, TeleportEdge[]>(); // zone -> edges targeting it
+  const classDestinations = new Map<string, Set<string>>(); // class -> destinations
+
+  for (const spell of spells.values()) {
+    const tz = spell.fields[SF.TELEPORT_ZONE]?.trim();
+    if (!tz || !/^[a-z_]+[a-z0-9_]*$/.test(tz)) continue;
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const classes = new Set<string>();
+    let minLevel = 255;
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level > 0 && level < 255) {
+        classes.add(CLASS_SHORT[i]);
+        if (level < minLevel) minLevel = level;
+      }
+    }
+
+    if (!destMap.has(tz)) destMap.set(tz, []);
+    destMap.get(tz)!.push({ spellId: spell.id, spellName: spell.name, destZone: tz, classes, minLevel });
+
+    for (const cls of classes) {
+      if (!classDestinations.has(cls)) classDestinations.set(cls, new Set());
+      classDestinations.get(cls)!.add(tz);
+    }
+  }
+
+  const totalDestinations = destMap.size;
+  const totalTeleportSpells = [...destMap.values()].reduce((s, edges) => s + edges.length, 0);
+
+  lines.push(`- **Total teleport spells:** ${totalTeleportSpells.toLocaleString()}`);
+  lines.push(`- **Unique destinations:** ${totalDestinations}`);
+  lines.push(`- **Classes with teleports:** ${classDestinations.size}`, '');
+
+  // Hub zones (most teleport spells targeting them)
+  lines.push('## Hub Zones (Most Teleport Access)', '');
+  lines.push('| Zone | Spells | Classes With Access | Earliest Level |');
+  lines.push('|------|--------|--------------------|--------------:|');
+  const hubZones = [...destMap.entries()]
+    .map(([zone, edges]) => {
+      const allClasses = new Set<string>();
+      let earliest = 255;
+      for (const e of edges) {
+        for (const c of e.classes) allClasses.add(c);
+        if (e.minLevel < earliest) earliest = e.minLevel;
+      }
+      return { zone, spellCount: edges.length, classes: allClasses, earliest };
+    })
+    .sort((a, b) => b.spellCount - a.spellCount);
+
+  for (const h of hubZones.slice(0, 20)) {
+    const classStr = [...h.classes].sort().join(', ');
+    lines.push(`| ${h.zone} | ${h.spellCount} | ${classStr} | ${h.earliest} |`);
+  }
+
+  // Class teleport access rankings
+  lines.push('', '## Class Teleport Access Rankings', '');
+  lines.push('| Class | Unique Destinations | Teleport Spells |');
+  lines.push('|-------|--------------------:|----------------:|');
+  const classRankings = [...classDestinations.entries()]
+    .map(([cls, dests]) => {
+      let spellCount = 0;
+      for (const edges of destMap.values()) {
+        for (const e of edges) {
+          if (e.classes.has(cls)) spellCount++;
+        }
+      }
+      return { cls, dests: dests.size, spellCount };
+    })
+    .sort((a, b) => b.dests - a.dests);
+  for (const r of classRankings) {
+    lines.push(`| ${r.cls} | ${r.dests} | ${r.spellCount} |`);
+  }
+
+  // Zones with level data cross-referenced
+  if (zones && zones.size > 0) {
+    lines.push('', '## Teleport Destinations by Level Range', '');
+    lines.push('| Level Range | Zones With Teleport | Total Zones | Coverage % |');
+    lines.push('|-------------|--------------------:|------------:|-----------:|');
+
+    const brackets = [
+      [1, 10], [11, 20], [21, 30], [31, 40], [41, 50],
+      [51, 60], [61, 70], [71, 80], [81, 90], [91, 100], [101, 125]
+    ];
+
+    // Find teleport zone names that match actual zone names
+    const teleportZoneNames = new Set([...destMap.keys()].map(z => z.toLowerCase()));
+
+    for (const [lo, hi] of brackets) {
+      let totalZones = 0;
+      let teleportZones = 0;
+      for (const z of zones.values()) {
+        if (z.levelMin >= lo && z.levelMin <= hi) {
+          totalZones++;
+          // Check if this zone's name matches any teleport destination
+          const zoneNameLower = z.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (teleportZoneNames.has(zoneNameLower)) teleportZones++;
+        }
+      }
+      if (totalZones > 0) {
+        const pct = ((teleportZones / totalZones) * 100).toFixed(1);
+        lines.push(`| ${lo}-${hi} | ${teleportZones} | ${totalZones} | ${pct}% |`);
+      }
+    }
+  }
+
+  // Exclusive destinations (only one class can reach)
+  const exclusiveDests: { zone: string; cls: string; spellName: string }[] = [];
+  for (const [zone, edges] of destMap) {
+    const allClasses = new Set<string>();
+    for (const e of edges) {
+      for (const c of e.classes) allClasses.add(c);
+    }
+    if (allClasses.size === 1) {
+      const cls = [...allClasses][0];
+      exclusiveDests.push({ zone, cls, spellName: edges[0].spellName });
+    }
+  }
+
+  if (exclusiveDests.length > 0) {
+    lines.push('', '## Class-Exclusive Destinations', '');
+    lines.push('| Zone | Exclusive To | Sample Spell |');
+    lines.push('|------|-------------|-------------|');
+    for (const d of exclusiveDests.slice(0, 20)) {
+      lines.push(`| ${d.zone} | ${d.cls} | ${d.spellName} |`);
+    }
+    if (exclusiveDests.length > 20) {
+      lines.push(`| ... | ${exclusiveDests.length - 20} more | |`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ ZONE CONTENT DENSITY RANKING ============
+
+export async function getZoneContentDensityRanking(): Promise<string> {
+  await loadZones();
+  await loadSpells();
+  await buildMapDirIndex();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  const lines = ['# Zone Content Density Ranking', ''];
+  lines.push('*Zones ranked by content richness — map POIs, teleport accessibility, and level range.*', '');
+
+  // Collect teleport spells per zone (keyed by short name)
+  const teleportsByZone = new Map<string, number>();
+  if (spells) {
+    for (const spell of spells.values()) {
+      const tz = spell.fields[SF.TELEPORT_ZONE]?.trim();
+      if (!tz || !/^[a-z_]+[a-z0-9_]*$/.test(tz)) continue;
+      teleportsByZone.set(tz, (teleportsByZone.get(tz) || 0) + 1);
+    }
+  }
+
+  // Count POIs per zone short name from map directory index
+  const mapPOICount = new Map<string, number>();
+  if (mapDirIndex && mapDirIndex.size > 0) {
+    for (const [shortName, dir] of mapDirIndex) {
+      try {
+        const content = await readFile(join(dir, `${shortName}.txt`), 'utf-8');
+        let poiCount = 0;
+        for (const line of content.split('\n')) {
+          if (line.startsWith('P ')) poiCount++;
+        }
+        if (poiCount > 0) mapPOICount.set(shortName, poiCount);
+      } catch { /* skip unreadable */ }
+    }
+  }
+
+  // Build zone scores using deriveShortName for matching
+  interface ZoneScore {
+    name: string;
+    shortName: string;
+    levelMin: number;
+    levelMax: number;
+    levelRange: number;
+    poiCount: number;
+    teleportSpells: number;
+    score: number;
+  }
+
+  const zoneScores: ZoneScore[] = [];
+  for (const z of zones.values()) {
+    const candidates = deriveShortName(z.name);
+
+    // Find best matching short name
+    let poiCount = 0;
+    let teleportSpells = 0;
+    let matchedShort = candidates[0] || '';
+    for (const c of candidates) {
+      const poi = mapPOICount.get(c) || 0;
+      const tp = teleportsByZone.get(c) || 0;
+      if (poi > poiCount || tp > teleportSpells) {
+        poiCount = Math.max(poiCount, poi);
+        teleportSpells = Math.max(teleportSpells, tp);
+        matchedShort = c;
+      }
+      // Also check with underscores removed
+      const noUnderscore = c.replace(/_/g, '');
+      const poi2 = mapPOICount.get(noUnderscore) || 0;
+      const tp2 = teleportsByZone.get(noUnderscore) || 0;
+      if (poi2 > poiCount || tp2 > teleportSpells) {
+        poiCount = Math.max(poiCount, poi2);
+        teleportSpells = Math.max(teleportSpells, tp2);
+        matchedShort = noUnderscore;
+      }
+    }
+
+    const levelRange = z.levelMax > 0 ? z.levelMax - z.levelMin : 0;
+
+    // Content density score: weighted combination
+    const score = poiCount * 1 + teleportSpells * 5 + levelRange * 2;
+
+    zoneScores.push({
+      name: z.name,
+      shortName: matchedShort,
+      levelMin: z.levelMin,
+      levelMax: z.levelMax,
+      levelRange,
+      poiCount,
+      teleportSpells,
+      score
+    });
+  }
+
+  zoneScores.sort((a, b) => b.score - a.score);
+
+  const withPOIs = zoneScores.filter(z => z.poiCount > 0).length;
+  const withTeleports = zoneScores.filter(z => z.teleportSpells > 0).length;
+  const withLevels = zoneScores.filter(z => z.levelMin > 0).length;
+
+  lines.push(`- **Total zones:** ${zones.size}`);
+  lines.push(`- **Zones with map POIs:** ${withPOIs}`);
+  lines.push(`- **Zones with teleport access:** ${withTeleports}`);
+  lines.push(`- **Zones with level ranges:** ${withLevels}`, '');
+
+  // Top 30 most content-rich zones
+  lines.push('## Most Content-Rich Zones (Top 30)', '');
+  lines.push('| Rank | Zone | Level | POIs | Teleports | Score |');
+  lines.push('|-----:|------|------:|-----:|----------:|------:|');
+  for (let i = 0; i < Math.min(30, zoneScores.length); i++) {
+    const z = zoneScores[i];
+    if (z.score === 0) break;
+    const levelStr = z.levelMin > 0 ? `${z.levelMin}-${z.levelMax}` : '-';
+    lines.push(`| ${i + 1} | ${z.name} | ${levelStr} | ${z.poiCount} | ${z.teleportSpells} | ${z.score} |`);
+  }
+
+  // Bottom 20 (least content)
+  const nonEmpty = zoneScores.filter(z => z.score > 0);
+  if (nonEmpty.length > 30) {
+    lines.push('', '## Least Content-Rich Zones (With Any Data)', '');
+    lines.push('| Zone | Level | POIs | Teleports | Score |');
+    lines.push('|------|------:|-----:|----------:|------:|');
+    const bottom = nonEmpty.slice(-20).reverse();
+    for (const z of bottom) {
+      const levelStr = z.levelMin > 0 ? `${z.levelMin}-${z.levelMax}` : '-';
+      lines.push(`| ${z.name} | ${levelStr} | ${z.poiCount} | ${z.teleportSpells} | ${z.score} |`);
+    }
+  }
+
+  // POI density distribution
+  lines.push('', '## Map POI Distribution', '');
+  const poiBuckets = [0, 1, 10, 25, 50, 100, 250, 500, Infinity];
+  lines.push('| POI Range | Zones |');
+  lines.push('|-----------|------:|');
+  for (let i = 0; i < poiBuckets.length - 1; i++) {
+    const lo = poiBuckets[i];
+    const hi = poiBuckets[i + 1];
+    const count = zoneScores.filter(z => z.poiCount >= lo && z.poiCount < hi).length;
+    const label = hi === Infinity ? `${lo}+` : `${lo}-${hi - 1}`;
+    lines.push(`| ${label} | ${count} |`);
+  }
+
+  // Zones with no data at all
+  const empty = zoneScores.filter(z => z.score === 0);
+  if (empty.length > 0) {
+    lines.push('', `## Zones With No Content Data: ${empty.length}`, '');
+    lines.push('*These zones have no map POIs, no teleport spells, and no level range defined.*');
+  }
+
+  return lines.join('\n');
+}
+
+// ============ CLASS POWER MILESTONE TIMELINE ============
+
+export async function getClassPowerMilestoneTimeline(className: string): Promise<string> {
+  await loadSpells();
+  await loadBaseStats();
+  await loadSkillCaps();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const cn = className.toUpperCase().trim();
+  let entry = Object.entries(CLASS_SHORT).find(([, short]) => short === cn);
+  if (!entry) {
+    entry = Object.entries(CLASS_IDS).find(([, name]) => name.toLowerCase() === className.toLowerCase().trim());
+  }
+  if (!entry) return `Unknown class: "${className}". Valid short codes: ${Object.values(CLASS_SHORT).join(', ')}. Full names: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classId = parseInt(entry[0]);
+  const classFullName = CLASS_IDS[classId];
+
+  const lines = [`# ${classFullName} Power Milestone Timeline`, ''];
+  lines.push(`*Unified progression view — spells, stats, and skills across levels.*`, '');
+
+  // Collect spells by level
+  const spellsByLevel = new Map<number, { name: string; catId: number; beneficial: boolean; spas: number[] }[]>();
+  const categoriesSeenByLevel = new Map<number, Set<number>>();
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]);
+    if (isNaN(level) || level < 1 || level > 254) continue;
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    const spas: number[] = [];
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (!isNaN(spaId) && spaId > 0) spas.push(spaId);
+        }
+      }
+    }
+
+    if (!spellsByLevel.has(level)) spellsByLevel.set(level, []);
+    spellsByLevel.get(level)!.push({ name: spell.name, catId, beneficial, spas });
+
+    if (!categoriesSeenByLevel.has(level)) categoriesSeenByLevel.set(level, new Set());
+    categoriesSeenByLevel.get(level)!.add(catId);
+  }
+
+  // Collect base stats by level
+  const statsAtLevel = new Map<number, BaseStatEntry>();
+  if (baseStats) {
+    for (const s of baseStats) {
+      if (s.classId === classId) statsAtLevel.set(s.level, s);
+    }
+  }
+
+  // Collect skill cap milestones (new skills unlocked)
+  const skillsUnlockedByLevel = new Map<number, number>(); // level -> number of new skills unlocked
+  const skillNames: Record<number, string> = {
+    0: '1H Blunt', 1: '1H Slash', 2: '2H Blunt', 3: '2H Slash', 4: 'Abjuration',
+    5: 'Alteration', 6: 'Apply Poison', 7: 'Archery', 8: 'Backstab', 9: 'Bind Wound',
+    10: 'Bash', 11: 'Block', 12: 'Brass', 13: 'Channeling', 14: 'Conjuration',
+    15: 'Defense', 16: 'Disarm', 17: 'Disarm Traps', 18: 'Divination', 19: 'Dodge',
+    20: 'Double Attack', 21: 'Dragon Punch', 22: 'Dual Wield', 23: 'Eagle Strike',
+    24: 'Evocation', 25: 'Feign Death', 26: 'Flying Kick', 27: 'Forage', 28: 'Hand to Hand',
+    29: 'Hide', 30: 'Kick', 31: 'Meditate', 32: 'Mend', 33: 'Offense', 34: 'Parry',
+    35: 'Pick Lock', 36: 'Piercing', 37: 'Riposte', 38: 'Round Kick', 39: 'Safe Fall',
+    40: 'Sense Heading', 41: 'Singing', 42: 'Sneak', 43: 'Specialize Abjure',
+    44: 'Specialize Alter', 45: 'Specialize Conjure', 46: 'Specialize Divination',
+    47: 'Specialize Evocation', 48: 'Spell Casting Mastery', 49: 'Swimming', 50: 'Throwing',
+    51: 'Tiger Claw', 52: 'Tracking', 53: 'Wind', 54: 'Fishing', 55: 'Make Poison',
+    56: 'Tinkering', 57: 'Research', 58: 'Alchemy', 59: 'Baking', 60: 'Tailoring',
+    61: 'Sense Traps', 62: 'Blacksmithing', 63: 'Fletching', 64: 'Brewing', 65: 'Alcohol Tolerance',
+    66: 'Begging', 67: 'Jewelry', 68: 'Pottery', 69: 'Percussion', 70: 'Intimidation',
+    71: 'Berserking', 72: 'Taunt', 73: 'Frenzy', 74: '2H Piercing'
+  };
+
+  if (skillCaps) {
+    // Track first level each skill becomes available (cap > 0)
+    const skillFirstLevel = new Map<number, number>();
+    for (const sc of skillCaps) {
+      if (sc.classId !== classId || sc.cap <= 0) continue;
+      if (!skillFirstLevel.has(sc.skillId) || sc.level < skillFirstLevel.get(sc.skillId)!) {
+        skillFirstLevel.set(sc.skillId, sc.level);
+      }
+    }
+    for (const [, level] of skillFirstLevel) {
+      skillsUnlockedByLevel.set(level, (skillsUnlockedByLevel.get(level) || 0) + 1);
+    }
+  }
+
+  // Build level brackets timeline
+  const brackets = [
+    [1, 5], [6, 10], [11, 15], [16, 20], [21, 25], [26, 30],
+    [31, 35], [36, 40], [41, 45], [46, 50], [51, 55], [56, 60],
+    [61, 65], [66, 70], [71, 75], [76, 80], [81, 85], [86, 90],
+    [91, 95], [96, 100], [101, 105], [106, 110], [111, 115], [116, 120], [121, 125]
+  ];
+
+  lines.push('## Power Progression by Level Bracket', '');
+  lines.push('| Bracket | Spells | New Categories | Skills Unlocked | HP | Mana | Endurance |');
+  lines.push('|---------|-------:|---------------:|----------------:|---:|-----:|----------:|');
+
+  const allCategoriesSeen = new Set<number>();
+  for (const [lo, hi] of brackets) {
+    let spellCount = 0;
+    const bracketCategories = new Set<number>();
+    let newCategories = 0;
+    let skillsUnlocked = 0;
+
+    for (let lvl = lo; lvl <= hi; lvl++) {
+      const lvlSpells = spellsByLevel.get(lvl);
+      if (lvlSpells) {
+        spellCount += lvlSpells.length;
+        for (const s of lvlSpells) {
+          if (s.catId > 0) bracketCategories.add(s.catId);
+        }
+      }
+      skillsUnlocked += skillsUnlockedByLevel.get(lvl) || 0;
+    }
+
+    for (const cat of bracketCategories) {
+      if (!allCategoriesSeen.has(cat)) {
+        newCategories++;
+        allCategoriesSeen.add(cat);
+      }
+    }
+
+    // Get stats at bracket end
+    const endStats = statsAtLevel.get(hi);
+    const hp = endStats ? endStats.hp.toLocaleString() : '-';
+    const mana = endStats ? endStats.mana.toLocaleString() : '-';
+    const endur = endStats ? endStats.endurance.toLocaleString() : '-';
+
+    if (spellCount > 0 || skillsUnlocked > 0 || endStats) {
+      lines.push(`| ${lo}-${hi} | ${spellCount} | ${newCategories > 0 ? '+' + newCategories : '-'} | ${skillsUnlocked > 0 ? '+' + skillsUnlocked : '-'} | ${hp} | ${mana} | ${endur} |`);
+    }
+  }
+
+  // Key milestones (notable spell categories gained)
+  lines.push('', '## Notable Milestones', '');
+  const catFirstSeen: { catId: number; level: number }[] = [];
+  const catSeenTracker = new Set<number>();
+  const sortedLevels = [...spellsByLevel.keys()].sort((a, b) => a - b);
+  for (const lvl of sortedLevels) {
+    const lvlSpells = spellsByLevel.get(lvl)!;
+    for (const s of lvlSpells) {
+      if (s.catId > 0 && !catSeenTracker.has(s.catId)) {
+        catSeenTracker.add(s.catId);
+        catFirstSeen.push({ catId: s.catId, level: lvl });
+      }
+    }
+  }
+
+  if (catFirstSeen.length > 0) {
+    lines.push('| Level | First Spell Category Gained |');
+    lines.push('|------:|-----------------------------|');
+    for (const { catId, level } of catFirstSeen.slice(0, 30)) {
+      // Get category name from spell_categories if available
+      const catName = spellCategories?.get(catId) || `Category ${catId}`;
+      lines.push(`| ${level} | ${catName} |`);
+    }
+    if (catFirstSeen.length > 30) {
+      lines.push(`| ... | +${catFirstSeen.length - 30} more categories |`);
+    }
+  }
+
+  // Stat growth curve
+  if (statsAtLevel.size > 0) {
+    lines.push('', '## Stat Growth Curve', '');
+    lines.push('| Level | HP | Mana | Endurance | HP Regen | Mana Regen |');
+    lines.push('|------:|---:|-----:|----------:|---------:|-----------:|');
+    const milestones = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 125];
+    for (const lvl of milestones) {
+      const s = statsAtLevel.get(lvl);
+      if (s) {
+        lines.push(`| ${lvl} | ${s.hp.toLocaleString()} | ${s.mana.toLocaleString()} | ${s.endurance.toLocaleString()} | ${s.hpRegen} | ${s.manaRegen} |`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}

@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 182 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 185 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **182 tools** for querying EverQuest data
+- **185 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -200,6 +200,7 @@ Then restart Claude Desktop.
 | `get_deity_overview` | All 17 deities with race/class availability counts and accessibility rankings |
 | `get_class_comparison_matrix` | All 16 classes compared — spell count, beneficial %, skills, base stats, pet availability |
 | `get_class_spell_diversity_index` | Class spell diversity — distinct SPA effects per class, class-exclusive effects, universal effects, overlap matrix |
+| `get_class_power_milestone_timeline` | Unified class power progression — spells, stats, and skill unlocks by level bracket with stat growth curve |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -213,6 +214,8 @@ Then restart Claude Desktop.
 | `get_zone_level_statistics` | Zone count statistics by level band with bar chart and peak level analysis |
 | `get_map_statistics` | Map POI statistics — zones with map data, total POI counts, density distribution |
 | `get_map_poi_label_analysis` | Map POI label analysis — common label words, prefix categories, color distribution, zones with most/fewest POIs |
+| `get_teleport_network_analysis` | Teleport network topology — hub zones, class teleport rankings, level-range coverage, class-exclusive destinations |
+| `get_zone_content_density_ranking` | Zone content density ranking — zones scored by map POIs, teleport accessibility, and level range |
 
 ### Local Data - Factions & Currencies
 | Tool | Description |
@@ -339,7 +342,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (182 tools)
+├── tools.ts          # Tool definitions and handlers (185 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

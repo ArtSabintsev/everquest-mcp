@@ -190,6 +190,9 @@ import {
   getGameDataSummaryDashboard,
   getFactionNetworkAnalysis,
   getSpellProgressionAnalysis,
+  getTeleportNetworkAnalysis,
+  getZoneContentDensityRanking,
+  getClassPowerMilestoneTimeline,
 } from './sources/index.js';
 
 export const tools = [
@@ -2574,6 +2577,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_teleport_network_analysis',
+    description: 'Teleport network topology — hub zones with most teleport access, class teleport rankings, level-range coverage, class-exclusive destinations.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_zone_content_density_ranking',
+    description: 'Zone content density ranking — zones scored by map POIs, teleport accessibility, and level range. Shows most/least content-rich zones and POI distribution.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_power_milestone_timeline',
+    description: 'Unified class power progression timeline — spells, stats (HP/mana/endurance), and skill unlocks across level brackets. Shows when new spell categories appear and stat growth curve.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class short name (WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER)'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4249,6 +4284,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required (e.g., WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER)';
         return getSpellProgressionAnalysis(className);
+      }
+
+      case 'get_teleport_network_analysis': {
+        return getTeleportNetworkAnalysis();
+      }
+
+      case 'get_zone_content_density_ranking': {
+        return getZoneContentDensityRanking();
+      }
+
+      case 'get_class_power_milestone_timeline': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required (e.g., WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER)';
+        return getClassPowerMilestoneTimeline(className);
       }
 
       case 'search_help_topics': {
