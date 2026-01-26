@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 209 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 212 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **209 tools** for querying EverQuest data
+- **212 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -173,6 +173,7 @@ Then restart Claude Desktop.
 | `get_spell_target_type_matrix` | Spell target type matrix — class specialization by target type (Self, Single, Group, AE) with above-average highlights |
 | `get_spell_scaling_analysis` | Spell scaling analysis — find all versions/ranks of a spell line and show how effects, mana cost, and power scale across ranks |
 | `get_spell_effect_rarity_index` | Spell effect rarity index — exclusive, rare, and universal effects per class, identifying what makes each class irreplaceable |
+| `get_spell_effect_encyclopedia` | Spell effect encyclopedia — deep dive into a specific SPA effect type showing all spells, class distribution, value ranges, slot positions, and examples |
 
 ### Local Data - Character
 | Tool | Description |
@@ -212,6 +213,7 @@ Then restart Claude Desktop.
 | `get_group_composition_advisor` | Group composition advisor — optimal 6-person group compositions (Classic Trinity, Max DPS, Survival, Balanced) with class role scores and synergy notes |
 | `get_class_endgame_profile` | Class endgame profile at level 125 — base stats, AC mitigation, skill caps, spell book summary, role assessment, and resource profile |
 | `get_class_group_buff_contribution` | Class group buff contribution — what unique group/raid buffs each class brings, exclusive buff categories, and synergy value |
+| `get_class_synergy_matrix` | Class synergy matrix — 16×16 class pair synergy scored by exclusive buff category coverage, best/worst partners, and redundancy analysis |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -269,6 +271,7 @@ Then restart Claude Desktop.
 | `get_aa_name_group_analysis` | AA name grouping — rank distribution, longest AA lines, common prefixes, keyword themes, name length stats |
 | `get_aa_role_theme_analysis` | AA role theme analysis — classify 2700+ AAs by role (Tank, Healer, DPS, CC, Buff, Pet, Utility) from descriptions |
 | `get_achievement_category_depth_analysis` | Achievement category hierarchy — tree depth, subcategory counts, point density, most complex trees |
+| `get_achievement_point_optimizer` | Achievement point optimizer — most efficient achievements by points per component, efficiency tiers, complexity analysis |
 
 ### Local Data - Overseer System
 | Tool | Description |
@@ -366,7 +369,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (209 tools)
+├── tools.ts          # Tool definitions and handlers (212 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

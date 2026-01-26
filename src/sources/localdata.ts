@@ -18892,3 +18892,386 @@ export async function getClassGroupBuffContribution(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: CLASS SYNERGY MATRIX ============
+
+export async function getClassSynergyMatrix(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Class Synergy Matrix', ''];
+  lines.push('*16×16 class pair synergy scored by exclusive buff category coverage.*', '');
+
+  // Build a map of class → set of group buff categories (beneficial, group-target)
+  const GROUP_TARGETS = new Set(['3', '41', '40']);
+  const classCategories: Map<number, Set<string>> = new Map();
+  for (let cid = 1; cid <= 16; cid++) classCategories.set(cid, new Set());
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue;
+    if (!GROUP_TARGETS.has(spell.fields[SF.TARGET_TYPE] || '')) continue;
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Category ${catId}`);
+    for (let cid = 1; cid <= 16; cid++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level >= 1 && level <= 254) {
+        classCategories.get(cid)!.add(catName);
+      }
+    }
+  }
+
+  // For each pair, count union of categories (more = better synergy)
+  interface PairScore { c1: number; c2: number; union: number; exclusive1: number; exclusive2: number; shared: number }
+  const pairs: PairScore[] = [];
+
+  for (let c1 = 1; c1 <= 16; c1++) {
+    for (let c2 = c1 + 1; c2 <= 16; c2++) {
+      const cats1 = classCategories.get(c1)!;
+      const cats2 = classCategories.get(c2)!;
+      const union = new Set([...cats1, ...cats2]);
+      let shared = 0, exclusive1 = 0, exclusive2 = 0;
+      for (const c of cats1) { if (cats2.has(c)) shared++; else exclusive1++; }
+      for (const c of cats2) { if (!cats1.has(c)) exclusive2++; }
+      pairs.push({ c1, c2, union: union.size, exclusive1, exclusive2, shared });
+    }
+  }
+
+  pairs.sort((a, b) => b.union - a.union);
+
+  // Top 20 pairs
+  lines.push('## Top 20 Class Pairs (Most Buff Category Coverage)', '');
+  lines.push('| Rank | Classes | Union | Exclusive A | Exclusive B | Shared |');
+  lines.push('|-----:|---------|------:|----------:|----------:|------:|');
+  for (let i = 0; i < 20 && i < pairs.length; i++) {
+    const p = pairs[i];
+    lines.push(`| ${i + 1} | ${CLASS_SHORT[p.c1]}+${CLASS_SHORT[p.c2]} | ${p.union} | ${p.exclusive1} | ${p.exclusive2} | ${p.shared} |`);
+  }
+
+  // Bottom 10 (most redundant)
+  lines.push('', '## Bottom 10 Pairs (Most Redundant)', '');
+  lines.push('| Rank | Classes | Union | Exclusive A | Exclusive B | Shared |');
+  lines.push('|-----:|---------|------:|----------:|----------:|------:|');
+  const bottom = pairs.slice(-10).reverse();
+  for (let i = 0; i < bottom.length; i++) {
+    const p = bottom[i];
+    lines.push(`| ${pairs.length - 9 + i} | ${CLASS_SHORT[p.c1]}+${CLASS_SHORT[p.c2]} | ${p.union} | ${p.exclusive1} | ${p.exclusive2} | ${p.shared} |`);
+  }
+
+  // Per-class best partner
+  lines.push('', '## Best Partner for Each Class', '');
+  lines.push('| Class | Best Partner | Union Categories | Unique Contribution |');
+  lines.push('|-------|-------------|------:|---------------------|');
+  for (let cid = 1; cid <= 16; cid++) {
+    const myPairs = pairs.filter(p => p.c1 === cid || p.c2 === cid);
+    myPairs.sort((a, b) => b.union - a.union);
+    if (myPairs.length > 0) {
+      const best = myPairs[0];
+      const partner = best.c1 === cid ? best.c2 : best.c1;
+      const partnerExcl = best.c1 === cid ? best.exclusive2 : best.exclusive1;
+      lines.push(`| ${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}) | ${CLASS_IDS[partner]} (${CLASS_SHORT[partner]}) | ${best.union} | +${partnerExcl} categories |`);
+    }
+  }
+
+  // Category coverage per class
+  lines.push('', '## Buff Categories per Class', '');
+  const classCatSorted = [...classCategories.entries()].sort((a, b) => b[1].size - a[1].size);
+  for (const [cid, cats] of classCatSorted) {
+    const bar = '█'.repeat(Math.min(cats.size * 2, 40));
+    lines.push(`- **${CLASS_SHORT[cid]}:** ${bar} ${cats.size} categories`);
+  }
+
+  lines.push('', `*${pairs.length} class pairs analyzed across ${new Set([...classCategories.values()].flatMap(s => [...s])).size} total group buff categories.*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL EFFECT ENCYCLOPEDIA ============
+
+export async function getSpellEffectEncyclopedia(spaId: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const targetSPA = parseInt(spaId);
+  if (isNaN(targetSPA)) return 'Error: Invalid SPA ID. Provide a numeric spell effect ID (e.g., "0" for HP, "11" for Attack Speed).';
+
+  const spaName = SPA_NAMES[targetSPA] || `Unknown SPA ${targetSPA}`;
+  const lines = [`# Spell Effect Encyclopedia: SPA ${targetSPA} — ${spaName}`, ''];
+
+  // Find all spells containing this SPA
+  interface SPASpell {
+    id: number;
+    name: string;
+    beneficial: boolean;
+    level: Map<number, number>;
+    category: string;
+    base1: number;
+    slotNum: number;
+  }
+
+  const matchingSpells: SPASpell[] = [];
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    // Parse effect slots - scan backward for pipe-containing field
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        slotsField = i;
+        break;
+      }
+    }
+    if (slotsField < 0) continue;
+
+    const slots = spell.fields[slotsField].split('$');
+    let foundSlot = -1;
+    let foundBase = 0;
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const slotSPA = parseInt(parts[1]);
+        if (slotSPA === targetSPA) {
+          foundSlot = parseInt(parts[0]);
+          foundBase = parseInt(parts[2]) || 0;
+          break;
+        }
+      }
+    }
+    if (foundSlot < 0) continue;
+
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Category ${catId}`);
+    const levels = new Map<number, number>();
+    for (let cid = 1; cid <= 16; cid++) {
+      const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (lv >= 1 && lv <= 254) levels.set(cid, lv);
+    }
+
+    matchingSpells.push({ id: spell.id, name: spell.name, beneficial, level: levels, category: catName, base1: foundBase, slotNum: foundSlot });
+  }
+
+  if (matchingSpells.length === 0) {
+    return `No spells found with SPA ${targetSPA} (${spaName}). Use list_spell_effect_types to see valid SPA IDs.`;
+  }
+
+  lines.push(`**Total spells with this effect:** ${matchingSpells.length}`, '');
+
+  // Beneficial / detrimental split
+  const beneficial = matchingSpells.filter(s => s.beneficial).length;
+  const detrimental = matchingSpells.length - beneficial;
+  lines.push(`- **Beneficial:** ${beneficial} (${Math.round(beneficial / matchingSpells.length * 100)}%)`);
+  lines.push(`- **Detrimental:** ${detrimental} (${Math.round(detrimental / matchingSpells.length * 100)}%)`);
+
+  // Class distribution
+  lines.push('', '## Class Distribution', '');
+  lines.push('| Class | Spells | Min Level | Max Level |');
+  lines.push('|-------|------:|----------:|----------:|');
+  for (let cid = 1; cid <= 16; cid++) {
+    const classSpells = matchingSpells.filter(s => s.level.has(cid));
+    if (classSpells.length === 0) {
+      lines.push(`| ${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}) | 0 | — | — |`);
+    } else {
+      const levels = classSpells.map(s => s.level.get(cid)!);
+      lines.push(`| ${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}) | ${classSpells.length} | ${Math.min(...levels)} | ${Math.max(...levels)} |`);
+    }
+  }
+
+  // Category distribution
+  lines.push('', '## Category Distribution', '');
+  const catCounts = new Map<string, number>();
+  for (const s of matchingSpells) {
+    catCounts.set(s.category, (catCounts.get(s.category) || 0) + 1);
+  }
+  const sortedCats = [...catCounts.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('| Category | Count | % |');
+  lines.push('|----------|------:|---:|');
+  for (const [cat, count] of sortedCats.slice(0, 15)) {
+    lines.push(`| ${cat} | ${count} | ${Math.round(count / matchingSpells.length * 100)}% |`);
+  }
+  if (sortedCats.length > 15) lines.push(`| *(${sortedCats.length - 15} more)* | | |`);
+
+  // Base value analysis
+  lines.push('', '## Effect Value (Base1) Distribution', '');
+  const bases = matchingSpells.map(s => s.base1).filter(b => b !== 0);
+  if (bases.length > 0) {
+    bases.sort((a, b) => a - b);
+    lines.push(`- **Range:** ${bases[0]} to ${bases[bases.length - 1]}`);
+    lines.push(`- **Median:** ${bases[Math.floor(bases.length / 2)]}`);
+    const avg = Math.round(bases.reduce((a, b) => a + b, 0) / bases.length);
+    lines.push(`- **Average:** ${avg}`);
+    const positiveCount = bases.filter(b => b > 0).length;
+    const negativeCount = bases.filter(b => b < 0).length;
+    lines.push(`- **Positive values:** ${positiveCount}, **Negative values:** ${negativeCount}`);
+  } else {
+    lines.push('- All spells have base value of 0');
+  }
+
+  // Slot position analysis
+  lines.push('', '## Slot Position Distribution', '');
+  const slotCounts = new Map<number, number>();
+  for (const s of matchingSpells) {
+    slotCounts.set(s.slotNum, (slotCounts.get(s.slotNum) || 0) + 1);
+  }
+  const sortedSlots = [...slotCounts.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [slot, count] of sortedSlots.slice(0, 10)) {
+    const pct = Math.round(count / matchingSpells.length * 100);
+    const bar = '█'.repeat(Math.min(pct, 40));
+    lines.push(`- **Slot ${slot}:** ${bar} ${pct}% (${count})`);
+  }
+
+  // Sample spells (beneficial and detrimental)
+  lines.push('', '## Sample Beneficial Spells', '');
+  const sampleBen = matchingSpells.filter(s => s.beneficial).slice(0, 10);
+  for (const s of sampleBen) {
+    const classes = [...s.level.entries()].map(([c, l]) => `${CLASS_SHORT[c]}:${l}`).join(', ');
+    lines.push(`- **${s.name}** [${s.id}] (base: ${s.base1}) — ${classes}`);
+  }
+
+  if (detrimental > 0) {
+    lines.push('', '## Sample Detrimental Spells', '');
+    const sampleDet = matchingSpells.filter(s => !s.beneficial).slice(0, 10);
+    for (const s of sampleDet) {
+      const classes = [...s.level.entries()].map(([c, l]) => `${CLASS_SHORT[c]}:${l}`).join(', ');
+      lines.push(`- **${s.name}** [${s.id}] (base: ${s.base1}) — ${classes}`);
+    }
+  }
+
+  lines.push('', `*${matchingSpells.length} spells analyzed for SPA ${targetSPA} (${spaName}).*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: ACHIEVEMENT POINT OPTIMIZER ============
+
+export async function getAchievementPointOptimizer(): Promise<string> {
+  await loadAchievements();
+  await loadAchievementComponents();
+  if (!achievements || achievements.size === 0) return 'Achievement data not available.';
+
+  const lines = ['# Achievement Point Optimizer', ''];
+  lines.push('*Most efficient achievements ranked by points per component.*', '');
+
+  // Build list of achievements with component counts
+  interface AchEff {
+    id: number;
+    name: string;
+    points: number;
+    components: number;
+    efficiency: number;
+    hidden: boolean;
+  }
+
+  const achList: AchEff[] = [];
+
+  for (const ach of achievements.values()) {
+    if (ach.points <= 0) continue;
+    const comps = achievementComponents ? (achievementComponents.get(ach.id)?.length ?? 0) : 0;
+    const steps = Math.max(comps, 1);
+    achList.push({
+      id: ach.id,
+      name: ach.name,
+      points: ach.points,
+      components: steps,
+      efficiency: ach.points / steps,
+      hidden: ach.hidden,
+    });
+  }
+
+  achList.sort((a, b) => b.efficiency - a.efficiency);
+
+  // Overall stats
+  const totalPoints = achList.reduce((s, a) => s + a.points, 0);
+  const totalSteps = achList.reduce((s, a) => s + a.components, 0);
+  lines.push('## Overview', '');
+  lines.push(`- **Achievements with points:** ${achList.length}`);
+  lines.push(`- **Total points available:** ${totalPoints.toLocaleString()}`);
+  lines.push(`- **Total component steps:** ${totalSteps.toLocaleString()}`);
+  lines.push(`- **Overall avg efficiency:** ${(totalPoints / totalSteps).toFixed(2)} pts/step`);
+
+  // Top 30 most efficient
+  lines.push('', '## Top 30 Most Efficient Achievements', '');
+  lines.push('| Rank | Achievement | Points | Steps | Pts/Step |');
+  lines.push('|-----:|------------|------:|------:|---------:|');
+  for (let i = 0; i < 30 && i < achList.length; i++) {
+    const a = achList[i];
+    lines.push(`| ${i + 1} | ${a.name} [${a.id}] | ${a.points} | ${a.components} | ${a.efficiency.toFixed(1)} |`);
+  }
+
+  // Efficiency distribution
+  lines.push('', '## Efficiency Distribution', '');
+  const buckets: Record<string, number> = {
+    '10+ pts/step': 0,
+    '5-10 pts/step': 0,
+    '2-5 pts/step': 0,
+    '1-2 pts/step': 0,
+    '<1 pt/step': 0,
+  };
+  for (const a of achList) {
+    if (a.efficiency >= 10) buckets['10+ pts/step']++;
+    else if (a.efficiency >= 5) buckets['5-10 pts/step']++;
+    else if (a.efficiency >= 2) buckets['2-5 pts/step']++;
+    else if (a.efficiency >= 1) buckets['1-2 pts/step']++;
+    else buckets['<1 pt/step']++;
+  }
+  for (const [bucket, count] of Object.entries(buckets)) {
+    const pct = Math.round(count / achList.length * 100);
+    const bar = '█'.repeat(Math.min(pct, 40));
+    lines.push(`- **${bucket}:** ${bar} ${pct}% (${count})`);
+  }
+
+  // Point value tiers
+  lines.push('', '## Point Value Tiers', '');
+  const pointBuckets = new Map<number, number>();
+  for (const a of achList) {
+    pointBuckets.set(a.points, (pointBuckets.get(a.points) || 0) + 1);
+  }
+  const sortedPoints = [...pointBuckets.entries()].sort((a, b) => b[0] - a[0]);
+  lines.push('| Points | Count | Avg Steps |');
+  lines.push('|------:|------:|----------:|');
+  for (const [pts, count] of sortedPoints.slice(0, 15)) {
+    const withPts = achList.filter(a => a.points === pts);
+    const avgSteps = (withPts.reduce((s, a) => s + a.components, 0) / withPts.length).toFixed(1);
+    lines.push(`| ${pts} | ${count} | ${avgSteps} |`);
+  }
+
+  // Most complex achievements (most components)
+  const byComponents = [...achList].sort((a, b) => b.components - a.components);
+  lines.push('', '## Most Complex Achievements (Most Steps)', '');
+  lines.push('| Achievement | Steps | Points | Pts/Step |');
+  lines.push('|------------|------:|------:|---------:|');
+  for (let i = 0; i < 15 && i < byComponents.length; i++) {
+    const a = byComponents[i];
+    lines.push(`| ${a.name} [${a.id}] | ${a.components} | ${a.points} | ${a.efficiency.toFixed(1)} |`);
+  }
+
+  // Highest point single achievements
+  const byPoints = [...achList].sort((a, b) => b.points - a.points);
+  lines.push('', '## Highest Point Achievements', '');
+  lines.push('| Achievement | Points | Steps | Pts/Step |');
+  lines.push('|------------|------:|------:|---------:|');
+  for (let i = 0; i < 15 && i < byPoints.length; i++) {
+    const a = byPoints[i];
+    lines.push(`| ${a.name} [${a.id}] | ${a.points} | ${a.components} | ${a.efficiency.toFixed(1)} |`);
+  }
+
+  // Hidden vs visible efficiency
+  const hidden = achList.filter(a => a.hidden);
+  const visible = achList.filter(a => !a.hidden);
+  if (hidden.length > 0 && visible.length > 0) {
+    lines.push('', '## Hidden vs Visible Achievements', '');
+    const hiddenAvg = hidden.reduce((s, a) => s + a.efficiency, 0) / hidden.length;
+    const visibleAvg = visible.reduce((s, a) => s + a.efficiency, 0) / visible.length;
+    const hiddenPts = hidden.reduce((s, a) => s + a.points, 0);
+    const visiblePts = visible.reduce((s, a) => s + a.points, 0);
+    lines.push(`- **Visible:** ${visible.length} achievements, ${visiblePts.toLocaleString()} total pts, ${visibleAvg.toFixed(2)} avg pts/step`);
+    lines.push(`- **Hidden:** ${hidden.length} achievements, ${hiddenPts.toLocaleString()} total pts, ${hiddenAvg.toFixed(2)} avg pts/step`);
+  }
+
+  lines.push('', `*${achList.length} achievements analyzed.*`);
+
+  return lines.join('\n');
+}

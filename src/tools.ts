@@ -217,6 +217,9 @@ import {
   searchAllLocalData,
   getGameEventCalendarAnalysis,
   getClassGroupBuffContribution,
+  getClassSynergyMatrix,
+  getSpellEffectEncyclopedia,
+  getAchievementPointOptimizer,
 } from './sources/index.js';
 
 export const tools = [
@@ -2874,6 +2877,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_synergy_matrix',
+    description: 'Class synergy matrix — 16×16 class pair synergy scored by exclusive buff category coverage, best/worst partners, and redundancy analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_effect_encyclopedia',
+    description: 'Spell effect encyclopedia — deep dive into a specific SPA effect type showing all spells, class distribution, value ranges, slot positions, categories, and examples.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spa_id: {
+          type: 'string',
+          description: 'The SPA (Spell Effect) ID number to analyze (e.g., "0" for HP, "11" for Attack Speed, "85" for Stun). Use list_spell_effect_types to find IDs.'
+        }
+      },
+      required: ['spa_id']
+    }
+  },
+  {
+    name: 'get_achievement_point_optimizer',
+    description: 'Achievement point optimizer — most efficient achievements ranked by points per component, efficiency tiers, complexity analysis, and hidden vs visible comparison.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4669,6 +4704,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_class_group_buff_contribution': {
         return getClassGroupBuffContribution();
+      }
+
+      case 'get_class_synergy_matrix': {
+        return getClassSynergyMatrix();
+      }
+
+      case 'get_spell_effect_encyclopedia': {
+        const spaId = typeof args.spa_id === 'string' ? args.spa_id.trim() : '';
+        if (!spaId) return 'Error: "spa_id" parameter is required. Use list_spell_effect_types to find SPA IDs.';
+        return getSpellEffectEncyclopedia(spaId);
+      }
+
+      case 'get_achievement_point_optimizer': {
+        return getAchievementPointOptimizer();
       }
 
       case 'search_help_topics': {
