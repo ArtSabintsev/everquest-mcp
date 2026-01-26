@@ -118,6 +118,9 @@ import {
   searchSpellsByRange,
   searchSpellsByManaCost,
   searchSpellsByDuration,
+  getFactionOverview,
+  searchSpellsByPushback,
+  getDeityClassMatrix,
 } from './sources/index.js';
 
 export const tools = [
@@ -1724,6 +1727,42 @@ export const tools = [
     }
   },
   {
+    name: 'get_faction_overview',
+    description: 'Overview of the EverQuest faction system — total faction count, factions by expansion/category, value range distribution, and starting modifier statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'search_spells_by_pushback',
+    description: 'Search spells with knockback/pushback effects for a class. Find spells that push targets backward or upward.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Wizard", "Druid")'
+        },
+        min_pushback: {
+          type: 'number',
+          description: 'Minimum pushback value to filter by (optional)'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'get_deity_class_matrix',
+    description: 'Visual matrix showing which classes can worship each deity, derived from race-deity and race-class data. Shows X/- grid with totals.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3049,6 +3088,21 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
           return 'Error: Specify at least one of "max_duration_sec" or "min_duration_sec"';
         }
         return searchSpellsByDuration(className, maxDur, minDur);
+      }
+
+      case 'get_faction_overview': {
+        return getFactionOverview();
+      }
+
+      case 'search_spells_by_pushback': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const minPushback = typeof args.min_pushback === 'number' ? args.min_pushback : undefined;
+        return searchSpellsByPushback(className, minPushback);
+      }
+
+      case 'get_deity_class_matrix': {
+        return getDeityClassMatrix();
       }
 
       case 'search_help_topics': {

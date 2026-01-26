@@ -8711,3 +8711,187 @@ export async function searchSpellsByDuration(className: string, maxDurationSec?:
 
   return lines.join('\n');
 }
+
+// ============ FACTION OVERVIEW ============
+
+export async function getFactionOverview(): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const lines = ['# EverQuest Faction System Overview', ''];
+
+  // Count by category/expansion
+  const byCat = new Map<string, number>();
+  let uncategorized = 0;
+  for (const faction of factions.values()) {
+    if (faction.category) {
+      byCat.set(faction.category, (byCat.get(faction.category) || 0) + 1);
+    } else {
+      uncategorized++;
+    }
+  }
+
+  lines.push(`**${factions.size.toLocaleString()} total factions** across ${byCat.size} expansion categories`, '');
+
+  // Sorted by count descending
+  const sortedCats = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
+
+  lines.push('## Factions by Expansion/Category', '');
+  lines.push('| Category | Factions |');
+  lines.push('|----------|----------|');
+  for (const [cat, count] of sortedCats) {
+    lines.push(`| ${cat} | ${count} |`);
+  }
+  if (uncategorized > 0) {
+    lines.push(`| *(Uncategorized)* | ${uncategorized} |`);
+  }
+
+  // Faction value ranges
+  lines.push('', '## Faction Value Ranges', '');
+  const ranges = { standard: 0, wide: 0, narrow: 0 };
+  for (const faction of factions.values()) {
+    const range = faction.maxValue - faction.minValue;
+    if (range >= 3000) ranges.wide++;
+    else if (range >= 1000) ranges.standard++;
+    else ranges.narrow++;
+  }
+  lines.push(`- **Wide range (3000+):** ${ranges.wide} factions`);
+  lines.push(`- **Standard range (1000-2999):** ${ranges.standard} factions`);
+  lines.push(`- **Narrow range (<1000):** ${ranges.narrow} factions`);
+
+  // Factions with starting values
+  let withStarting = 0;
+  let totalModifiers = 0;
+  for (const faction of factions.values()) {
+    if (faction.startingValues && faction.startingValues.length > 0) {
+      withStarting++;
+      totalModifiers += faction.startingValues.length;
+    }
+  }
+  lines.push('', '## Starting Faction Values', '');
+  lines.push(`- **${withStarting}** factions have race/class/deity starting modifiers`);
+  lines.push(`- **${totalModifiers.toLocaleString()}** total modifiers across all factions`);
+
+  return lines.join('\n');
+}
+
+// ============ SPELL PUSHBACK SEARCH ============
+
+export async function searchSpellsByPushback(className: string, minPushback?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const matches: { name: string; level: number; pushBack: number; pushUp: number; category: string; target: string; range: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const pushBack = parseFloat(spell.fields[SF.PUSH_BACK]) || 0;
+    const pushUp = parseFloat(spell.fields[SF.PUSH_UP]) || 0;
+    if (pushBack === 0 && pushUp === 0) continue;
+
+    if (minPushback !== undefined && pushBack < minPushback && pushUp < minPushback) continue;
+
+    const name = spell.fields[SF.NAME];
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const target = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const range = parseInt(spell.fields[SF.RANGE]) || 0;
+
+    matches.push({ name, level, pushBack, pushUp, category, target, range });
+  }
+
+  if (matches.length === 0) {
+    return `No ${classFullName} spells with pushback/knockback effects${minPushback ? ` ≥${minPushback}` : ''}.`;
+  }
+
+  matches.sort((a, b) => (b.pushBack + b.pushUp) - (a.pushBack + a.pushUp) || a.level - b.level);
+
+  const lines = [`# ${classFullName} Spells with Knockback/Pushback`, ''];
+  lines.push(`**${matches.length} spells found**`, '');
+
+  const shown = matches.slice(0, 100);
+  lines.push('| Push Back | Push Up | Level | Spell | Target | Range | Category |');
+  lines.push('|-----------|---------|-------|-------|--------|-------|----------|');
+
+  for (const s of shown) {
+    lines.push(`| ${s.pushBack} | ${s.pushUp} | ${s.level} | ${s.name} | ${s.target} | ${s.range} | ${s.category} |`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*Showing first 100 of ${matches.length}.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ DEITY-CLASS MATRIX ============
+
+export function getDeityClassMatrix(): string {
+  const lines = ['# Deity-Class Availability Matrix', ''];
+  lines.push('Shows which classes can worship each deity (derived from race-deity and race-class combinations).', '');
+
+  // Collect all unique deities
+  const allDeities = new Set<string>();
+  for (const deities of Object.values(RACE_DEITIES)) {
+    for (const d of deities) allDeities.add(d);
+  }
+  const sortedDeities = [...allDeities].sort((a, b) => {
+    if (a === 'Agnostic') return -1;
+    if (b === 'Agnostic') return 1;
+    return a.localeCompare(b);
+  });
+
+  // For each deity, find which classes can follow it
+  const deityClasses = new Map<string, Set<number>>();
+  for (const deity of sortedDeities) {
+    const classSet = new Set<number>();
+    for (const [raceIdStr, deities] of Object.entries(RACE_DEITIES)) {
+      const raceId = parseInt(raceIdStr);
+      if (!deities.includes(deity)) continue;
+      const raceClasses = RACE_CLASSES[raceId] || [];
+      for (const classId of raceClasses) {
+        classSet.add(classId);
+      }
+    }
+    deityClasses.set(deity, classSet);
+  }
+
+  // Build matrix header
+  const classIds = Object.keys(CLASS_IDS).map(Number).sort((a, b) => a - b);
+  const header = '| Deity | ' + classIds.map(id => CLASS_SHORT[id]).join(' | ') + ' | Total |';
+  const sep = '|' + '-'.repeat(20) + '|' + classIds.map(() => '---').join('|') + '|-------|';
+  lines.push(header);
+  lines.push(sep);
+
+  for (const deity of sortedDeities) {
+    const classes = deityClasses.get(deity)!;
+    const cells = classIds.map(id => classes.has(id) ? 'X' : '-');
+    lines.push(`| ${deity.padEnd(18)} | ${cells.join(' | ')} | ${classes.size} |`);
+  }
+
+  // Class totals
+  const classTotals = classIds.map(id => {
+    let count = 0;
+    for (const classes of deityClasses.values()) {
+      if (classes.has(id)) count++;
+    }
+    return count;
+  });
+  lines.push(`| **Deities per class** | ${classTotals.join(' | ')} | |`);
+
+  lines.push('', `**${sortedDeities.length} deities** × **${classIds.length} classes**`);
+
+  return lines.join('\n');
+}

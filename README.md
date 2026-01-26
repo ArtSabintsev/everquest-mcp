@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 110 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 113 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **110 tools** for querying EverQuest data
+- **113 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (110)
+## Available Tools (113)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -139,6 +139,7 @@ Then restart Claude Desktop.
 | `search_spells_by_range` | Search spells by casting range or AE range (find long-range nukes, close-range AE spells) |
 | `search_spells_by_mana_cost` | Search spells by mana or endurance cost (find cheap efficient spells or expensive high-impact ones) |
 | `search_spells_by_duration` | Search spells by buff/debuff duration (find short emergency spells or long-lasting buffs) |
+| `search_spells_by_pushback` | Search spells with knockback/pushback effects (push back and push up values) |
 
 ### Local Data - Character
 | Tool | Description |
@@ -159,6 +160,7 @@ Then restart Claude Desktop.
 | `list_all_deities` | List all deities with follower races, available classes, and lore |
 | `get_race_class_matrix` | Visual matrix of all race-class combinations with counts |
 | `get_character_creation_guide` | Role-based character creation advisor with class/race recommendations |
+| `get_deity_class_matrix` | Visual matrix of deity-class availability (which classes can worship each deity) |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -182,6 +184,7 @@ Then restart Claude Desktop.
 | `search_alt_currencies` | Search alternate currencies |
 | `search_tributes` | Search tribute items |
 | `get_tribute` | Get tribute item details |
+| `get_faction_overview` | Faction system overview with counts by expansion, value ranges, starting modifier stats |
 
 ### Local Data - Achievements & AA
 | Tool | Description |
@@ -267,7 +270,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (110 tools)
+├── tools.ts          # Tool definitions and handlers (113 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
