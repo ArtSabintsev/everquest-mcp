@@ -113,6 +113,8 @@ import {
   getLevelingZonesGuide,
   getOverseerQuestSummary,
   getMercenaryOverview,
+  searchSpellsByRecastTime,
+  getCharacterCreationGuide,
 } from './sources/index.js';
 
 export const tools = [
@@ -1613,6 +1615,42 @@ export const tools = [
     }
   },
   {
+    name: 'search_spells_by_recast_time',
+    description: 'Search spells by recast (cooldown) time for a class. Find long-cooldown disciplines, short-recast nukes, etc. Specify at least one of max or min recast seconds.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Warrior", "Cleric")'
+        },
+        max_recast_sec: {
+          type: 'number',
+          description: 'Maximum recast time in seconds (e.g., 60 for 1 minute or less)'
+        },
+        min_recast_sec: {
+          type: 'number',
+          description: 'Minimum recast time in seconds (e.g., 300 for 5+ minute cooldowns)'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'get_character_creation_guide',
+    description: 'Role-based character creation advisor. Shows which classes fill each role (tank, healer, melee DPS, caster DPS, crowd control, utility) with race options, spell counts, and recommendations. Optionally filter by a specific role.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        role: {
+          type: 'string',
+          description: 'Optional role to focus on: "tank", "healer", "melee dps", "caster dps", "crowd control", or "utility". Omit for overview of all roles.'
+        }
+      },
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -2888,6 +2926,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_mercenary_overview': {
         return getMercenaryOverview();
+      }
+
+      case 'search_spells_by_recast_time': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const maxRecastSec = typeof args.max_recast_sec === 'number' ? args.max_recast_sec : undefined;
+        const minRecastSec = typeof args.min_recast_sec === 'number' ? args.min_recast_sec : undefined;
+        if (maxRecastSec === undefined && minRecastSec === undefined) {
+          return 'Error: Specify at least one of "max_recast_sec" or "min_recast_sec"';
+        }
+        return searchSpellsByRecastTime(className, maxRecastSec, minRecastSec);
+      }
+
+      case 'get_character_creation_guide': {
+        const role = typeof args.role === 'string' ? args.role.trim() : undefined;
+        return getCharacterCreationGuide(role);
       }
 
       case 'search_help_topics': {
