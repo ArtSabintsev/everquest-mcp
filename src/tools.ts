@@ -110,6 +110,9 @@ import {
   listSpellEffectTypes,
   searchSpellsByCastTime,
   getRaceClassMatrix,
+  getLevelingZonesGuide,
+  getOverseerQuestSummary,
+  getMercenaryOverview,
 } from './sources/index.js';
 
 export const tools = [
@@ -1583,6 +1586,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_leveling_zones_guide',
+    description: 'Complete EverQuest leveling zones guide — all zones grouped by 10-level brackets with level ranges. Quick reference for finding zones appropriate for any level.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_overseer_quest_summary',
+    description: 'Overview of the Overseer system — quest categories, difficulties, durations, and agent statistics with rarity and job type breakdowns.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_mercenary_overview',
+    description: 'Overview of the Mercenary system — mercenary types, tiers, races, and available stances with descriptions.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -2846,6 +2876,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_race_class_matrix': {
         return getRaceClassMatrix();
+      }
+
+      case 'get_leveling_zones_guide': {
+        return getLevelingZonesGuide();
+      }
+
+      case 'get_overseer_quest_summary': {
+        return getOverseerQuestSummary();
+      }
+
+      case 'get_mercenary_overview': {
+        return getMercenaryOverview();
       }
 
       case 'search_help_topics': {

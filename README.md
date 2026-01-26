@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 102 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 105 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **102 tools** for querying EverQuest data
+- **105 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -163,6 +163,7 @@ Then restart Claude Desktop.
 | `search_zones_by_name` | Search zones by name with optional level range filter |
 | `search_zones_by_level` | Find zones appropriate for a character level range |
 | `search_teleport_spells` | Find all spells that teleport to a specific zone |
+| `get_leveling_zones_guide` | Complete leveling guide — all zones grouped by level tier |
 
 ### Local Data - Factions & Currencies
 | Tool | Description |
@@ -195,6 +196,7 @@ Then restart Claude Desktop.
 | `search_overseer_quests` | Search 800+ overseer quests |
 | `get_overseer_quest` | Quest details: slots, traits, risks, success/failure outcomes |
 | `get_overseer_incapacitations` | List incapacitation types and durations |
+| `get_overseer_quest_summary` | Overseer system overview with categories, difficulties, durations, agent stats |
 
 ### Local Data - Mercenaries
 | Tool | Description |
@@ -202,6 +204,7 @@ Then restart Claude Desktop.
 | `search_mercenaries` | Search 4200+ mercenary templates |
 | `get_mercenary` | Get mercenary details with abilities |
 | `get_mercenary_stances` | List mercenary stances and descriptions |
+| `get_mercenary_overview` | Mercenary system overview with types, tiers, races, and stances |
 
 ### Local Data - Items & Effects
 | Tool | Description |
@@ -259,7 +262,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (102 tools)
+├── tools.ts          # Tool definitions and handlers (105 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

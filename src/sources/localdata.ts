@@ -8083,3 +8083,231 @@ export function getRaceClassMatrix(): string {
 
   return lines.join('\n');
 }
+
+// ============ LEVELING ZONES GUIDE ============
+
+export async function getLevelingZonesGuide(): Promise<string> {
+  await loadZones();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  const lines = ['# EverQuest Leveling Zones Guide', ''];
+
+  // Define level tiers matching EQ's progression
+  const tiers = [
+    { label: '1-20', min: 1, max: 20 },
+    { label: '21-40', min: 21, max: 40 },
+    { label: '41-60', min: 41, max: 60 },
+    { label: '61-80', min: 61, max: 80 },
+    { label: '81-100', min: 81, max: 100 },
+    { label: '101-120', min: 101, max: 120 },
+    { label: '121+', min: 121, max: 999 },
+  ];
+
+  const tierZones: Record<string, { name: string; min: number; max: number }[]> = {};
+  for (const tier of tiers) tierZones[tier.label] = [];
+  const noLevel: { name: string }[] = [];
+
+  for (const zone of zones.values()) {
+    if (zone.levelMin <= 0 && zone.levelMax <= 0) {
+      noLevel.push({ name: zone.name });
+      continue;
+    }
+
+    const effectiveMax = zone.levelMax > 0 ? zone.levelMax : zone.levelMin;
+    const effectiveMin = zone.levelMin > 0 ? zone.levelMin : 1;
+
+    // Add zone to all tiers it overlaps with
+    for (const tier of tiers) {
+      if (effectiveMin <= tier.max && effectiveMax >= tier.min) {
+        tierZones[tier.label].push({ name: zone.name, min: effectiveMin, max: effectiveMax });
+      }
+    }
+  }
+
+  const leveled = zones.size - noLevel.length;
+  lines.push(`**${zones.size} total zones** (${leveled} with level data, ${noLevel.length} unleveled)`, '');
+
+  for (const tier of tiers) {
+    const zoneList = tierZones[tier.label];
+    if (zoneList.length === 0) continue;
+    zoneList.sort((a, b) => a.min - b.min || a.max - b.max);
+
+    lines.push(`### Level ${tier.label} (${zoneList.length} zones)`);
+    for (const z of zoneList) {
+      const range = z.max > z.min ? `${z.min}-${z.max}` : `${z.min}+`;
+      lines.push(`- **${z.name}** (${range})`);
+    }
+    lines.push('');
+  }
+
+  if (noLevel.length > 0) {
+    lines.push(`### Unleveled Zones (${noLevel.length})`);
+    lines.push('Classic zones, instances, and special areas without level ranges:');
+    for (const z of noLevel.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 50)) {
+      lines.push(`- ${z.name}`);
+    }
+    if (noLevel.length > 50) {
+      lines.push(`*...and ${noLevel.length - 50} more*`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ OVERSEER QUEST SUMMARY ============
+
+export async function getOverseerQuestSummary(): Promise<string> {
+  await loadOverseerMinions();
+  await loadOverseerQuests();
+  await loadOverseerEnhancements();
+
+  if (!overseerQuests || overseerQuests.size === 0) return 'Overseer quest data not available.';
+
+  const lines = ['# Overseer System Summary', ''];
+
+  // Quest stats by category
+  const byCategory: Record<string, number> = {};
+  const byDifficulty: Record<string, number> = {};
+  const byDuration: Record<number, number> = {};
+  let totalSlots = 0;
+
+  for (const quest of overseerQuests.values()) {
+    const cat = overseerCategories?.get(quest.categoryId) || `Category ${quest.categoryId}`;
+    byCategory[cat] = (byCategory[cat] || 0) + 1;
+
+    const diff = overseerDifficulties?.get(quest.difficulty) || `Difficulty ${quest.difficulty}`;
+    byDifficulty[diff] = (byDifficulty[diff] || 0) + 1;
+
+    byDuration[quest.duration] = (byDuration[quest.duration] || 0) + 1;
+    totalSlots += quest.requiredSlots + quest.optionalSlots;
+  }
+
+  lines.push(`**${overseerQuests.size} total quests**, ${Math.round(totalSlots / overseerQuests.size * 10) / 10} avg slots per quest`, '');
+
+  // Categories
+  lines.push('### Quest Categories');
+  lines.push('| Category | Quests |');
+  lines.push('|----------|--------|');
+  for (const [cat, count] of Object.entries(byCategory).sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${cat} | ${count} |`);
+  }
+  lines.push('');
+
+  // Difficulties
+  lines.push('### Quest Difficulties');
+  lines.push('| Difficulty | Quests |');
+  lines.push('|-----------|--------|');
+  for (const [diff, count] of Object.entries(byDifficulty).sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${diff} | ${count} |`);
+  }
+  lines.push('');
+
+  // Durations (duration field is in hours)
+  lines.push('### Quest Durations');
+  lines.push('| Duration | Quests |');
+  lines.push('|----------|--------|');
+  for (const [dur, count] of Object.entries(byDuration).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    const hours = parseInt(dur);
+    lines.push(`| ${hours}h | ${count} |`);
+  }
+  lines.push('');
+
+  // Agent stats
+  if (overseerMinions && overseerMinions.size > 0) {
+    lines.push('### Agent Statistics');
+    const byRarity: Record<string, number> = {};
+    const byJob: Record<string, number> = {};
+    for (const minion of overseerMinions.values()) {
+      const rarityName = OVERSEER_RARITIES[minion.rarity] || `Rarity ${minion.rarity}`;
+      byRarity[rarityName] = (byRarity[rarityName] || 0) + 1;
+      for (const job of minion.jobs) {
+        const jobName = overseerJobNames?.get(job.jobTypeId) || `Job ${job.jobTypeId}`;
+        byJob[jobName] = (byJob[jobName] || 0) + 1;
+      }
+    }
+    lines.push(`**${overseerMinions.size} total agents**`, '');
+
+    lines.push('| Rarity | Agents |');
+    lines.push('|--------|--------|');
+    for (const [rarity, count] of Object.entries(byRarity).sort()) {
+      lines.push(`| ${rarity} | ${count} |`);
+    }
+    lines.push('');
+
+    lines.push('| Job Type | Agents with Job |');
+    lines.push('|----------|----------------|');
+    for (const [job, count] of Object.entries(byJob).sort((a, b) => b[1] - a[1])) {
+      lines.push(`| ${job} | ${count} |`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ MERCENARY OVERVIEW ============
+
+export async function getMercenaryOverview(): Promise<string> {
+  await loadMercenaries();
+  await loadMercenaryStances();
+
+  if (!mercenaries || mercenaries.size === 0) return 'Mercenary data not available.';
+
+  const lines = ['# Mercenary Overview', ''];
+
+  // Group by type
+  const byType: Record<string, MercenaryEntry[]> = {};
+  const byTier: Record<string, number> = {};
+  const byRace: Record<string, number> = {};
+
+  for (const merc of mercenaries.values()) {
+    const type = merc.type || 'Unknown';
+    if (!byType[type]) byType[type] = [];
+    byType[type].push(merc);
+
+    byTier[merc.tier] = (byTier[merc.tier] || 0) + 1;
+    if (merc.race) {
+      byRace[merc.race] = (byRace[merc.race] || 0) + 1;
+    }
+  }
+
+  lines.push(`**${mercenaries.size} mercenary templates** across ${Object.keys(byType).length} types`, '');
+
+  // Types
+  lines.push('### Mercenary Types');
+  lines.push('| Type | Count |');
+  lines.push('|------|-------|');
+  for (const [type, mercs] of Object.entries(byType).sort((a, b) => b[1].length - a[1].length)) {
+    lines.push(`| ${type} | ${mercs.length} |`);
+  }
+  lines.push('');
+
+  // Tiers
+  lines.push('### Mercenary Tiers');
+  lines.push('| Tier | Count |');
+  lines.push('|------|-------|');
+  for (const [tier, count] of Object.entries(byTier).sort()) {
+    lines.push(`| ${tier} | ${count} |`);
+  }
+  lines.push('');
+
+  // Races
+  if (Object.keys(byRace).length > 0) {
+    lines.push('### Mercenary Races');
+    lines.push('| Race | Count |');
+    lines.push('|------|-------|');
+    for (const [race, count] of Object.entries(byRace).sort((a, b) => b[1] - a[1]).slice(0, 20)) {
+      lines.push(`| ${race} | ${count} |`);
+    }
+    lines.push('');
+  }
+
+  // Stances
+  if (mercenaryStances && mercenaryStances.size > 0) {
+    lines.push('### Available Stances');
+    for (const [, stance] of mercenaryStances) {
+      lines.push(`- **${stance.name}** (${stance.shortDesc}): ${stance.description || 'No description'}`);
+    }
+  }
+
+  return lines.join('\n');
+}
