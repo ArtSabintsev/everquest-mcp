@@ -3197,6 +3197,145 @@ export async function getSpellsByClass(className: string, level?: number, catego
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: SPELLS BY EFFECT ============
+
+export async function searchSpellsByEffect(effectName: string, className?: string, maxResults: number = 50): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions(); // For category matching
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Find matching SPA codes
+  const lowerEffect = effectName.toLowerCase();
+  const matchingSPAs: number[] = [];
+  for (const [spa, name] of Object.entries(SPA_NAMES)) {
+    if (name.toLowerCase().includes(lowerEffect)) {
+      matchingSPAs.push(parseInt(spa));
+    }
+  }
+
+  // Also check spell categories as fallback/supplement
+  const matchingCategoryIds: number[] = [];
+  if (spellCategories) {
+    for (const [catId, catName] of spellCategories) {
+      if (catName.toLowerCase().includes(lowerEffect)) {
+        matchingCategoryIds.push(catId);
+      }
+    }
+  }
+
+  if (matchingSPAs.length === 0 && matchingCategoryIds.length === 0) {
+    const commonEffects = ['HP', 'Haste', 'Stun', 'Charm', 'Fear', 'Mesmerize', 'Root', 'Snare',
+      'Slow', 'Levitate', 'Invisibility', 'Gate', 'Resurrection', 'Heal', 'Damage Shield',
+      'Fire Resist', 'Cold Resist', 'Poison Resist', 'Disease Resist', 'Magic Resist',
+      'Melee Haste', 'Spell Crit', 'Melee Crit', 'Regen', 'Mana Regen'];
+    return `No spell effects or categories match "${effectName}".\n\nCommon effect names: ${commonEffects.join(', ')}`;
+  }
+
+  const spaSet = new Set(matchingSPAs);
+  const catIdSet = new Set(matchingCategoryIds);
+
+  // Optional class filter
+  let classId: number | undefined;
+  let classIndex: number | undefined;
+  if (className) {
+    classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (classId) classIndex = classId - 1;
+  }
+
+  const results: { id: number; name: string; level?: number; effectDesc: string }[] = [];
+
+  for (const [id, spell] of spells) {
+    // Class filter
+    if (classIndex !== undefined) {
+      const classLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+      if (isNaN(classLevel) || classLevel === 255 || classLevel <= 0) continue;
+    }
+
+    // Check effects by SPA code - scan backward to find the effect data field
+    let matched = false;
+    let effectDesc = '';
+
+    if (spaSet.size > 0) {
+      let effectField = '';
+      for (let i = spell.fields.length - 1; i >= 0; i--) {
+        if (spell.fields[i].includes('|')) {
+          effectField = spell.fields[i];
+          break;
+        }
+      }
+      if (effectField) {
+        const slots = effectField.split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length < 3) continue;
+          const spa = parseInt(parts[1]);
+          if (spaSet.has(spa)) {
+            matched = true;
+            const spaName = SPA_NAMES[spa] || `SPA ${spa}`;
+            const base1 = parseInt(parts[2]);
+            effectDesc = `${spaName}${!isNaN(base1) && base1 !== 0 ? ` ${base1 > 0 ? '+' : ''}${base1}` : ''}`;
+            break;
+          }
+        }
+      }
+    }
+
+    // Also check spell category/subcategory as fallback
+    if (!matched && catIdSet.size > 0) {
+      const catId = parseInt(spell.fields[SF.CATEGORY]);
+      const subCatId = parseInt(spell.fields[SF.SUBCATEGORY]);
+      if (catIdSet.has(catId) || catIdSet.has(subCatId)) {
+        matched = true;
+        const catName = spellCategories?.get(catId) || '';
+        const subCatName = spellCategories?.get(subCatId) || '';
+        effectDesc = subCatName && subCatName !== catName ? `${catName} > ${subCatName}` : catName;
+      }
+    }
+
+    if (!matched) continue;
+
+    let level: number | undefined;
+    if (classIndex !== undefined) {
+      level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+    }
+
+    results.push({ id, name: spell.name, level, effectDesc });
+    if (results.length >= maxResults) break;
+  }
+
+  if (results.length === 0) {
+    const spaNames = matchingSPAs.map(s => SPA_NAMES[s]).join(', ');
+    const catNames = matchingCategoryIds.map(id => spellCategories?.get(id) || `${id}`).join(', ');
+    const matchInfo = [spaNames, catNames].filter(Boolean).join('; categories: ');
+    return `No spells found with "${effectName}" (matched: ${matchInfo})${className ? ` for class ${className}` : ''}.`;
+  }
+
+  const spaNames = matchingSPAs.map(s => SPA_NAMES[s]);
+  const catNames = matchingCategoryIds.map(id => spellCategories?.get(id) || '').filter(Boolean);
+  // Deduplicate names across SPA and categories
+  const allNames = [...new Set([...spaNames, ...catNames])];
+  const label = allNames.join(', ');
+  const classLabel = classId ? ` for ${CLASS_IDS[classId]}` : '';
+  const lines = [
+    `## Spells with ${label}${classLabel}`,
+    `*${results.length}${results.length >= maxResults ? '+' : ''} spells found*`,
+    '',
+  ];
+
+  if (classIndex !== undefined) {
+    results.sort((a, b) => (a.level || 0) - (b.level || 0));
+    for (const r of results) {
+      lines.push(`- **${r.name}** (Lv${r.level}, ID: ${r.id}) — ${r.effectDesc}`);
+    }
+  } else {
+    for (const r of results) {
+      lines.push(`- **${r.name}** (ID: ${r.id}) — ${r.effectDesc}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 // ============ PUBLIC API: FACTIONS ============
 
 export async function searchFactions(query: string): Promise<SearchResult[]> {

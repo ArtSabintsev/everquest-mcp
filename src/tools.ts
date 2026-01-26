@@ -71,6 +71,7 @@ import {
   searchGameEvents,
   getGameEvent,
   listSpellCategories,
+  searchSpellsByEffect,
 } from './sources/index.js';
 
 export const tools = [
@@ -902,6 +903,24 @@ export const tools = [
     inputSchema: {
       type: 'object',
       properties: {}
+    }
+  },
+  {
+    name: 'search_spells_by_effect',
+    description: 'Search for EverQuest spells by their spell effect type (SPA). Find all spells with a specific effect like Stun, Haste, Charm, Fear, Root, Snare, Slow, Mesmerize, Gate, Resurrection, Damage Shield, etc.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        effect: {
+          type: 'string',
+          description: 'Effect name to search for (e.g., "Stun", "Haste", "Charm", "Fear", "Root", "Snare", "Slow", "Mesmerize", "Gate", "Resurrection", "Damage Shield")'
+        },
+        class: {
+          type: 'string',
+          description: 'Optional: filter to spells usable by this class (e.g., "Enchanter", "ENC")'
+        }
+      },
+      required: ['effect']
     }
   },
   {
@@ -1882,6 +1901,13 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'list_spell_categories': {
         return listSpellCategories();
+      }
+
+      case 'search_spells_by_effect': {
+        const effect = typeof args.effect === 'string' ? args.effect.trim() : '';
+        if (!effect) return 'Error: "effect" parameter is required';
+        const className = typeof args.class === 'string' ? args.class.trim() : undefined;
+        return searchSpellsByEffect(effect, className);
       }
 
       case 'search_game_events': {
