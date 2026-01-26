@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 224 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 227 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **224 tools** for querying EverQuest data
+- **227 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -178,6 +178,7 @@ Then restart Claude Desktop.
 | `get_spell_buff_duration_tier_list` | Spell buff duration tier list — beneficial spells grouped by duration tier (Instant, Short, Medium, Long, Very Long, Permanent) per class |
 | `get_spell_damage_efficiency` | Spell damage efficiency — rank a class's damage spells by damage-per-mana (DPM), DD vs DoT comparison, level bracket analysis |
 | `get_spell_resist_bar_chart` | Spell resist analysis — detailed breakdown of a specific resist type across classes with level distribution and comparison to other resists |
+| `get_spell_name_pattern_analysis` | Spell name pattern analysis — rank patterns (Rk. II/III distribution), most common first words (spell line indicators), roman numeral suffixes, name length distribution |
 
 ### Local Data - Character
 | Tool | Description |
@@ -220,6 +221,7 @@ Then restart Claude Desktop.
 | `get_class_synergy_matrix` | Class synergy matrix — 16×16 class pair synergy scored by exclusive buff category coverage, best/worst partners, and redundancy analysis |
 | `get_class_healing_comparison_matrix` | Class healing comparison — compare healing capabilities across all 16 classes (Direct, HoT, Group, Cure, Resurrect) with role classification |
 | `get_class_pet_comparison_matrix` | Class pet comparison — compare pet capabilities across all 16 classes (Summon, Charm, Swarm, Pet Buffs) with tier classification |
+| `get_class_identity_profile` | Class identity profile — comprehensive class card showing exclusive spells, spell categories, base stats at 125, role identity, and what makes the class unique |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -236,6 +238,7 @@ Then restart Claude Desktop.
 | `get_teleport_network_analysis` | Teleport network topology — hub zones, class teleport rankings, level-range coverage, class-exclusive destinations |
 | `get_zone_content_density_ranking` | Zone content density ranking — zones scored by map POIs, teleport accessibility, and level range |
 | `get_map_poi_functional_classification` | Map POI functional classification — classify POIs into categories (Merchant, Zone Line, Bank, Guard, Temple, Camp, Craft, Transport) |
+| `get_zone_level_gap_analysis` | Zone level gap analysis — find level ranges with no zones (gaps), sparse coverage (1-3 zones), and peak levels with most zone options |
 
 ### Local Data - Factions & Currencies
 | Tool | Description |
@@ -381,7 +384,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (224 tools)
+├── tools.ts          # Tool definitions and handlers (227 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

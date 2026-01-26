@@ -232,6 +232,9 @@ import {
   getClassPetComparisonMatrix,
   getSpellResistBarChart,
   getOverseerQuestCategoryGuide,
+  getSpellNamePatternAnalysis,
+  getZoneLevelGapAnalysis,
+  getClassIdentityProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -3044,6 +3047,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_name_pattern_analysis',
+    description: 'Spell name pattern analysis — naming conventions, rank patterns (Rk. II/III), common prefixes (spell lines), name length and word count distribution.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_zone_level_gap_analysis',
+    description: 'Zone level gap analysis — find level ranges with no zones (gaps) or sparse coverage (1-3 zones), plus peak levels with most content.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_identity_profile',
+    description: 'Class identity profile — comprehensive class identity card showing exclusive spells, top categories, base stats, role identity, and what makes this class unique.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class name (3-letter code like ENC, BRD or full name like Enchanter)'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4907,6 +4942,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_overseer_quest_category_guide': {
         return getOverseerQuestCategoryGuide();
+      }
+
+      case 'get_spell_name_pattern_analysis': {
+        return getSpellNamePatternAnalysis();
+      }
+
+      case 'get_zone_level_gap_analysis': {
+        return getZoneLevelGapAnalysis();
+      }
+
+      case 'get_class_identity_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassIdentityProfile(className);
       }
 
       case 'search_help_topics': {

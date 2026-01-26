@@ -20584,3 +20584,384 @@ export async function getOverseerQuestCategoryGuide(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SPELL NAME PATTERN ANALYSIS ============
+
+export async function getSpellNamePatternAnalysis(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Spell Name Pattern Analysis', ''];
+  lines.push('*Analyze spell naming conventions, rank patterns, and spell line prefixes.*', '');
+
+  // Analyze name patterns
+  let totalSpells = 0;
+  const rankPatterns = new Map<string, number>(); // "Rk. II" -> count
+  const prefixes = new Map<string, number>(); // First word -> count
+  const suffixes = new Map<string, number>(); // Last word -> count
+  const nameLengths: number[] = [];
+  const wordCounts: number[] = [];
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    totalSpells++;
+
+    const name = spell.name;
+    nameLengths.push(name.length);
+    const words = name.split(/\s+/);
+    wordCounts.push(words.length);
+
+    // Detect rank patterns
+    const rkMatch = name.match(/(Rk\.\s*(?:II|III|IV|V|VI|VII|VIII|IX|X))\s*$/);
+    if (rkMatch) rankPatterns.set(rkMatch[1], (rankPatterns.get(rkMatch[1]) || 0) + 1);
+
+    // Roman numeral suffix
+    const romanMatch = name.match(/\s(I{1,3}|IV|V(?:I{0,3})|IX|X)$/);
+    if (romanMatch) {
+      const suffix = romanMatch[1];
+      suffixes.set(suffix, (suffixes.get(suffix) || 0) + 1);
+    }
+
+    // First word as prefix
+    if (words.length > 0) {
+      const prefix = words[0];
+      if (prefix.length > 2) {
+        prefixes.set(prefix, (prefixes.get(prefix) || 0) + 1);
+      }
+    }
+  }
+
+  lines.push(`**Total valid spells:** ${totalSpells}`, '');
+
+  // Name length statistics
+  nameLengths.sort((a, b) => a - b);
+  const avgLen = Math.round(nameLengths.reduce((s, l) => s + l, 0) / nameLengths.length);
+  lines.push('## Name Statistics', '');
+  lines.push(`- **Average name length:** ${avgLen} characters`);
+  lines.push(`- **Shortest name:** ${nameLengths[0]} chars`);
+  lines.push(`- **Longest name:** ${nameLengths[nameLengths.length - 1]} chars`);
+  lines.push(`- **Median:** ${nameLengths[Math.floor(nameLengths.length / 2)]} chars`);
+  lines.push(`- **Average word count:** ${(wordCounts.reduce((s, w) => s + w, 0) / wordCounts.length).toFixed(1)} words`);
+
+  // Rank patterns
+  const sortedRanks = [...rankPatterns.entries()].sort((a, b) => b[1] - a[1]);
+  if (sortedRanks.length > 0) {
+    lines.push('', '## Rank Pattern Distribution', '');
+    lines.push('| Rank Pattern | Count | % |');
+    lines.push('|-------------|------:|---:|');
+    let totalRanked = 0;
+    for (const [rk, count] of sortedRanks) {
+      totalRanked += count;
+      lines.push(`| ${rk} | ${count} | ${Math.round(count / totalSpells * 100)}% |`);
+    }
+    lines.push(`| *(No rank)* | ${totalSpells - totalRanked} | ${Math.round((totalSpells - totalRanked) / totalSpells * 100)}% |`);
+  }
+
+  // Top prefixes (spell line names)
+  const sortedPrefixes = [...prefixes.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('', '## Most Common First Words (Spell Line Indicators)', '');
+  lines.push('| Word | Spells | % |');
+  lines.push('|------|------:|---:|');
+  for (const [prefix, count] of sortedPrefixes.slice(0, 30)) {
+    lines.push(`| ${prefix} | ${count} | ${Math.round(count / totalSpells * 100)}% |`);
+  }
+
+  // Suffix patterns
+  const sortedSuffixes = [...suffixes.entries()].sort((a, b) => b[1] - a[1]);
+  if (sortedSuffixes.length > 0) {
+    lines.push('', '## Roman Numeral Suffixes', '');
+    lines.push('| Suffix | Count |');
+    lines.push('|--------|------:|');
+    for (const [suf, count] of sortedSuffixes) {
+      lines.push(`| ${suf} | ${count} |`);
+    }
+  }
+
+  // Name length distribution
+  lines.push('', '## Name Length Distribution', '');
+  const lenBuckets: Record<string, number> = {
+    '1-10': 0, '11-20': 0, '21-30': 0, '31-40': 0, '41+': 0,
+  };
+  for (const len of nameLengths) {
+    if (len <= 10) lenBuckets['1-10']++;
+    else if (len <= 20) lenBuckets['11-20']++;
+    else if (len <= 30) lenBuckets['21-30']++;
+    else if (len <= 40) lenBuckets['31-40']++;
+    else lenBuckets['41+']++;
+  }
+  for (const [bucket, count] of Object.entries(lenBuckets)) {
+    const pct = Math.round(count / totalSpells * 100);
+    const bar = '█'.repeat(Math.min(pct * 2, 40));
+    lines.push(`- **${bucket} chars:** ${bar} ${pct}% (${count})`);
+  }
+
+  lines.push('', `*${totalSpells} spell names analyzed.*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: ZONE LEVEL GAP ANALYSIS ============
+
+export async function getZoneLevelGapAnalysis(): Promise<string> {
+  await loadZones();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  const lines = ['# Zone Level Gap Analysis', ''];
+  lines.push('*Find level ranges with sparse or no zone coverage.*', '');
+
+  // Count zones per level
+  const zonesPerLevel = new Map<number, number>();
+  const zoneNamesPerLevel = new Map<number, string[]>();
+  for (const zone of zones.values()) {
+    if (zone.levelMin <= 0) continue;
+    for (let lv = zone.levelMin; lv <= zone.levelMax; lv++) {
+      zonesPerLevel.set(lv, (zonesPerLevel.get(lv) || 0) + 1);
+      if (!zoneNamesPerLevel.has(lv)) zoneNamesPerLevel.set(lv, []);
+      if (zoneNamesPerLevel.get(lv)!.length < 5) zoneNamesPerLevel.get(lv)!.push(zone.name);
+    }
+  }
+
+  // Coverage chart (1-125)
+  lines.push('## Zone Coverage by Level', '');
+  lines.push('| Level | Zones | Bar |');
+  lines.push('|------:|------:|-----|');
+  const maxZones = Math.max(...[...zonesPerLevel.values()]);
+  let gapLevels: number[] = [];
+  let sparseLevels: number[] = [];
+
+  for (let lv = 1; lv <= 125; lv++) {
+    const count = zonesPerLevel.get(lv) || 0;
+    if (count === 0) gapLevels.push(lv);
+    else if (count <= 3) sparseLevels.push(lv);
+
+    // Show every 5th level and all gaps/sparse
+    if (lv % 5 === 0 || count === 0 || count <= 3) {
+      const barLen = maxZones > 0 ? Math.round(count / maxZones * 30) : 0;
+      const bar = count === 0 ? '⚠️ GAP' : '█'.repeat(barLen);
+      lines.push(`| ${lv} | ${count} | ${bar} |`);
+    }
+  }
+
+  // Gap summary
+  lines.push('', '## Level Gaps (No Zones)', '');
+  if (gapLevels.length === 0) {
+    lines.push('No level gaps found — all levels 1-125 have at least one zone.');
+  } else {
+    // Group consecutive gaps into ranges
+    const ranges: [number, number][] = [];
+    let rangeStart = gapLevels[0];
+    let rangePrev = gapLevels[0];
+    for (let i = 1; i < gapLevels.length; i++) {
+      if (gapLevels[i] === rangePrev + 1) {
+        rangePrev = gapLevels[i];
+      } else {
+        ranges.push([rangeStart, rangePrev]);
+        rangeStart = gapLevels[i];
+        rangePrev = gapLevels[i];
+      }
+    }
+    ranges.push([rangeStart, rangePrev]);
+
+    lines.push(`**Total gap levels:** ${gapLevels.length}`);
+    for (const [lo, hi] of ranges) {
+      if (lo === hi) lines.push(`- Level ${lo}`);
+      else lines.push(`- Levels ${lo}-${hi} (${hi - lo + 1} levels)`);
+    }
+  }
+
+  // Sparse levels
+  lines.push('', '## Sparse Levels (1-3 Zones)', '');
+  if (sparseLevels.length === 0) {
+    lines.push('All levels have 4+ zones.');
+  } else {
+    lines.push(`**Sparse levels:** ${sparseLevels.length}`, '');
+    // Group consecutive
+    const ranges: [number, number][] = [];
+    let rangeStart = sparseLevels[0];
+    let rangePrev = sparseLevels[0];
+    for (let i = 1; i < sparseLevels.length; i++) {
+      if (sparseLevels[i] === rangePrev + 1) {
+        rangePrev = sparseLevels[i];
+      } else {
+        ranges.push([rangeStart, rangePrev]);
+        rangeStart = sparseLevels[i];
+        rangePrev = sparseLevels[i];
+      }
+    }
+    ranges.push([rangeStart, rangePrev]);
+
+    for (const [lo, hi] of ranges) {
+      const count = zonesPerLevel.get(lo) || 0;
+      if (lo === hi) lines.push(`- Level ${lo} (${count} zones)`);
+      else lines.push(`- Levels ${lo}-${hi} (${hi - lo + 1} levels, ${count}-${zonesPerLevel.get(hi) || 0} zones)`);
+    }
+  }
+
+  // Peak levels (most zones)
+  const peakLevels = [...zonesPerLevel.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  lines.push('', '## Peak Levels (Most Zones)', '');
+  lines.push('| Level | Zones | Sample Zones |');
+  lines.push('|------:|------:|-------------|');
+  for (const [lv, count] of peakLevels) {
+    const names = zoneNamesPerLevel.get(lv)?.join(', ') || '';
+    lines.push(`| ${lv} | ${count} | ${names} |`);
+  }
+
+  // Overall statistics
+  const levelsWithZones = [...zonesPerLevel.entries()].filter(([, c]) => c > 0).length;
+  lines.push('', '## Statistics', '');
+  lines.push(`- **Levels with zones:** ${levelsWithZones}/125`);
+  lines.push(`- **Levels without zones:** ${125 - levelsWithZones}`);
+  lines.push(`- **Average zones per level:** ${(([...zonesPerLevel.values()].reduce((s, v) => s + v, 0)) / 125).toFixed(1)}`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CLASS IDENTITY PROFILE ============
+
+export async function getClassIdentityProfile(className: string): Promise<string> {
+  await Promise.all([loadSpells(), loadSpellDescriptions(), loadBaseStats(), loadSkillCaps(), loadACMitigation()]);
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve class ID
+  const upper = className.toUpperCase();
+  let classId = 0;
+  for (const [id, short] of Object.entries(CLASS_SHORT)) {
+    if (short === upper) { classId = parseInt(id); break; }
+  }
+  if (!classId) {
+    const lower = className.toLowerCase();
+    for (const [id, name] of Object.entries(CLASS_IDS)) {
+      if (name.toLowerCase() === lower) { classId = parseInt(id); break; }
+    }
+  }
+  if (!classId) return `Error: Unknown class "${className}". Use 3-letter code (WAR, CLR, etc.) or full name.`;
+
+  const lines = [`# Class Identity Profile: ${CLASS_IDS[classId]} (${CLASS_SHORT[classId]})`, ''];
+  lines.push('*What makes this class unique — exclusive abilities, best-in-class roles, and identity traits.*', '');
+
+  // Count total and exclusive spells
+  let totalSpells = 0;
+  let exclusiveSpells = 0;
+  const categoryBreakdown = new Map<string, { total: number; exclusive: number }>();
+  const effectsUsed = new Set<number>(); // SPA IDs this class uses
+  let groupBuffs = 0;
+  let heals = 0;
+  let nukes = 0;
+  let dots = 0;
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+    if (level < 1 || level > 254) continue;
+
+    totalSpells++;
+
+    // Check if exclusive to this class
+    let isExclusive = true;
+    for (let cid = 1; cid <= 16; cid++) {
+      if (cid === classId) continue;
+      const otherLv = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (otherLv >= 1 && otherLv <= 254) { isExclusive = false; break; }
+    }
+    if (isExclusive) exclusiveSpells++;
+
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Category ${catId}`);
+    if (!categoryBreakdown.has(catName)) categoryBreakdown.set(catName, { total: 0, exclusive: 0 });
+    const cb = categoryBreakdown.get(catName)!;
+    cb.total++;
+    if (isExclusive) cb.exclusive++;
+
+    const isBen = spell.fields[SF.BENEFICIAL] === '1';
+    const targetType = spell.fields[SF.TARGET_TYPE] || '';
+    if (isBen && (targetType === '3' || targetType === '41')) groupBuffs++;
+
+    // Parse SPA effects
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { slotsField = i; break; }
+    }
+    if (slotsField >= 0) {
+      const slots = spell.fields[slotsField].split('$');
+      for (const slot of slots) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spa = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          effectsUsed.add(spa);
+          if (spa === 0 && base > 0 && isBen) heals++;
+          if (spa === 0 && base < 0 && !isBen) {
+            const dur = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+            if (dur > 0) dots++; else nukes++;
+          }
+        }
+      }
+    }
+  }
+
+  // Summary
+  lines.push('## Spell Book Summary', '');
+  lines.push(`- **Total spells:** ${totalSpells}`);
+  lines.push(`- **Exclusive spells:** ${exclusiveSpells} (${Math.round(exclusiveSpells / totalSpells * 100)}%)`);
+  lines.push(`- **Group buffs:** ${groupBuffs}`);
+  lines.push(`- **Heal spells:** ${heals}`);
+  lines.push(`- **Direct damage:** ${nukes}`);
+  lines.push(`- **DoT spells:** ${dots}`);
+  lines.push(`- **Distinct spell effects (SPAs):** ${effectsUsed.size}`);
+
+  // Top exclusive categories
+  const exclusiveCats = [...categoryBreakdown.entries()]
+    .filter(([, d]) => d.exclusive > 0)
+    .sort((a, b) => b[1].exclusive - a[1].exclusive);
+  if (exclusiveCats.length > 0) {
+    lines.push('', '## Exclusive Spell Categories', '');
+    lines.push('| Category | Exclusive | Total |');
+    lines.push('|----------|--------:|------:|');
+    for (const [cat, data] of exclusiveCats.slice(0, 15)) {
+      lines.push(`| ${cat} | ${data.exclusive} | ${data.total} |`);
+    }
+  }
+
+  // Base stats at level 125
+  if (baseStats && baseStats.length > 0) {
+    const stats125 = baseStats.filter(s => s.classId === classId && s.level === 125);
+    if (stats125.length > 0) {
+      const s = stats125[0];
+      lines.push('', '## Base Stats (Level 125)', '');
+      lines.push(`- **HP:** ${s.hp.toLocaleString()}`);
+      lines.push(`- **Mana:** ${s.mana.toLocaleString()}`);
+      lines.push(`- **Endurance:** ${s.endurance.toLocaleString()}`);
+      lines.push(`- **HP Regen:** ${s.hpRegen} | **Mana Regen:** ${s.manaRegen} | **End Regen:** ${s.enduranceRegen}`);
+    }
+  }
+
+  // Top categories by total spell count
+  const sortedCats = [...categoryBreakdown.entries()].sort((a, b) => b[1].total - a[1].total);
+  lines.push('', '## Top Spell Categories', '');
+  lines.push('| Category | Spells | Exclusive |');
+  lines.push('|----------|------:|---------:|');
+  for (const [cat, data] of sortedCats.slice(0, 12)) {
+    lines.push(`| ${cat} | ${data.total} | ${data.exclusive} |`);
+  }
+
+  // Role identity
+  lines.push('', '## Role Identity', '');
+  const roles: string[] = [];
+  if (heals > 50) roles.push('Healer');
+  if (nukes > 100) roles.push('Nuker');
+  if (dots > 50) roles.push('DoT Specialist');
+  if (groupBuffs > 50) roles.push('Buffer');
+  if (effectsUsed.has(22)) roles.push('Charmer');
+  if (effectsUsed.has(33)) roles.push('Pet Master');
+  if (effectsUsed.has(21)) roles.push('Stunner');
+  if (effectsUsed.has(31)) roles.push('Mezzer');
+  if (effectsUsed.has(99)) roles.push('Rooter');
+  lines.push(`**Primary Roles:** ${roles.length > 0 ? roles.join(', ') : 'Support'}`);
+  lines.push(`**Exclusivity:** ${Math.round(exclusiveSpells / totalSpells * 100)}% of spells are class-exclusive`);
+
+  lines.push('', `*${totalSpells} spells analyzed for ${CLASS_IDS[classId]}.*`);
+
+  return lines.join('\n');
+}
