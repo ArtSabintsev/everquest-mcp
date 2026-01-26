@@ -84,6 +84,8 @@ export interface SpellData {
   classes?: Record<string, number>; // class name -> level
   effects?: string[];
   expansion?: string;
+  category?: string;
+  subcategory?: string;
   raw?: string;
 }
 

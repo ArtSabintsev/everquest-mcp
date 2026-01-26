@@ -129,6 +129,8 @@ const SF = {
   // Class order: WAR(36), CLR(37), PAL(38), RNG(39), SHD(40), DRU(41),
   //              MNK(42), BRD(43), ROG(44), SHM(45), NEC(46), WIZ(47),
   //              MAG(48), ENC(49), BST(50), BER(51)
+  CATEGORY: 87,     // Spell category ID (maps to dbstr type 5)
+  SUBCATEGORY: 88,  // Spell subcategory ID (maps to dbstr type 5)
 };
 
 // ============ LOOKUP TABLES ============
@@ -569,6 +571,7 @@ let factionModifierNames: Map<number, string> | null = null; // modifierId -> na
 let aaAbilities: Map<number, AAEntry> | null = null;
 let aaNameIndex: Map<string, number[]> | null = null;
 let spellDescriptions: Map<number, string> | null = null;
+let spellCategories: Map<number, string> | null = null;
 
 // Lore/Storyline data
 let loreEntries: LoreEntry[] | null = null;
@@ -987,6 +990,16 @@ function buildLocalSpellData(spell: LocalSpell): SpellData {
 
   if (!isNaN(resistType) && resistType > 0) {
     spellData.resist = RESIST_TYPES[resistType] || `Type ${resistType}`;
+  }
+
+  // Spell category/subcategory
+  const catId = parseInt(f[SF.CATEGORY]);
+  const subCatId = parseInt(f[SF.SUBCATEGORY]);
+  if (!isNaN(catId) && catId > 0 && spellCategories) {
+    spellData.category = spellCategories.get(catId) || undefined;
+  }
+  if (!isNaN(subCatId) && subCatId > 0 && subCatId !== catId && spellCategories) {
+    spellData.subcategory = spellCategories.get(subCatId) || undefined;
   }
 
   return spellData;
@@ -1454,9 +1467,10 @@ async function loadDbStrings(types: number[]): Promise<void> {
 async function loadSpellDescriptions(): Promise<void> {
   if (spellDescriptions !== null) return;
 
-  await loadDbStrings([DBSTR_TYPES.SPELL_DESCRIPTION]);
+  await loadDbStrings([DBSTR_TYPES.SPELL_DESCRIPTION, DBSTR_TYPES.SPELL_CATEGORY]);
   spellDescriptions = dbStrings?.get(DBSTR_TYPES.SPELL_DESCRIPTION) || new Map();
-  console.error(`[LocalData] ${spellDescriptions.size} spell descriptions available`);
+  spellCategories = dbStrings?.get(DBSTR_TYPES.SPELL_CATEGORY) || new Map();
+  console.error(`[LocalData] ${spellDescriptions.size} spell descriptions, ${spellCategories.size} spell categories available`);
 }
 
 // ============ FACTION PARSER ============

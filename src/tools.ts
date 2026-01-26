@@ -957,6 +957,14 @@ function formatSpell(spell: SpellData): string {
     lines.push('');
   }
 
+  // Category
+  if (spell.category) {
+    const catLine = spell.subcategory
+      ? `**Category:** ${spell.category} > ${spell.subcategory}`
+      : `**Category:** ${spell.category}`;
+    lines.push(catLine);
+  }
+
   // Basic info
   if (spell.mana) lines.push(`**Mana:** ${spell.mana}`);
   if (spell.castTime) lines.push(`**Cast Time:** ${spell.castTime}`);
