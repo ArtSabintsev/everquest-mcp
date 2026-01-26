@@ -100,6 +100,7 @@ import {
   compareClasses,
   searchSpellsAdvanced,
   getClassSpellSummary,
+  compareDeities,
 } from './sources/index.js';
 
 export const tools = [
@@ -1447,6 +1448,24 @@ export const tools = [
     }
   },
   {
+    name: 'compare_deities',
+    description: 'Compare two EverQuest deities side by side. Shows follower races, available classes, and lore for each deity. Useful for character creation deity selection.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        deity1: {
+          type: 'string',
+          description: 'First deity name (e.g., "Tunare", "Innoruuk")'
+        },
+        deity2: {
+          type: 'string',
+          description: 'Second deity name (e.g., "Karana", "Cazic-Thule")'
+        }
+      },
+      required: ['deity1', 'deity2']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -2654,6 +2673,14 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!race1) return 'Error: "race1" parameter is required';
         if (!race2) return 'Error: "race2" parameter is required';
         return compareRaces(race1, race2);
+      }
+
+      case 'compare_deities': {
+        const deity1 = typeof args.deity1 === 'string' ? args.deity1.trim() : '';
+        const deity2 = typeof args.deity2 === 'string' ? args.deity2.trim() : '';
+        if (!deity1) return 'Error: "deity1" parameter is required';
+        if (!deity2) return 'Error: "deity2" parameter is required';
+        return compareDeities(deity1, deity2);
       }
 
       case 'search_help_topics': {

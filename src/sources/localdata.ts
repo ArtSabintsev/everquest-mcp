@@ -7448,6 +7448,108 @@ export async function getClassSpellSummary(className: string): Promise<string> {
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: DEITY COMPARISON ============
+
+export async function compareDeities(deity1: string, deity2: string): Promise<string> {
+  await loadRaceClassInfo();
+  await loadFactions(); // for faction data
+
+  // Resolve deity names
+  const allDeityNames = new Set<string>();
+  for (const deities of Object.values(RACE_DEITIES)) {
+    for (const d of deities) allDeityNames.add(d);
+  }
+
+  function findDeity(name: string): string | null {
+    const lower = name.toLowerCase();
+    for (const d of allDeityNames) {
+      if (d.toLowerCase() === lower) return d;
+    }
+    for (const d of allDeityNames) {
+      if (d.toLowerCase().includes(lower)) return d;
+    }
+    return null;
+  }
+
+  const name1 = findDeity(deity1);
+  const name2 = findDeity(deity2);
+  if (!name1) return `Unknown deity: "${deity1}". Valid: ${[...allDeityNames].sort().join(', ')}`;
+  if (!name2) return `Unknown deity: "${deity2}". Valid: ${[...allDeityNames].sort().join(', ')}`;
+  if (name1 === name2) return `Please specify two different deities to compare.`;
+
+  // Find follower races
+  const races1 = new Set<string>();
+  const races2 = new Set<string>();
+  for (const [raceId, deities] of Object.entries(RACE_DEITIES)) {
+    const raceName = RACE_IDS[parseInt(raceId)];
+    if (!raceName) continue;
+    if (deities.includes(name1)) races1.add(raceName);
+    if (deities.includes(name2)) races2.add(raceName);
+  }
+
+  const sharedRaces = [...races1].filter(r => races2.has(r));
+  const uniqueRaces1 = [...races1].filter(r => !races2.has(r));
+  const uniqueRaces2 = [...races2].filter(r => !races1.has(r));
+
+  // Find available classes through races
+  const classes1 = new Set<string>();
+  const classes2 = new Set<string>();
+  for (const [raceId, classIds] of Object.entries(RACE_CLASSES)) {
+    const raceName = RACE_IDS[parseInt(raceId)];
+    if (!raceName) continue;
+    for (const cid of classIds) {
+      if (races1.has(raceName)) classes1.add(CLASS_IDS[cid]);
+      if (races2.has(raceName)) classes2.add(CLASS_IDS[cid]);
+    }
+  }
+
+  const sharedClasses = [...classes1].filter(c => classes2.has(c));
+  const uniqueClasses1 = [...classes1].filter(c => !classes2.has(c));
+  const uniqueClasses2 = [...classes2].filter(c => !classes1.has(c));
+
+  const lines = [
+    `## Deity Comparison: ${name1} vs ${name2}`,
+    '',
+    '### Follower Races',
+    `| | ${name1} | ${name2} |`,
+    `|---|---|---|`,
+    `| Total | ${races1.size} | ${races2.size} |`,
+    `| Shared | ${sharedRaces.length} | ${sharedRaces.length} |`,
+    '',
+    `**Shared:** ${sharedRaces.join(', ') || 'None'}`,
+    `**${name1} only:** ${uniqueRaces1.join(', ') || 'None'}`,
+    `**${name2} only:** ${uniqueRaces2.join(', ') || 'None'}`,
+    '',
+    '### Available Classes (via follower races)',
+    `| | ${name1} | ${name2} |`,
+    `|---|---|---|`,
+    `| Total | ${classes1.size} | ${classes2.size} |`,
+    `| Shared | ${sharedClasses.length} | ${sharedClasses.length} |`,
+    '',
+    `**Shared:** ${sharedClasses.join(', ') || 'None'}`,
+    `**${name1} only:** ${uniqueClasses1.join(', ') || 'None'}`,
+    `**${name2} only:** ${uniqueClasses2.join(', ') || 'None'}`,
+  ];
+
+  // Lore descriptions
+  if (deityDescriptions) {
+    for (const [, desc] of deityDescriptions) {
+      if (desc.toLowerCase().includes(name1.toLowerCase())) {
+        lines.push('', `### ${name1} — Lore`, desc);
+        break;
+      }
+    }
+    for (const [, desc] of deityDescriptions) {
+      if (desc.toLowerCase().includes(name2.toLowerCase())) {
+        lines.push('', `### ${name2} — Lore`, desc);
+        break;
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {
