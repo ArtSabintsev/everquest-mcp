@@ -63,6 +63,10 @@ import {
   listAltCurrencies,
   searchTributes,
   getTribute,
+  searchItemEffects,
+  getItemEffect,
+  getZoneMapPOIs,
+  getBannerCategories,
 } from './sources/index.js';
 
 export const tools = [
@@ -823,6 +827,60 @@ export const tools = [
     }
   },
   {
+    name: 'search_item_effects',
+    description: 'Search for EverQuest item click/proc effect descriptions. Find what items do when clicked or when their proc triggers (cure, title grant, summon, snare, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search text (e.g., "cure disease", "title", "summon", "snare")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_item_effect',
+    description: 'Get a specific item click/proc effect description by ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The item effect ID'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'get_zone_map',
+    description: 'Get map points of interest (POIs) for an EverQuest zone. Shows labeled locations with coordinates from Brewall/standard map files. Optionally filter by a search term.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        zone: {
+          type: 'string',
+          description: 'Zone name (e.g., "Plane of Knowledge", "East Commonlands", "poknowledge")'
+        },
+        query: {
+          type: 'string',
+          description: 'Optional: filter POIs by label (e.g., "bank", "merchant", "portal")'
+        }
+      },
+      required: ['zone']
+    }
+  },
+  {
+    name: 'get_banner_categories',
+    description: 'Get guild banner and fellowship campsite category types. Shows what types of banners and campsites are available.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
     name: 'get_local_data_status',
     description: 'Show status of local EverQuest game data integration - which data files are loaded and available.',
     inputSchema: {
@@ -1175,7 +1233,7 @@ function formatSources(): string {
   const lines = ['# Available EverQuest Data Sources', ''];
 
   const sourceInfo = [
-    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with 500+ effect types), zones, skill caps, class stats, achievements, factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+ with stances & abilities), AC mitigation, spell stacking, map POIs (34K+), lore (50 stories), game strings (7K), Overseer agents (300+ with trait descriptions & lore) & quests (800+ with slots & incapacitations), race/class info (16/16), deities (17 with lore), stats, tributes (266), alt currencies (54)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
+    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with 500+ effect types), zones, skill caps, class stats, achievements, factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+ with stances & abilities), AC mitigation, spell stacking, map POIs (34K+), lore (50 stories), game strings (7K), Overseer agents (300+ with jobs & traits) & quests (800+ with slots & incapacitations), race/class info (16/16), deities (17 with lore), stats, tributes (266), alt currencies (54), item effects (1100+), banner/campsite categories', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
     { name: 'Allakhazam', specialty: 'Primary database - spells, items, NPCs, zones, quests', url: 'https://everquest.allakhazam.com' },
     { name: "Almar's Guides", specialty: 'Quest walkthroughs, epic guides, leveling guides', url: 'https://www.almarsguides.com/eq' },
     { name: 'EQResource', specialty: 'Modern expansion content, progression, spells database', url: 'https://eqresource.com' },
@@ -1729,6 +1787,32 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!query) return 'Error: "query" parameter is required';
         const results = await searchAugmentGroups(query);
         return results.length > 0 ? formatSearchResults(results, query) : `No augment groups found for "${query}"`;
+      }
+
+      case 'search_item_effects': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchItemEffects(query);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_item_effect': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getItemEffect(id);
+      }
+
+      case 'get_zone_map': {
+        const zone = typeof args.zone === 'string' ? args.zone.trim() : '';
+        if (!zone) return 'Error: "zone" parameter is required';
+        const query = typeof args.query === 'string' ? args.query.trim() : undefined;
+        return getZoneMapPOIs(zone, query);
+      }
+
+      case 'get_banner_categories': {
+        return getBannerCategories();
       }
 
       case 'get_local_data_status': {

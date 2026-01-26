@@ -588,6 +588,14 @@ let overseerQuestNameIndex: Map<string, number[]> | null = null;
 let combatAbilities: Map<number, string> | null = null;
 let combatAbilityNameIndex: Map<string, number[]> | null = null;
 
+// Item effect descriptions (click/proc)
+let itemEffectDescs: Map<number, string> | null = null;
+let itemEffectIndex: Map<string, number[]> | null = null;
+
+// Banner/campsite categories
+let bannerCategories: Map<number, string> | null = null;
+let campsiteCategories: Map<number, string> | null = null;
+
 // Mercenaries
 let mercenaries: Map<number, MercenaryEntry> | null = null;
 let mercenaryNameIndex: Map<string, number[]> | null = null;
@@ -1195,6 +1203,73 @@ async function loadBonusAndAugmentData(): Promise<void> {
   console.error(`[LocalData] Loaded ${bonusDescriptions.size} bonus descriptions, ${augmentGroups.size} augment groups`);
 }
 
+// ============ ITEM EFFECT DESCRIPTION LOADER ============
+
+async function loadItemEffects(): Promise<void> {
+  if (itemEffectDescs !== null) return;
+
+  itemEffectDescs = new Map();
+  itemEffectIndex = new Map();
+  if (!isGameDataAvailable()) return;
+
+  await loadDbStrings([DBSTR_TYPES.ITEM_EFFECT_DESC]);
+  const descs = dbStrings?.get(DBSTR_TYPES.ITEM_EFFECT_DESC) || new Map();
+
+  for (const [id, rawDesc] of descs) {
+    const desc = stripHtmlTags(rawDesc);
+    itemEffectDescs.set(id, desc);
+
+    // Build word index for searching
+    const words = desc.toLowerCase().split(/\s+/);
+    for (const word of words) {
+      if (word.length < 3) continue;
+      const existing = itemEffectIndex!.get(word) || [];
+      if (existing.length < 50) { // Limit index entries per word
+        existing.push(id);
+        itemEffectIndex!.set(word, existing);
+      }
+    }
+  }
+
+  console.error(`[LocalData] Loaded ${itemEffectDescs.size} item effect descriptions`);
+}
+
+// ============ BANNER/CAMPSITE CATEGORY LOADER ============
+
+async function loadBannerCategories(): Promise<void> {
+  if (bannerCategories !== null) return;
+
+  bannerCategories = new Map();
+  campsiteCategories = new Map();
+  if (!isGameDataAvailable()) return;
+
+  try {
+    const bannerData = await readGameFile(join('Resources', 'bannercategories.txt'));
+    for (const line of bannerData.split('\n')) {
+      if (!line.trim() || line.startsWith('#') || line.startsWith('CATEGORY_ID')) continue;
+      const fields = line.split('^');
+      if (fields.length < 2) continue;
+      const id = parseInt(fields[0]);
+      const desc = fields[1].trim();
+      if (!isNaN(id) && desc) bannerCategories.set(id, desc);
+    }
+  } catch { /* ignore */ }
+
+  try {
+    const campsiteData = await readGameFile(join('Resources', 'campsitecategories.txt'));
+    for (const line of campsiteData.split('\n')) {
+      if (!line.trim() || line.startsWith('#') || line.startsWith('CATEGORY_ID')) continue;
+      const fields = line.split('^');
+      if (fields.length < 2) continue;
+      const id = parseInt(fields[0]);
+      const desc = fields[1].trim();
+      if (!isNaN(id) && desc) campsiteCategories.set(id, desc);
+    }
+  } catch { /* ignore */ }
+
+  console.error(`[LocalData] Loaded ${bannerCategories.size} banner categories, ${campsiteCategories.size} campsite categories`);
+}
+
 // ============ AC MITIGATION PARSER ============
 
 async function loadACMitigation(): Promise<void> {
@@ -1308,6 +1383,10 @@ const DBSTR_TYPES = {
   OVERSEER_INCAP_DESC: 59,
   OVERSEER_DIFFICULTY: 66,
   OVERSEER_QUEST_CATEGORY: 67,
+  ITEM_EFFECT_DESC: 43,
+  RESIST_TYPE: 39,
+  CURRENCY_NAME: 44,
+  BANNER_CATEGORY: 32,
 };
 
 const OVERSEER_RARITIES: Record<number, string> = {
@@ -3879,6 +3958,146 @@ export async function getTribute(id: string): Promise<string> {
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: ITEM EFFECTS ============
+
+export async function searchItemEffects(query: string): Promise<SearchResult[]> {
+  await loadItemEffects();
+  if (!itemEffectDescs || itemEffectDescs.size === 0) return [];
+
+  const normalized = query.toLowerCase();
+  const results: SearchResult[] = [];
+  const seen = new Set<number>();
+
+  // First check word index for quick matches
+  const queryWords = normalized.split(/\s+/).filter(w => w.length >= 3);
+  if (queryWords.length > 0 && itemEffectIndex) {
+    for (const word of queryWords) {
+      const ids = itemEffectIndex.get(word) || [];
+      for (const id of ids) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const desc = itemEffectDescs.get(id)!;
+        if (desc.toLowerCase().includes(normalized)) {
+          results.push({
+            name: `Item Effect ${id}`,
+            type: 'item' as const,
+            id: id.toString(),
+            url: `local://item-effect/${id}`,
+            source: 'Local Game Data',
+            description: desc.substring(0, 150) + (desc.length > 150 ? '...' : ''),
+          });
+        }
+      }
+    }
+  }
+
+  // Fall back to full scan if no index matches or too few results
+  if (results.length < 10) {
+    for (const [id, desc] of itemEffectDescs) {
+      if (results.length >= 25) break;
+      if (seen.has(id)) continue;
+      if (desc.toLowerCase().includes(normalized)) {
+        results.push({
+          name: `Item Effect ${id}`,
+          type: 'item' as const,
+          id: id.toString(),
+          url: `local://item-effect/${id}`,
+          source: 'Local Game Data',
+          description: desc.substring(0, 150) + (desc.length > 150 ? '...' : ''),
+        });
+      }
+    }
+  }
+
+  return results.slice(0, 25);
+}
+
+export async function getItemEffect(id: string): Promise<string> {
+  await loadItemEffects();
+  if (!itemEffectDescs) return 'Item effect data not available.';
+
+  const effectId = parseInt(id);
+  const desc = itemEffectDescs.get(effectId);
+  if (!desc) return `Item effect with ID ${id} not found.`;
+
+  return [
+    `## Item Effect ${id}`,
+    '',
+    desc,
+  ].join('\n');
+}
+
+// ============ PUBLIC API: ZONE MAP POIs ============
+
+export async function getZoneMapPOIs(zoneName: string, query?: string): Promise<string> {
+  const pois = await loadMapPOIs(zoneName);
+
+  if (pois.length === 0) {
+    return `No map data found for "${zoneName}". Make sure Brewall or standard map files are installed.`;
+  }
+
+  let filtered = pois;
+  if (query) {
+    const lower = query.toLowerCase();
+    filtered = pois.filter(p => p.label.toLowerCase().includes(lower));
+    if (filtered.length === 0) {
+      return `No POIs matching "${query}" found in ${zoneName} (${pois.length} total POIs available).`;
+    }
+  }
+
+  const lines = [
+    `## Map POIs: ${zoneName}`,
+    query ? `*Filtered by: "${query}"*` : '',
+    '',
+    `**Total POIs:** ${query ? `${filtered.length} matching / ${pois.length} total` : pois.length}`,
+    '',
+  ];
+
+  // Group by label prefix (first word) for organization
+  const sorted = [...filtered].sort((a, b) => a.label.localeCompare(b.label));
+
+  for (const poi of sorted.slice(0, 100)) {
+    const coords = `(${poi.x.toFixed(0)}, ${poi.y.toFixed(0)}${poi.z ? `, ${poi.z.toFixed(0)}` : ''})`;
+    lines.push(`- **${poi.label}** ${coords}`);
+  }
+
+  if (sorted.length > 100) {
+    lines.push(``, `*... and ${sorted.length - 100} more POIs. Use a search query to filter.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: BANNER/CAMPSITE CATEGORIES ============
+
+export async function getBannerCategories(): Promise<string> {
+  await loadBannerCategories();
+
+  const lines = ['## Guild Banner & Campsite Categories', ''];
+
+  if (bannerCategories && bannerCategories.size > 0) {
+    lines.push('### Guild Banner Categories');
+    for (const [id, desc] of bannerCategories) {
+      lines.push(`- ${desc} (ID: ${id})`);
+    }
+    lines.push('');
+  }
+
+  if (campsiteCategories && campsiteCategories.size > 0) {
+    lines.push('### Fellowship Campsite Categories');
+    for (const [id, desc] of campsiteCategories) {
+      lines.push(`- ${desc} (ID: ${id})`);
+    }
+    lines.push('');
+  }
+
+  if ((!bannerCategories || bannerCategories.size === 0) && (!campsiteCategories || campsiteCategories.size === 0)) {
+    return 'Banner/campsite category data not available.';
+  }
+
+  return lines.join('\n');
+}
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {
@@ -3928,6 +4147,8 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Deity Descriptions:** ${deityDescriptions ? deityDescriptions.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Alternate Currencies:** ${altCurrencies ? altCurrencies.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Tributes:** ${tributes ? tributes.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Item Effects:** ${itemEffectDescs ? itemEffectDescs.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Banner Categories:** ${bannerCategories ? bannerCategories.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Map Cache:** ${mapCache.size} zones loaded`);
 
   return lines.join('\n');
