@@ -542,6 +542,9 @@ let baseStats: BaseStatEntry[] | null = null;
 let achievements: Map<number, AchievementEntry> | null = null;
 let achievementNameIndex: Map<string, number[]> | null = null;
 let spellStacking: Map<number, SpellStackEntry[]> | null = null;
+let spellGroupNames: Map<number, string> | null = null;
+let bonusDescriptions: Map<number, string> | null = null;
+let augmentGroups: Map<number, string> | null = null;
 let acMitigation: ACMitigationEntry[] | null = null;
 let spellRequirements: Map<number, { subId: number; reqId: number; failureStringId: number }[]> | null = null;
 let mapCache: Map<string, MapPOI[]> = new Map();
@@ -1158,6 +1161,28 @@ async function loadSpellStacking(): Promise<void> {
   }
 
   console.error(`[LocalData] Loaded stacking data for ${spellStacking.size} spells`);
+
+  // Load spell group names from dbstr
+  await loadDbStrings([DBSTR_TYPES.SPELL_GROUP_NAME]);
+  spellGroupNames = dbStrings?.get(DBSTR_TYPES.SPELL_GROUP_NAME) || new Map();
+  console.error(`[LocalData] Loaded ${spellGroupNames.size} spell group names`);
+}
+
+async function loadBonusAndAugmentData(): Promise<void> {
+  if (bonusDescriptions !== null) return;
+
+  bonusDescriptions = new Map();
+  augmentGroups = new Map();
+  if (!isGameDataAvailable()) return;
+
+  await loadDbStrings([DBSTR_TYPES.BONUS_DESCRIPTION, DBSTR_TYPES.AUGMENT_GROUP]);
+  const bonuses = dbStrings?.get(DBSTR_TYPES.BONUS_DESCRIPTION) || new Map();
+  const augs = dbStrings?.get(DBSTR_TYPES.AUGMENT_GROUP) || new Map();
+
+  for (const [id, desc] of bonuses) bonusDescriptions.set(id, desc);
+  for (const [id, name] of augs) augmentGroups.set(id, name);
+
+  console.error(`[LocalData] Loaded ${bonusDescriptions.size} bonus descriptions, ${augmentGroups.size} augment groups`);
 }
 
 // ============ AC MITIGATION PARSER ============
@@ -1237,7 +1262,10 @@ const DBSTR_TYPES = {
   SPELL_CATEGORY: 5,
   SPELL_DESCRIPTION: 6,
   COMBAT_ABILITY: 27,
+  BONUS_DESCRIPTION: 34,
+  SPELL_GROUP_NAME: 40,
   FACTION_NAME: 45,
+  AUGMENT_GROUP: 46,
   OVERSEER_MINION_SHORT: 52,
   OVERSEER_MINION_FULL: 53,
   OVERSEER_TRAIT: 54,
@@ -2428,9 +2456,11 @@ export async function getLocalSpell(id: string): Promise<SpellData | null> {
   await loadSpellStacking();
   const stackInfo = spellStacking?.get(spellId);
   if (stackInfo && stackInfo.length > 0) {
-    const stackEffects = stackInfo.map(s =>
-      `Stacking Group ${s.stackingGroup}, Rank ${s.rank}, Type ${s.stackingType}`
-    );
+    const stackEffects = stackInfo.map(s => {
+      const groupName = spellGroupNames?.get(s.stackingGroup);
+      const groupLabel = groupName ? `${groupName} (Group ${s.stackingGroup})` : `Group ${s.stackingGroup}`;
+      return `${groupLabel}, Rank ${s.rank}, Type ${s.stackingType}`;
+    });
     data.effects = [...(data.effects || []), ...stackEffects.map(s => `[Stacking] ${s}`)];
   }
 
@@ -2806,7 +2836,11 @@ export async function getSpellStackingInfo(spellId: string): Promise<string> {
       }
     }
 
-    lines.push(`### Stacking Group ${entry.stackingGroup}`);
+    const groupName = spellGroupNames?.get(entry.stackingGroup);
+    const groupTitle = groupName
+      ? `${groupName} (Group ${entry.stackingGroup})`
+      : `Stacking Group ${entry.stackingGroup}`;
+    lines.push(`### ${groupTitle}`);
     lines.push(`- **Rank:** ${entry.rank}`);
     lines.push(`- **Type:** ${entry.stackingType}`);
 
@@ -3260,6 +3294,69 @@ export async function getOverseerIncapacitations(): Promise<string> {
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: BONUS DESCRIPTIONS & AUGMENT GROUPS ============
+
+export async function getHotZoneBonuses(): Promise<string> {
+  await loadBonusAndAugmentData();
+  if (!bonusDescriptions || bonusDescriptions.size === 0) return 'Bonus description data not available.';
+
+  const lines = ['## Hot Zone / Bonus Effects', ''];
+
+  const bonusTypes = [
+    { id: 0, label: 'General Description' },
+    { id: 1, label: 'Experience Bonus' },
+    { id: 2, label: 'Loot Multiplier' },
+    { id: 3, label: 'Faction Bonus' },
+    { id: 4, label: 'Ability Experience' },
+    { id: 5, label: 'Coin Multiplier' },
+    { id: 6, label: 'Increased Spawns' },
+    { id: 7, label: 'Currency Multiplier' },
+    { id: 8, label: 'Tribute Potency' },
+    { id: 9, label: 'Rare Spawns' },
+    { id: 10, label: 'Item Experience' },
+    { id: 11, label: 'Proficiency Rate' },
+    { id: 12, label: 'Enhanced Tribute' },
+    { id: 13, label: 'Collection Multiplier' },
+    { id: 14, label: 'Mercenary Experience' },
+    { id: 15, label: 'Fortune Bonus' },
+  ];
+
+  for (const bt of bonusTypes) {
+    const desc = bonusDescriptions.get(bt.id);
+    if (desc) {
+      lines.push(`### ${bt.label}`);
+      lines.push(desc);
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export async function searchAugmentGroups(query: string): Promise<SearchResult[]> {
+  await loadBonusAndAugmentData();
+  if (!augmentGroups || augmentGroups.size === 0) return [];
+
+  const normalized = query.toLowerCase();
+  const results: SearchResult[] = [];
+
+  for (const [id, name] of augmentGroups) {
+    if (results.length >= 25) break;
+    if (name.toLowerCase().includes(normalized)) {
+      results.push({
+        name,
+        type: 'unknown' as const,
+        id: id.toString(),
+        url: `local://auggroup/${id}`,
+        source: 'Local Game Data',
+        description: `Augmentation group ID: ${id}`,
+      });
+    }
+  }
+
+  return results;
+}
+
 // ============ PUBLIC API: COMBAT ABILITIES ============
 
 export async function searchCombatAbilities(query: string): Promise<SearchResult[]> {
@@ -3680,6 +3777,9 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Factions:** ${factions ? factions.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **AA Abilities:** ${aaAbilities ? aaAbilities.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Spell Stacking:** ${spellStacking ? spellStacking.size.toLocaleString() + ' spells' : 'Not loaded'}`);
+  lines.push(`- **Spell Group Names:** ${spellGroupNames ? spellGroupNames.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Bonus Descriptions:** ${bonusDescriptions ? bonusDescriptions.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Augment Groups:** ${augmentGroups ? augmentGroups.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **AC Mitigation:** ${acMitigation ? acMitigation.length.toLocaleString() + ' entries' : 'Not loaded'}`);
   lines.push(`- **Lore Stories:** ${loreEntries ? loreEntries.length.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Game Strings:** ${gameStrings ? gameStrings.size.toLocaleString() : 'Not loaded'}`);

@@ -53,6 +53,8 @@ import {
   getMercenary,
   getMercenaryStances,
   getOverseerIncapacitations,
+  getHotZoneBonuses,
+  searchAugmentGroups,
   getRaceInfo,
   getClassInfo,
   getDeityInfo,
@@ -796,6 +798,28 @@ export const tools = [
         }
       },
       required: ['id']
+    }
+  },
+  {
+    name: 'get_hot_zone_bonuses',
+    description: 'Get all EverQuest hot zone / bonus zone effect types. Shows what bonuses zones can have (XP bonus, loot multiplier, rare spawns, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'search_augment_groups',
+    description: 'Search for augmentation slot groups by name. Shows which augmentations can be placed in which equipment slots.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Augment group name to search for'
+        }
+      },
+      required: ['query']
     }
   },
   {
@@ -1694,6 +1718,17 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const id = typeof args.id === 'string' ? args.id.trim() : '';
         if (!id) return 'Error: "id" parameter is required';
         return getTribute(id);
+      }
+
+      case 'get_hot_zone_bonuses': {
+        return getHotZoneBonuses();
+      }
+
+      case 'search_augment_groups': {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query) return 'Error: "query" parameter is required';
+        const results = await searchAugmentGroups(query);
+        return results.length > 0 ? formatSearchResults(results, query) : `No augment groups found for "${query}"`;
       }
 
       case 'get_local_data_status': {
