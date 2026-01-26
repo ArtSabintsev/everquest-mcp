@@ -1052,14 +1052,21 @@ function formatSpell(spell: SpellData): string {
   }
 
   // Basic info
+  if (spell.beneficial !== undefined) {
+    lines.push(`**Type:** ${spell.beneficial ? 'Beneficial' : 'Detrimental'}`);
+  }
   if (spell.mana) lines.push(`**Mana:** ${spell.mana}`);
   if (spell.castTime) lines.push(`**Cast Time:** ${spell.castTime}`);
+  if (spell.recoveryTime) lines.push(`**Recovery:** ${spell.recoveryTime}`);
   if (spell.recastTime) lines.push(`**Recast Time:** ${spell.recastTime}`);
   if (spell.duration) lines.push(`**Duration:** ${spell.duration}`);
   if (spell.range) lines.push(`**Range:** ${spell.range}`);
+  if (spell.aeRange) lines.push(`**AE Range:** ${spell.aeRange}`);
   if (spell.target) lines.push(`**Target:** ${spell.target}`);
   if (spell.resist) lines.push(`**Resist:** ${spell.resist}`);
   if (spell.skill) lines.push(`**Skill:** ${spell.skill}`);
+  if (spell.pushBack) lines.push(`**Push Back:** ${spell.pushBack}`);
+  if (spell.pushUp) lines.push(`**Push Up:** ${spell.pushUp}`);
 
   // Classes with levels
   if (spell.classes && typeof spell.classes === 'object') {

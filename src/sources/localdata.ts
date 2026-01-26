@@ -74,6 +74,27 @@ RACE_NAME_TO_ID['he'] = 5;
 RACE_NAME_TO_ID['we'] = 4;
 RACE_NAME_TO_ID['hef'] = 7;
 
+// Race starting base stats: [STR, STA, AGI, DEX, WIS, INT, CHA]
+const RACE_BASE_STATS: Record<number, number[]> = {
+  1:   [75, 75, 75, 75, 75, 75, 75],       // Human
+  2:   [103, 95, 82, 70, 70, 60, 55],       // Barbarian
+  3:   [60, 70, 70, 70, 83, 107, 70],       // Erudite
+  4:   [65, 65, 95, 80, 80, 75, 75],        // Wood Elf
+  5:   [55, 65, 85, 70, 95, 92, 80],        // High Elf
+  6:   [60, 65, 90, 75, 83, 99, 60],        // Dark Elf
+  7:   [70, 70, 90, 85, 60, 75, 75],        // Half Elf
+  8:   [90, 90, 70, 90, 83, 60, 45],        // Dwarf
+  9:   [108, 109, 83, 75, 60, 52, 40],      // Troll
+  10:  [130, 127, 70, 70, 67, 60, 37],      // Ogre
+  11:  [70, 75, 95, 90, 80, 67, 50],        // Halfling
+  12:  [60, 70, 85, 85, 67, 98, 60],        // Gnome
+  128: [70, 70, 90, 85, 80, 75, 55],        // Iksar
+  130: [90, 75, 90, 70, 70, 65, 65],        // Vah Shir
+  330: [70, 80, 100, 100, 75, 75, 50],      // Froglok
+  522: [70, 80, 85, 75, 80, 85, 75],        // Drakkin
+};
+const STAT_NAMES = ['STR', 'STA', 'AGI', 'DEX', 'WIS', 'INT', 'CHA'];
+
 // Race -> starting city dbstr type 15 IDs
 const RACE_STARTING_CITY_IDS: Record<number, number[]> = {
   1: [1, 382],      // Human: Qeynos, Freeport
@@ -1018,6 +1039,10 @@ function buildLocalSpellData(spell: LocalSpell): SpellData {
     spellData.castTime = `${(castTime / 1000).toFixed(1)}s`;
   }
 
+  if (!isNaN(recoveryTime) && recoveryTime > 0) {
+    spellData.recoveryTime = `${(recoveryTime / 1000).toFixed(1)}s`;
+  }
+
   if (!isNaN(recastTime) && recastTime > 0) {
     spellData.recastTime = `${(recastTime / 1000).toFixed(1)}s`;
   }
@@ -1030,6 +1055,10 @@ function buildLocalSpellData(spell: LocalSpell): SpellData {
     spellData.range = `${range}`;
   }
 
+  if (!isNaN(aeRange) && aeRange > 0) {
+    spellData.aeRange = `${aeRange}`;
+  }
+
   if (!isNaN(targetType)) {
     spellData.target = TARGET_TYPES[targetType] || `Type ${targetType}`;
   }
@@ -1037,6 +1066,13 @@ function buildLocalSpellData(spell: LocalSpell): SpellData {
   if (!isNaN(resistType) && resistType > 0) {
     spellData.resist = RESIST_TYPES[resistType] || `Type ${resistType}`;
   }
+
+  spellData.beneficial = beneficial;
+
+  const pushBack = parseInt(f[SF.PUSH_BACK]);
+  const pushUp = parseInt(f[SF.PUSH_UP]);
+  if (!isNaN(pushBack) && pushBack > 0) spellData.pushBack = pushBack;
+  if (!isNaN(pushUp) && pushUp > 0) spellData.pushUp = pushUp;
 
   // Spell category/subcategory
   const catId = parseInt(f[SF.CATEGORY]);
@@ -4122,6 +4158,13 @@ export async function getRaceInfo(raceName: string): Promise<string> {
   const availableClasses = RACE_CLASSES[raceId];
   if (availableClasses) {
     lines.push(`**Available Classes:** ${availableClasses.map(id => CLASS_IDS[id]).join(', ')}`);
+  }
+
+  // Starting base stats
+  const stats = RACE_BASE_STATS[raceId];
+  if (stats) {
+    const statStr = STAT_NAMES.map((name, i) => `${name}: ${stats[i]}`).join(', ');
+    lines.push(`**Base Stats:** ${statStr}`);
   }
 
   // Available deities

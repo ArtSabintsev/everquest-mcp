@@ -76,11 +76,16 @@ export interface SpellData {
   mana?: number;
   castTime?: string;
   recastTime?: string;
+  recoveryTime?: string;
   duration?: string;
   range?: string;
+  aeRange?: string;
   target?: string;
   resist?: string;
   skill?: string;
+  beneficial?: boolean;
+  pushBack?: number;
+  pushUp?: number;
   classes?: Record<string, number>; // class name -> level
   effects?: string[];
   expansion?: string;
