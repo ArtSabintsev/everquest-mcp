@@ -173,6 +173,7 @@ const SF = {
   RECOURSE: 81,     // Recourse spell ID (spell cast on caster when landing on target)
   CATEGORY: 87,     // Spell category ID (maps to dbstr type 5)
   SUBCATEGORY: 88,  // Spell subcategory ID (maps to dbstr type 5)
+  ENDURANCE: 96,    // Endurance cost (melee/hybrid combat abilities)
   TIMER_ID: 97,     // Reuse timer group (0 = default spell gem, >0 = shared timer)
 };
 
@@ -1076,6 +1077,9 @@ function buildLocalSpellData(spell: LocalSpell): SpellData {
   };
 
   if (!isNaN(mana) && mana > 0) spellData.mana = mana;
+
+  const endurance = parseInt(f[SF.ENDURANCE]);
+  if (!isNaN(endurance) && endurance > 0) spellData.endurance = endurance;
 
   if (!isNaN(castTime) && castTime > 0) {
     spellData.castTime = `${(castTime / 1000).toFixed(1)}s`;

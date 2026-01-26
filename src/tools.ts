@@ -1056,6 +1056,7 @@ function formatSpell(spell: SpellData): string {
     lines.push(`**Type:** ${spell.beneficial ? 'Beneficial' : 'Detrimental'}`);
   }
   if (spell.mana) lines.push(`**Mana:** ${spell.mana}`);
+  if (spell.endurance) lines.push(`**Endurance:** ${spell.endurance}`);
   if (spell.castTime) lines.push(`**Cast Time:** ${spell.castTime}`);
   if (spell.recoveryTime) lines.push(`**Recovery:** ${spell.recoveryTime}`);
   if (spell.recastTime) lines.push(`**Recast Time:** ${spell.recastTime}`);
