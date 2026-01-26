@@ -469,6 +469,8 @@ interface FactionEntry {
   name: string;
   minValue: number;
   maxValue: number;
+  category?: string;       // Expansion/category name
+  startingValues?: { modifierId: number; value: number }[]; // Race/class starting faction adjustments
 }
 
 interface AAEntry {
@@ -562,6 +564,8 @@ let mapCache: Map<string, MapPOI[]> = new Map();
 let dbStrings: Map<number, Map<number, string>> | null = null; // type -> id -> text
 let factions: Map<number, FactionEntry> | null = null;
 let factionNameIndex: Map<string, number[]> | null = null;
+let factionCategories: Map<number, string> | null = null; // categoryId -> name (expansion)
+let factionModifierNames: Map<number, string> | null = null; // modifierId -> name (Race: Human, etc.)
 let aaAbilities: Map<number, AAEntry> | null = null;
 let aaNameIndex: Map<string, number[]> | null = null;
 let spellDescriptions: Map<number, string> | null = null;
@@ -1502,6 +1506,71 @@ async function loadFactions(): Promise<void> {
     console.error(`[LocalData] Loaded ${factions.size} factions (${factionNames.size} with names)`);
   } catch {
     console.error('[LocalData] Could not load FactionBaseData.txt');
+  }
+
+  // Load faction window categories (expansion groupings)
+  factionCategories = new Map();
+  try {
+    const catData = await readGameFile(join('Resources', 'Faction', 'FactionWindowCategories.txt'));
+    for (const line of catData.split('\n')) {
+      if (!line.trim() || line.startsWith('#')) continue;
+      const fields = line.split('^');
+      if (fields.length < 2) continue;
+      const id = parseInt(fields[0]);
+      const name = fields[1];
+      if (!isNaN(id) && name) factionCategories.set(id, name);
+    }
+
+    // Load category-to-faction associations
+    const assocData = await readGameFile(join('Resources', 'Faction', 'FactionWindowCategoryAssociations.txt'));
+    for (const line of assocData.split('\n')) {
+      if (!line.trim() || line.startsWith('#')) continue;
+      const fields = line.split('^');
+      if (fields.length < 2) continue;
+      const catId = parseInt(fields[0]);
+      const factionId = parseInt(fields[1]);
+      if (isNaN(catId) || isNaN(factionId)) continue;
+
+      const faction = factions.get(factionId);
+      if (faction && factionCategories.has(catId)) {
+        faction.category = factionCategories.get(catId);
+      }
+    }
+    console.error(`[LocalData] Loaded ${factionCategories.size} faction categories`);
+  } catch {
+    console.error('[LocalData] Could not load faction categories');
+  }
+
+  // Load faction associations (starting faction values by race/class)
+  factionModifierNames = new Map();
+  // Modifier names come from type 45: IDs 1-16 = classes, 51+ = races
+  for (const [id, name] of factionNames) {
+    if (id <= 16 || (id >= 51 && id <= 62) || name.startsWith('Race:') || name.startsWith('Class:')) {
+      factionModifierNames.set(id, name);
+    }
+  }
+
+  try {
+    const assocData = await readGameFile(join('Resources', 'Faction', 'FactionAssociations.txt'));
+    for (const line of assocData.split('\n')) {
+      if (!line.trim() || line.startsWith('#')) continue;
+      const fields = line.split('^');
+      if (fields.length < 3) continue;
+      const factionId = parseInt(fields[0]);
+      const modifierId = parseInt(fields[1]);
+      const value = parseInt(fields[2]);
+      if (isNaN(factionId) || isNaN(modifierId) || isNaN(value)) continue;
+
+      const faction = factions.get(factionId);
+      if (faction) {
+        if (!faction.startingValues) faction.startingValues = [];
+        faction.startingValues.push({ modifierId, value });
+      }
+    }
+    const withStarting = [...factions.values()].filter(f => f.startingValues && f.startingValues.length > 0).length;
+    console.error(`[LocalData] Loaded faction starting values (${withStarting} factions with race/class adjustments)`);
+  } catch {
+    console.error('[LocalData] Could not load faction associations');
   }
 }
 
@@ -3090,14 +3159,16 @@ export async function searchFactions(query: string): Promise<SearchResult[]> {
 
   for (const [id, faction] of factions) {
     if (results.length >= 25) break;
-    if (faction.name.toLowerCase().includes(normalized)) {
+    if (faction.name.toLowerCase().includes(normalized) ||
+        (faction.category && faction.category.toLowerCase().includes(normalized))) {
+      const catInfo = faction.category ? ` [${faction.category}]` : '';
       results.push({
         name: faction.name,
         type: 'unknown' as const,
         id: id.toString(),
         url: `local://faction/${id}`,
         source: 'Local Game Data',
-        description: `Faction range: ${faction.minValue} to ${faction.maxValue}`,
+        description: `Range: ${faction.minValue} to ${faction.maxValue}${catInfo}${faction.startingValues ? `, ${faction.startingValues.length} race/class modifiers` : ''}`,
       });
     }
   }
@@ -3128,6 +3199,13 @@ export async function getFaction(id: string): Promise<string> {
     '',
     `**Faction ID:** ${faction.id}`,
     `**Value Range:** ${faction.minValue} to ${faction.maxValue}`,
+  ];
+
+  if (faction.category) {
+    lines.push(`**Expansion:** ${faction.category}`);
+  }
+
+  lines.push(
     '',
     '### Faction Standing Thresholds',
     '| Standing | Min Value |',
@@ -3141,7 +3219,56 @@ export async function getFaction(id: string): Promise<string> {
     '| Dubious | -500 to -101 |',
     '| Threatening | -750 to -501 |',
     '| Scowling | Below -750 |',
-  ];
+  );
+
+  // Show starting faction values by race/class
+  if (faction.startingValues && faction.startingValues.length > 0) {
+    const raceEntries = faction.startingValues.filter(sv =>
+      factionModifierNames?.get(sv.modifierId)?.startsWith('Race:') ||
+      (sv.modifierId >= 51 && sv.modifierId <= 62) || sv.modifierId === 178 || sv.modifierId === 330 || sv.modifierId === 661 || sv.modifierId === 1106
+    );
+    const classEntries = faction.startingValues.filter(sv =>
+      sv.modifierId >= 1 && sv.modifierId <= 16 &&
+      !factionModifierNames?.get(sv.modifierId)?.startsWith('Race:')
+    );
+
+    if (raceEntries.length > 0) {
+      lines.push('', '### Starting Faction by Race');
+
+      // Sort by value (most friendly first)
+      const sorted = [...raceEntries].sort((a, b) => b.value - a.value);
+      for (const sv of sorted) {
+        const name = factionModifierNames?.get(sv.modifierId) || `Modifier ${sv.modifierId}`;
+        const raceName = name.replace(/^Race:\s*/, '');
+        const standing = sv.value >= 1100 ? 'Ally' :
+          sv.value >= 750 ? 'Warmly' :
+          sv.value >= 500 ? 'Kindly' :
+          sv.value >= 100 ? 'Amiable' :
+          sv.value >= 0 ? 'Indifferent' :
+          sv.value >= -100 ? 'Apprehensive' :
+          sv.value >= -500 ? 'Dubious' :
+          sv.value >= -750 ? 'Threatening' : 'Scowling';
+        lines.push(`- **${raceName}:** ${sv.value} (${standing})`);
+      }
+    }
+
+    if (classEntries.length > 0) {
+      lines.push('', '### Starting Faction by Class');
+      const sorted = [...classEntries].sort((a, b) => b.value - a.value);
+      for (const sv of sorted) {
+        const name = factionModifierNames?.get(sv.modifierId) || `Class ${sv.modifierId}`;
+        const standing = sv.value >= 1100 ? 'Ally' :
+          sv.value >= 750 ? 'Warmly' :
+          sv.value >= 500 ? 'Kindly' :
+          sv.value >= 100 ? 'Amiable' :
+          sv.value >= 0 ? 'Indifferent' :
+          sv.value >= -100 ? 'Apprehensive' :
+          sv.value >= -500 ? 'Dubious' :
+          sv.value >= -750 ? 'Threatening' : 'Scowling';
+        lines.push(`- **${name}:** ${sv.value} (${standing})`);
+      }
+    }
+  }
 
   return lines.join('\n');
 }
@@ -4124,7 +4251,7 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Skill Caps:** ${skillCaps ? skillCaps.length.toLocaleString() + ' entries' : 'Not loaded'}`);
   lines.push(`- **Base Stats:** ${baseStats ? baseStats.length.toLocaleString() + ' entries' : 'Not loaded'}`);
   lines.push(`- **Achievements:** ${achievements ? achievements.size.toLocaleString() : 'Not loaded'}`);
-  lines.push(`- **Factions:** ${factions ? factions.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Factions:** ${factions ? factions.size.toLocaleString() : 'Not loaded'}${factionCategories ? ` (${factionCategories.size} expansion categories)` : ''}`);
   lines.push(`- **AA Abilities:** ${aaAbilities ? aaAbilities.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Spell Stacking:** ${spellStacking ? spellStacking.size.toLocaleString() + ' spells' : 'Not loaded'}`);
   lines.push(`- **Spell Group Names:** ${spellGroupNames ? spellGroupNames.size.toLocaleString() : 'Not loaded'}`);
