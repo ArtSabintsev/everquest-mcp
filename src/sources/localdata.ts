@@ -6220,6 +6220,120 @@ export function getExpansionName(id: number): string | undefined {
   return expansionNames?.get(id);
 }
 
+export async function getExpansionContent(expansionQuery: string): Promise<string> {
+  await loadExpansions();
+  await loadFactions();
+  await loadAchievementCategories();
+
+  if (!expansionNames || expansionNames.size === 0) return 'Expansion data not available.';
+
+  // Find matching expansion
+  const normalized = expansionQuery.toLowerCase();
+  let matchedExpansion: { id: number; name: string } | null = null;
+
+  // Try exact match first
+  for (const [id, name] of expansionNames) {
+    if (name.toLowerCase() === normalized) {
+      matchedExpansion = { id, name };
+      break;
+    }
+  }
+
+  // Try partial match
+  if (!matchedExpansion) {
+    for (const [id, name] of expansionNames) {
+      if (name.toLowerCase().includes(normalized)) {
+        matchedExpansion = { id, name };
+        break;
+      }
+    }
+  }
+
+  // Try by number
+  if (!matchedExpansion) {
+    const num = parseInt(expansionQuery);
+    if (!isNaN(num) && expansionNames.has(num)) {
+      matchedExpansion = { id: num, name: expansionNames.get(num)! };
+    }
+  }
+
+  if (!matchedExpansion) {
+    return `Expansion not found: "${expansionQuery}". Use list_expansions to see all expansions.`;
+  }
+
+  const lines = [
+    `## ${matchedExpansion.name} (Expansion ${matchedExpansion.id})`,
+    '',
+  ];
+
+  // Factions for this expansion
+  if (factions && factions.size > 0) {
+    const expansionFactions: { id: number; name: string }[] = [];
+    for (const [id, faction] of factions) {
+      if (faction.category && faction.category.toLowerCase() === matchedExpansion.name.toLowerCase()) {
+        expansionFactions.push({ id, name: faction.name });
+      }
+    }
+    if (expansionFactions.length > 0) {
+      expansionFactions.sort((a, b) => a.name.localeCompare(b.name));
+      lines.push(`### Factions (${expansionFactions.length})`);
+      for (const f of expansionFactions) {
+        lines.push(`- ${f.name} (ID: ${f.id})`);
+      }
+      lines.push('');
+    }
+  }
+
+  // Achievement categories for this expansion
+  if (achievementCategories && categoryToAchievements) {
+    // Find top-level category matching this expansion
+    const matchingCats: AchievementCategory[] = [];
+    for (const [, cat] of achievementCategories) {
+      if (cat.parentId === 0 && cat.name.toLowerCase() === matchedExpansion.name.toLowerCase()) {
+        matchingCats.push(cat);
+      }
+    }
+
+    if (matchingCats.length > 0) {
+      for (const topCat of matchingCats) {
+        // Find subcategories
+        const subcats: { cat: AchievementCategory; count: number }[] = [];
+        let totalAchievements = 0;
+
+        for (const [, cat] of achievementCategories) {
+          if (cat.parentId === topCat.id) {
+            const achievementIds = categoryToAchievements.get(cat.id) || [];
+            subcats.push({ cat, count: achievementIds.length });
+            totalAchievements += achievementIds.length;
+          }
+        }
+
+        // Also count achievements directly in top-level category
+        const directIds = categoryToAchievements.get(topCat.id) || [];
+        totalAchievements += directIds.length;
+
+        lines.push(`### Achievements (${totalAchievements})`);
+        if (subcats.length > 0) {
+          subcats.sort((a, b) => a.cat.order - b.cat.order);
+          for (const { cat, count } of subcats) {
+            lines.push(`- **${cat.name}** — ${count} achievements`);
+          }
+        }
+        if (directIds.length > 0) {
+          lines.push(`- *(${directIds.length} uncategorized)*`);
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  if (lines.length <= 2) {
+    lines.push('*No faction or achievement data found for this expansion.*');
+  }
+
+  return lines.join('\n');
+}
+
 // ============ PUBLIC API: GAME EVENTS ============
 
 async function loadGameEvents(): Promise<void> {

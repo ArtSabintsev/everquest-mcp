@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 84 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 85 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **84 tools** for querying EverQuest data
+- **85 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (84)
+## Available Tools (85)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -204,6 +204,7 @@ Then restart Claude Desktop.
 | `search_game_events` | Search 550+ in-game event announcements |
 | `get_game_event` | Get event announcement details |
 | `list_expansions` | List all 33 EverQuest expansions |
+| `get_expansion` | Expansion content summary with factions and achievements |
 | `get_banner_categories` | Guild banner and fellowship campsite types |
 | `search_help_topics` | Search 75 official in-game help topics on game mechanics |
 | `get_help_topic` | Read a specific help topic (augments, combat, mercenaries, etc.) |
@@ -241,7 +242,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (84 tools)
+├── tools.ts          # Tool definitions and handlers (85 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

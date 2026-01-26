@@ -92,6 +92,7 @@ import {
   getHelpTopic,
   compareSpells,
   compareRaces,
+  getExpansionContent,
 } from './sources/index.js';
 
 export const tools = [
@@ -1182,6 +1183,20 @@ export const tools = [
     inputSchema: {
       type: 'object',
       properties: {}
+    }
+  },
+  {
+    name: 'get_expansion',
+    description: 'Get content summary for a specific EverQuest expansion. Shows factions and achievement categories with counts for that expansion.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expansion: {
+          type: 'string',
+          description: 'Expansion name or number (e.g., "Ruins of Kunark", "1", "Planes of Power", "4")'
+        }
+      },
+      required: ['expansion']
     }
   },
   {
@@ -2373,6 +2388,12 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'list_expansions': {
         return listExpansions();
+      }
+
+      case 'get_expansion': {
+        const expansion = typeof args.expansion === 'string' ? args.expansion.trim() : '';
+        if (!expansion) return 'Error: "expansion" parameter is required';
+        return getExpansionContent(expansion);
       }
 
       case 'list_spell_categories': {
