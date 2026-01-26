@@ -1,17 +1,17 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 65 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 68 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **65 tools** for querying EverQuest data
+- **68 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
-- **Spell analysis** - Effects, categories, stacking groups, class lists, effect-type search, recourse links, teleport zones, cast messages, and resolved descriptions
+- **Spell analysis** - Effects, categories, stacking groups, class lists, effect-type search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
 - **Character data** - Race/class info with starting city lore and Drakkin heritages, skill caps, base stats, AC mitigation, deities
 - **Creature encyclopedia** - 980+ NPC/monster race types searchable by name
 - **Overseer system** - Agents with archetypes/traits/jobs, quests with slot details and success/failure outcomes
-- **Zone maps** - 34K+ points of interest from Brewall map files
+- **Zone maps** - 34K+ points of interest from Brewall map files, zone search by name/level, teleport spell lookup
 - **Quest guides** - Epic quest walkthroughs, leveling guides, farming guides
 
 ## Data Sources
@@ -75,7 +75,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (65)
+## Available Tools (68)
 
 ### Multi-Source Search
 | Tool | Description |
@@ -113,7 +113,7 @@ Then restart Claude Desktop.
 ### Local Data - Spells
 | Tool | Description |
 |------|-------------|
-| `get_spell_data` | Get complete spell data from game files (effects, classes, duration, resist, recourse links, teleport zone, cast messages) |
+| `get_spell_data` | Get complete spell data from game files (effects, classes, duration, resist, recourse links, teleport zone, cast messages, endurance cost, timer group) |
 | `get_spells_by_class` | List spells by class, optionally filtered by level and/or category |
 | `search_spells_by_effect` | Search spells by effect type (Stun, Haste, Charm, Root, etc.) |
 | `get_spell_stacking` | Check spell stacking conflicts and overwrite rules |
@@ -137,6 +137,9 @@ Then restart Claude Desktop.
 |------|-------------|
 | `get_zone_map` | Zone map POIs with coordinates (34K+ locations) |
 | `get_hot_zone_bonuses` | Current Hot Zone XP bonus information |
+| `search_zones_by_name` | Search zones by name with optional level range filter |
+| `search_zones_by_level` | Find zones appropriate for a character level range |
+| `search_teleport_spells` | Find all spells that teleport to a specific zone |
 
 ### Local Data - Factions & Currencies
 | Tool | Description |
@@ -222,7 +225,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (65 tools)
+├── tools.ts          # Tool definitions and handlers (68 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

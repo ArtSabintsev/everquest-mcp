@@ -73,6 +73,9 @@ import {
   listSpellCategories,
   searchSpellsByEffect,
   searchCreatureTypes,
+  searchZonesByName,
+  searchLocalZonesByLevel,
+  searchTeleportSpells,
 } from './sources/index.js';
 
 export const tools = [
@@ -877,6 +880,60 @@ export const tools = [
         query: {
           type: 'string',
           description: 'Optional: filter POIs by label (e.g., "bank", "merchant", "portal")'
+        }
+      },
+      required: ['zone']
+    }
+  },
+  {
+    name: 'search_zones_by_name',
+    description: 'Search EverQuest zones by name from local game data. Optionally filter by level range. Shows zone names, level ranges, and IDs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Zone name to search for (e.g., "Plane of", "Kunark", "Temple")'
+        },
+        level_min: {
+          type: 'number',
+          description: 'Optional: minimum level filter'
+        },
+        level_max: {
+          type: 'number',
+          description: 'Optional: maximum level filter'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'search_zones_by_level',
+    description: 'Search EverQuest zones by level range. Find zones appropriate for a character level from local game data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        level_min: {
+          type: 'number',
+          description: 'Minimum level (e.g., 60)'
+        },
+        level_max: {
+          type: 'number',
+          description: 'Maximum level (e.g., 70)'
+        }
+      },
+      required: ['level_min', 'level_max']
+    }
+  },
+  {
+    name: 'search_teleport_spells',
+    description: 'Find all spells that teleport to a specific zone. Search by zone short name (e.g., "potranquility", "nexus") or spell name keyword.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        zone: {
+          type: 'string',
+          description: 'Zone short name or keyword (e.g., "potranquility", "nexus", "gate")'
         }
       },
       required: ['zone']
@@ -1925,6 +1982,27 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!zone) return 'Error: "zone" parameter is required';
         const query = typeof args.query === 'string' ? args.query.trim() : undefined;
         return getZoneMapPOIs(zone, query);
+      }
+
+      case 'search_zones_by_name': {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query) return 'Error: "query" parameter is required';
+        const levelMin = typeof args.level_min === 'number' ? args.level_min : undefined;
+        const levelMax = typeof args.level_max === 'number' ? args.level_max : undefined;
+        return searchZonesByName(query, levelMin, levelMax);
+      }
+
+      case 'search_zones_by_level': {
+        const levelMin = typeof args.level_min === 'number' ? args.level_min : 0;
+        const levelMax = typeof args.level_max === 'number' ? args.level_max : 999;
+        if (levelMin <= 0 && levelMax >= 999) return 'Error: provide a valid level range';
+        return searchLocalZonesByLevel(levelMin, levelMax);
+      }
+
+      case 'search_teleport_spells': {
+        const zone = typeof args.zone === 'string' ? args.zone.trim() : '';
+        if (!zone) return 'Error: "zone" parameter is required';
+        return searchTeleportSpells(zone);
       }
 
       case 'get_banner_categories': {

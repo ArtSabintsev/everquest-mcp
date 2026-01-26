@@ -4666,6 +4666,130 @@ export async function getZoneMapPOIs(zoneName: string, query?: string): Promise<
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: LOCAL ZONE SEARCH ============
+
+export async function searchZonesByName(query: string, levelMin?: number, levelMax?: number): Promise<string> {
+  await loadZones();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  const normalized = query.toLowerCase();
+  const matches: LocalZone[] = [];
+
+  for (const [, zone] of zones) {
+    const nameMatch = zone.name.toLowerCase().includes(normalized);
+    if (!nameMatch) continue;
+
+    // Optional level range filter
+    if (levelMin !== undefined && zone.levelMax > 0 && zone.levelMax < levelMin) continue;
+    if (levelMax !== undefined && zone.levelMin > 0 && zone.levelMin > levelMax) continue;
+
+    matches.push(zone);
+  }
+
+  if (matches.length === 0) {
+    return `No zones matching "${query}"${levelMin || levelMax ? ` in level range ${levelMin || 1}-${levelMax || 'max'}` : ''}.`;
+  }
+
+  // Sort by level range, then name
+  matches.sort((a, b) => (a.levelMin || 0) - (b.levelMin || 0) || a.name.localeCompare(b.name));
+
+  const lines = [`## Zones matching "${query}"`, ''];
+  if (levelMin || levelMax) {
+    lines.push(`*Level filter: ${levelMin || 1}-${levelMax || 'max'}*`, '');
+  }
+  lines.push(`**Found:** ${matches.length} zone${matches.length !== 1 ? 's' : ''}`, '');
+
+  for (const zone of matches.slice(0, 50)) {
+    const levelStr = zone.levelMin > 0 || zone.levelMax > 0
+      ? ` (${zone.levelMin}-${zone.levelMax})`
+      : '';
+    lines.push(`- **${zone.name}**${levelStr} [ID: ${zone.id}]`);
+  }
+
+  if (matches.length > 50) {
+    lines.push('', `*... and ${matches.length - 50} more zones. Refine your search.*`);
+  }
+
+  return lines.join('\n');
+}
+
+export async function searchLocalZonesByLevel(levelMin: number, levelMax: number): Promise<string> {
+  await loadZones();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  const matches: LocalZone[] = [];
+
+  for (const [, zone] of zones) {
+    if (zone.levelMin === 0 && zone.levelMax === 0) continue; // Skip zones without level data
+    if (zone.levelMax < levelMin) continue;
+    if (zone.levelMin > levelMax) continue;
+    matches.push(zone);
+  }
+
+  if (matches.length === 0) {
+    return `No zones found for level range ${levelMin}-${levelMax}.`;
+  }
+
+  matches.sort((a, b) => (a.levelMin || 0) - (b.levelMin || 0) || a.name.localeCompare(b.name));
+
+  const lines = [`## Zones for Level ${levelMin}-${levelMax}`, '', `**Found:** ${matches.length} zone${matches.length !== 1 ? 's' : ''}`, ''];
+
+  for (const zone of matches.slice(0, 50)) {
+    lines.push(`- **${zone.name}** (${zone.levelMin}-${zone.levelMax}) [ID: ${zone.id}]`);
+  }
+
+  if (matches.length > 50) {
+    lines.push('', `*... and ${matches.length - 50} more zones.*`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: TELEPORT SPELL SEARCH ============
+
+export async function searchTeleportSpells(zoneName: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const normalized = zoneName.toLowerCase();
+  const matches: { id: number; name: string; zone: string }[] = [];
+
+  for (const [id, spell] of spells) {
+    const f = spell.fields;
+    if (f.length <= 3) continue;
+    const tz = f[SF.TELEPORT_ZONE]?.trim();
+    if (!tz || !/^[a-z_]+[a-z0-9_]*$/.test(tz)) continue;
+    if (tz.includes(normalized) || spell.name.toLowerCase().includes(normalized)) {
+      matches.push({ id, name: spell.name, zone: tz });
+    }
+  }
+
+  if (matches.length === 0) {
+    return `No teleport spells found for "${zoneName}".`;
+  }
+
+  // Sort by zone then name
+  matches.sort((a, b) => a.zone.localeCompare(b.zone) || a.name.localeCompare(b.name));
+
+  const lines = [`## Teleport Spells: "${zoneName}"`, '', `**Found:** ${matches.length} spell${matches.length !== 1 ? 's' : ''}`, ''];
+
+  // Group by zone
+  let currentZone = '';
+  for (const m of matches.slice(0, 100)) {
+    if (m.zone !== currentZone) {
+      currentZone = m.zone;
+      lines.push(`### ${currentZone}`);
+    }
+    lines.push(`- ${m.name} [ID: ${m.id}]`);
+  }
+
+  if (matches.length > 100) {
+    lines.push('', `*... and ${matches.length - 100} more spells.*`);
+  }
+
+  return lines.join('\n');
+}
+
 // ============ PUBLIC API: BANNER/CAMPSITE CATEGORIES ============
 
 export async function getBannerCategories(): Promise<string> {
