@@ -67,6 +67,9 @@ import {
   getItemEffect,
   getZoneMapPOIs,
   getBannerCategories,
+  listExpansions,
+  searchGameEvents,
+  getGameEvent,
 } from './sources/index.js';
 
 export const tools = [
@@ -881,6 +884,42 @@ export const tools = [
     }
   },
   {
+    name: 'list_expansions',
+    description: 'List all EverQuest expansions with their numeric IDs, from Classic EverQuest through the latest expansion.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'search_game_events',
+    description: 'Search EverQuest in-game event announcements (Erollisi Day, Frostfell, bonus events, membership promotions, etc.). These are the "What\'s New" bulletin messages shown in the game client.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search text (e.g., "Erollisi", "bonus", "pirate", "Frostfell")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_game_event',
+    description: 'Get details of a specific EverQuest in-game event announcement by ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The event ID (from search results)'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
     name: 'get_local_data_status',
     description: 'Show status of local EverQuest game data integration - which data files are loaded and available.',
     inputSchema: {
@@ -1241,7 +1280,7 @@ function formatSources(): string {
   const lines = ['# Available EverQuest Data Sources', ''];
 
   const sourceInfo = [
-    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with 500+ effect types), zones, skill caps, class stats, achievements, factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+ with stances & abilities), AC mitigation, spell stacking, map POIs (34K+), lore (50 stories), game strings (7K), Overseer agents (300+ with jobs & traits) & quests (800+ with slots & incapacitations), race/class info (16/16), deities (17 with lore), stats, tributes (266), alt currencies (54), item effects (1100+), banner/campsite categories', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
+    { name: 'Local Game Data', specialty: 'Authoritative offline data from EQ game files: spells (70K+ with 500+ effect types & categories), zones, skill caps, class stats, achievements, factions (1600+), AA abilities (2700+), combat abilities (950), mercenaries (4200+ with stances & abilities), AC mitigation, spell stacking, map POIs (34K+), lore (50 stories), game strings (7K), Overseer agents (300+ with jobs & traits) & quests (800+ with slots, incapacitations & outcomes), race/class info (16/16), deities (17 with lore), stats, tributes (266), alt currencies (54), item effects (1100+), banner/campsite categories, expansion list (33), game events/bulletins (550+)', url: isGameDataAvailable() ? 'Available' : 'Not found (set EQ_GAME_PATH env var)' },
     { name: 'Allakhazam', specialty: 'Primary database - spells, items, NPCs, zones, quests', url: 'https://everquest.allakhazam.com' },
     { name: "Almar's Guides", specialty: 'Quest walkthroughs, epic guides, leveling guides', url: 'https://www.almarsguides.com/eq' },
     { name: 'EQResource', specialty: 'Modern expansion content, progression, spells database', url: 'https://eqresource.com' },
@@ -1821,6 +1860,25 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_banner_categories': {
         return getBannerCategories();
+      }
+
+      case 'list_expansions': {
+        return listExpansions();
+      }
+
+      case 'search_game_events': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const results = await searchGameEvents(query);
+        return results.length > 0 ? formatSearchResults(results, query) : `No game events found for "${query}"`;
+      }
+
+      case 'get_game_event': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        return getGameEvent(id);
       }
 
       case 'get_local_data_status': {

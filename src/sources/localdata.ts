@@ -603,6 +603,13 @@ let itemEffectIndex: Map<string, number[]> | null = null;
 let bannerCategories: Map<number, string> | null = null;
 let campsiteCategories: Map<number, string> | null = null;
 
+// Expansion names
+let expansionNames: Map<number, string> | null = null;
+
+// Game events (What's New system)
+let gameEvents: Map<number, { banner: string; description: string }> | null = null;
+let gameEventIndex: Map<string, number[]> | null = null;
+
 // Mercenaries
 let mercenaries: Map<number, MercenaryEntry> | null = null;
 let mercenaryNameIndex: Map<string, number[]> | null = null;
@@ -1404,6 +1411,11 @@ const DBSTR_TYPES = {
   RESIST_TYPE: 39,
   CURRENCY_NAME: 44,
   BANNER_CATEGORY: 32,
+  EXPANSION_NAME: 20,
+  EVENT_BANNER: 30,
+  EVENT_DESCRIPTION: 31,
+  OVERSEER_SUCCESS: 68,
+  OVERSEER_FAILURE: 69,
 };
 
 const OVERSEER_RARITIES: Record<number, string> = {
@@ -2402,6 +2414,7 @@ async function loadOverseerEnhancements(): Promise<void> {
     DBSTR_TYPES.OVERSEER_QUEST_CATEGORY, DBSTR_TYPES.OVERSEER_DIFFICULTY,
     DBSTR_TYPES.OVERSEER_TRAIT_DESC, DBSTR_TYPES.OVERSEER_INCAP_NAME,
     DBSTR_TYPES.OVERSEER_INCAP_DESC, DBSTR_TYPES.OVERSEER_JOB_NAME,
+    DBSTR_TYPES.OVERSEER_SUCCESS, DBSTR_TYPES.OVERSEER_FAILURE,
   ]);
   const cats = dbStrings?.get(DBSTR_TYPES.OVERSEER_QUEST_CATEGORY) || new Map();
   const diffs = dbStrings?.get(DBSTR_TYPES.OVERSEER_DIFFICULTY) || new Map();
@@ -3623,6 +3636,23 @@ export async function getOverseerQuest(id: string): Promise<string> {
     }
   }
 
+  // Success/failure outcome messages
+  const successMsgs = dbStrings?.get(DBSTR_TYPES.OVERSEER_SUCCESS);
+  const failureMsgs = dbStrings?.get(DBSTR_TYPES.OVERSEER_FAILURE);
+  const rawSuccess = successMsgs?.get(questId);
+  const rawFailure = failureMsgs?.get(questId);
+  if (rawSuccess || rawFailure) {
+    lines.push('', '### Outcomes');
+    if (rawSuccess) {
+      const success = stripHtmlTags(rawSuccess.replace(/<c\s+"[^"]*">/gi, '').replace(/<\/c>/gi, ''));
+      lines.push(`**Success:** ${success}`);
+    }
+    if (rawFailure) {
+      const failure = stripHtmlTags(rawFailure.replace(/<c\s+"[^"]*">/gi, '').replace(/<\/c>/gi, ''));
+      lines.push(`**Failure:** ${failure}`);
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -4239,6 +4269,126 @@ export async function getBannerCategories(): Promise<string> {
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: EXPANSION LIST ============
+
+async function loadExpansions(): Promise<void> {
+  if (expansionNames !== null) return;
+  await loadDbStrings([DBSTR_TYPES.EXPANSION_NAME]);
+  expansionNames = dbStrings?.get(DBSTR_TYPES.EXPANSION_NAME) || new Map();
+  console.error(`[LocalData] Loaded ${expansionNames.size} expansion names`);
+}
+
+export async function listExpansions(): Promise<string> {
+  await loadExpansions();
+  if (!expansionNames || expansionNames.size === 0) return 'Expansion data not available.';
+
+  const lines = ['## EverQuest Expansions', ''];
+  const sorted = [...expansionNames.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [id, name] of sorted) {
+    lines.push(`${id}. ${name}`);
+  }
+  lines.push('', `*${sorted.length} expansions total*`);
+  return lines.join('\n');
+}
+
+export function getExpansionName(id: number): string | undefined {
+  return expansionNames?.get(id);
+}
+
+// ============ PUBLIC API: GAME EVENTS ============
+
+async function loadGameEvents(): Promise<void> {
+  if (gameEvents !== null) return;
+  await loadDbStrings([DBSTR_TYPES.EVENT_BANNER, DBSTR_TYPES.EVENT_DESCRIPTION]);
+  const banners = dbStrings?.get(DBSTR_TYPES.EVENT_BANNER) || new Map<number, string>();
+  const descriptions = dbStrings?.get(DBSTR_TYPES.EVENT_DESCRIPTION) || new Map<number, string>();
+
+  gameEvents = new Map();
+  gameEventIndex = new Map();
+
+  const allIds = new Set([...banners.keys(), ...descriptions.keys()]);
+  for (const id of allIds) {
+    const banner = banners.get(id) || '';
+    const rawDesc = descriptions.get(id) || '';
+    const description = stripHtmlTags(rawDesc.replace(/<c\s+"[^"]*">/gi, '').replace(/<\/c>/gi, ''));
+    if (!banner && !description) continue;
+    gameEvents.set(id, { banner, description });
+
+    // Build word index
+    const text = `${banner} ${description}`.toLowerCase();
+    const words = text.split(/\W+/).filter(w => w.length > 2);
+    for (const word of new Set(words)) {
+      const existing = gameEventIndex!.get(word) || [];
+      existing.push(id);
+      gameEventIndex!.set(word, existing);
+    }
+  }
+  console.error(`[LocalData] Loaded ${gameEvents.size} game events`);
+}
+
+export async function searchGameEvents(query: string): Promise<SearchResult[]> {
+  await loadGameEvents();
+  if (!gameEvents || !gameEventIndex) return [];
+
+  const results: SearchResult[] = [];
+  const normalizedQuery = normalizeQuery(query);
+  const lowerQuery = normalizedQuery.toLowerCase();
+  const queryWords = lowerQuery.split(/\W+/).filter(w => w.length > 2);
+
+  // Word index search
+  const idScores = new Map<number, number>();
+  for (const word of queryWords) {
+    for (const [indexWord, ids] of gameEventIndex) {
+      if (indexWord.includes(word) || word.includes(indexWord)) {
+        for (const id of ids) {
+          idScores.set(id, (idScores.get(id) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  // Substring fallback
+  if (idScores.size === 0) {
+    for (const [id, event] of gameEvents) {
+      const text = `${event.banner} ${event.description}`.toLowerCase();
+      if (text.includes(lowerQuery)) {
+        idScores.set(id, 1);
+      }
+    }
+  }
+
+  const sorted = [...idScores.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [id] of sorted.slice(0, 20)) {
+    const event = gameEvents.get(id);
+    if (!event) continue;
+    results.push({
+      name: event.banner || `Event ${id}`,
+      type: 'event',
+      id: String(id),
+      source: 'Local Game Data',
+      url: '',
+    });
+  }
+
+  return results;
+}
+
+export async function getGameEvent(id: string): Promise<string> {
+  await loadGameEvents();
+  if (!gameEvents) return 'Game event data not available.';
+
+  const eventId = parseInt(id);
+  const event = gameEvents.get(eventId);
+  if (!event) return `Game event with ID ${id} not found.`;
+
+  const lines = [`## ${event.banner || `Event ${eventId}`}`, ''];
+  if (event.description) {
+    lines.push(event.description.trim());
+  }
+  lines.push('', `*Event ID: ${eventId}*`);
+  return lines.join('\n');
+}
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {
@@ -4290,6 +4440,8 @@ export async function getLocalDataStatus(): Promise<string> {
   lines.push(`- **Tributes:** ${tributes ? tributes.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Item Effects:** ${itemEffectDescs ? itemEffectDescs.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Banner Categories:** ${bannerCategories ? bannerCategories.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Expansions:** ${expansionNames ? expansionNames.size.toLocaleString() : 'Not loaded'}`);
+  lines.push(`- **Game Events:** ${gameEvents ? gameEvents.size.toLocaleString() : 'Not loaded'}`);
   lines.push(`- **Map Cache:** ${mapCache.size} zones loaded`);
 
   return lines.join('\n');

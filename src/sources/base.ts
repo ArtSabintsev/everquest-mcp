@@ -2,7 +2,7 @@
 
 export interface SearchResult {
   name: string;
-  type: 'spell' | 'item' | 'npc' | 'zone' | 'quest' | 'guide' | 'tradeskill' | 'unknown';
+  type: 'spell' | 'item' | 'npc' | 'zone' | 'quest' | 'guide' | 'tradeskill' | 'event' | 'unknown';
   id: string;
   url: string;
   source: string;
