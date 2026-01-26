@@ -136,6 +136,9 @@ import {
   listDrakkinHeritages,
   searchSpellsWithRecourse,
   compareBaseStats,
+  compareSkillCaps,
+  getBaseStatOverview,
+  getSpellEffectOverview,
 } from './sources/index.js';
 
 export const tools = [
@@ -1976,6 +1979,51 @@ export const tools = [
     }
   },
   {
+    name: 'compare_skill_caps',
+    description: 'Compare skill caps between two classes at a specific level — shows shared skills with cap differences, and skills unique to each class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class1: {
+          type: 'string',
+          description: 'First class name (e.g., "Warrior")'
+        },
+        class2: {
+          type: 'string',
+          description: 'Second class name (e.g., "Rogue")'
+        },
+        level: {
+          type: 'number',
+          description: 'Level to compare at (default: 125)'
+        }
+      },
+      required: ['class1', 'class2']
+    }
+  },
+  {
+    name: 'get_base_stat_overview',
+    description: 'Overview of all 16 classes\' base HP, mana, endurance, and regen at a specific level — ranked by HP with mana rankings.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        level: {
+          type: 'number',
+          description: 'Character level to show stats for (1-125)'
+        }
+      },
+      required: ['level']
+    }
+  },
+  {
+    name: 'get_spell_effect_overview',
+    description: 'Overview of all spell effect types (SPAs) in EverQuest — top 50 most common effects, effect category breakdown, and rarest effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -3403,6 +3451,25 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!class2) return 'Error: "class2" parameter is required';
         const level = typeof args.level === 'number' ? args.level : undefined;
         return compareBaseStats(class1, class2, level);
+      }
+
+      case 'compare_skill_caps': {
+        const class1 = typeof args.class1 === 'string' ? args.class1.trim() : '';
+        const class2 = typeof args.class2 === 'string' ? args.class2.trim() : '';
+        if (!class1) return 'Error: "class1" parameter is required';
+        if (!class2) return 'Error: "class2" parameter is required';
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        return compareSkillCaps(class1, class2, level);
+      }
+
+      case 'get_base_stat_overview': {
+        const level = typeof args.level === 'number' ? args.level : 0;
+        if (!level || level < 1) return 'Error: "level" parameter is required (1-125)';
+        return getBaseStatOverview(level);
+      }
+
+      case 'get_spell_effect_overview': {
+        return getSpellEffectOverview();
       }
 
       case 'search_help_topics': {

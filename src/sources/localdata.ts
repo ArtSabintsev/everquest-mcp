@@ -10000,3 +10000,231 @@ export async function compareBaseStats(class1: string, class2: string, level?: n
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SKILL CAP COMPARISON ============
+
+export async function compareSkillCaps(class1: string, class2: string, level?: number): Promise<string> {
+  await loadSkillCaps();
+  if (!skillCaps || skillCaps.length === 0) return 'Skill cap data not available.';
+
+  const classId1 = CLASS_NAME_TO_ID[class1.toLowerCase()];
+  const classId2 = CLASS_NAME_TO_ID[class2.toLowerCase()];
+  if (!classId1) return `Unknown class: "${class1}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (!classId2) return `Unknown class: "${class2}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (classId1 === classId2) return `Both classes are the same (${CLASS_IDS[classId1]}). Choose two different classes.`;
+
+  const name1 = CLASS_IDS[classId1];
+  const name2 = CLASS_IDS[classId2];
+  const targetLevel = level || 125; // Default to max level
+
+  const entries1 = skillCaps.filter(e => e.classId === classId1 && e.level === targetLevel);
+  const entries2 = skillCaps.filter(e => e.classId === classId2 && e.level === targetLevel);
+
+  // Build skill cap maps
+  const caps1 = new Map<number, number>();
+  const caps2 = new Map<number, number>();
+  for (const e of entries1) caps1.set(e.skillId, e.cap);
+  for (const e of entries2) caps2.set(e.skillId, e.cap);
+
+  const allSkillIds = new Set([...caps1.keys(), ...caps2.keys()]);
+  if (allSkillIds.size === 0) return `No skill data found at level ${targetLevel}.`;
+
+  const lines = [`# Skill Cap Comparison: ${name1} vs ${name2} (Level ${targetLevel})`, ''];
+
+  // Categorize: shared skills, unique to class1, unique to class2
+  const shared: { skillId: number; name: string; cap1: number; cap2: number }[] = [];
+  const only1: { skillId: number; name: string; cap: number }[] = [];
+  const only2: { skillId: number; name: string; cap: number }[] = [];
+
+  for (const skillId of [...allSkillIds].sort((a, b) => a - b)) {
+    const c1 = caps1.get(skillId) || 0;
+    const c2 = caps2.get(skillId) || 0;
+    const skillName = SKILL_NAMES[skillId] || `Skill ${skillId}`;
+
+    if (c1 > 0 && c2 > 0) {
+      shared.push({ skillId, name: skillName, cap1: c1, cap2: c2 });
+    } else if (c1 > 0) {
+      only1.push({ skillId, name: skillName, cap: c1 });
+    } else if (c2 > 0) {
+      only2.push({ skillId, name: skillName, cap: c2 });
+    }
+  }
+
+  // Shared skills comparison
+  if (shared.length > 0) {
+    lines.push('## Shared Skills', '');
+    lines.push(`| Skill | ${name1} | ${name2} | Advantage |`);
+    lines.push('|-------|' + '-'.repeat(name1.length + 2) + '|' + '-'.repeat(name2.length + 2) + '|-----------|');
+
+    for (const s of shared) {
+      const diff = s.cap1 - s.cap2;
+      const adv = diff > 0 ? `${name1} +${diff}` : diff < 0 ? `${name2} +${-diff}` : 'Equal';
+      lines.push(`| ${s.name} | ${s.cap1} | ${s.cap2} | ${adv} |`);
+    }
+  }
+
+  // Skills unique to each class
+  if (only1.length > 0) {
+    lines.push('', `## ${name1} Only`, '');
+    lines.push('| Skill | Cap |');
+    lines.push('|-------|-----|');
+    for (const s of only1) {
+      lines.push(`| ${s.name} | ${s.cap} |`);
+    }
+  }
+
+  if (only2.length > 0) {
+    lines.push('', `## ${name2} Only`, '');
+    lines.push('| Skill | Cap |');
+    lines.push('|-------|-----|');
+    for (const s of only2) {
+      lines.push(`| ${s.name} | ${s.cap} |`);
+    }
+  }
+
+  lines.push('', `**Summary:** ${shared.length} shared skills, ${only1.length} unique to ${name1}, ${only2.length} unique to ${name2}`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: BASE STAT OVERVIEW ============
+
+export async function getBaseStatOverview(level: number): Promise<string> {
+  await loadBaseStats();
+  if (!baseStats || baseStats.length === 0) return 'Base stat data not available.';
+
+  const entries = baseStats.filter(e => e.level === level);
+  if (entries.length === 0) return `No base stat data found at level ${level}. Try levels 1-125.`;
+
+  const lines = [`# All Classes Base Stats at Level ${level}`, ''];
+
+  // Sort by HP descending
+  const byHP = [...entries].sort((a, b) => b.hp - a.hp);
+
+  lines.push('## Sorted by HP', '');
+  lines.push('| Rank | Class | HP | Mana | Endurance | HP Regen | Mana Regen | End Regen |');
+  lines.push('|------|-------|-----|------|-----------|----------|------------|-----------|');
+
+  let rank = 1;
+  for (const e of byHP) {
+    const className = CLASS_IDS[e.classId] || `Class ${e.classId}`;
+    lines.push(`| ${rank++} | ${className} | ${e.hp.toLocaleString()} | ${e.mana.toLocaleString()} | ${e.endurance.toLocaleString()} | ${e.hpRegen.toFixed(1)} | ${e.manaRegen.toFixed(1)} | ${e.enduranceRegen.toFixed(1)} |`);
+  }
+
+  // Quick rankings
+  const byMana = [...entries].filter(e => e.mana > 0).sort((a, b) => b.mana - a.mana);
+  if (byMana.length > 0) {
+    lines.push('', '## Mana Rankings', '');
+    lines.push('| Rank | Class | Mana |');
+    lines.push('|------|-------|------|');
+    let mRank = 1;
+    for (const e of byMana) {
+      lines.push(`| ${mRank++} | ${CLASS_IDS[e.classId] || 'Unknown'} | ${e.mana.toLocaleString()} |`);
+    }
+  }
+
+  // Classes without mana
+  const noMana = entries.filter(e => e.mana === 0);
+  if (noMana.length > 0) {
+    lines.push('', `**Non-caster classes (no mana):** ${noMana.map(e => CLASS_IDS[e.classId]).join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL EFFECT OVERVIEW ============
+
+export async function getSpellEffectOverview(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# EverQuest Spell Effect (SPA) Overview', ''];
+
+  // Count spells per effect type using the pipe-separated effect field
+  const effectCounts = new Map<number, number>();
+  let totalEffects = 0;
+
+  for (const [, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const seen = new Set<number>();
+
+    // Find the effect field (pipe-separated, at end of fields array)
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+    if (!effectField) continue;
+
+    const slots = effectField.split('$');
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spa = parseInt(parts[1]);
+      if (!isNaN(spa) && spa > 0 && !seen.has(spa)) {
+        seen.add(spa);
+        effectCounts.set(spa, (effectCounts.get(spa) || 0) + 1);
+        totalEffects++;
+      }
+    }
+  }
+
+  lines.push(`**${effectCounts.size} distinct spell effects** across ${totalEffects.toLocaleString()} total effect slots`, '');
+
+  // Sort by count descending
+  const sorted = [...effectCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  lines.push('## Top 50 Most Common Effects', '');
+  lines.push('| Rank | SPA | Effect Name | Spells |');
+  lines.push('|------|-----|-------------|--------|');
+
+  for (let i = 0; i < Math.min(50, sorted.length); i++) {
+    const [spa, count] = sorted[i];
+    const name = SPA_NAMES[spa] || `Unknown SPA ${spa}`;
+    lines.push(`| ${i + 1} | ${spa} | ${name} | ${count.toLocaleString()} |`);
+  }
+
+  // Effect categories
+  const categories: Record<string, number> = {
+    'Stat Buffs (STR/DEX/AGI/STA/INT/WIS/CHA)': 0,
+    'Resist Buffs (Fire/Cold/Poison/Disease/Magic)': 0,
+    'HP/Mana/Endurance': 0,
+    'Crowd Control (Stun/Mez/Charm/Fear)': 0,
+    'Movement (Snare/Root/Levitate)': 0,
+  };
+
+  const statSPAs = [4, 5, 6, 7, 8, 9, 10];
+  const resistSPAs = [46, 47, 48, 49, 50];
+  const poolSPAs = [0, 15, 24, 34, 35, 69];
+  const ccSPAs = [21, 74, 22, 23];
+  const moveSPAs = [3, 31, 57];
+
+  for (const spa of statSPAs) categories['Stat Buffs (STR/DEX/AGI/STA/INT/WIS/CHA)'] += effectCounts.get(spa) || 0;
+  for (const spa of resistSPAs) categories['Resist Buffs (Fire/Cold/Poison/Disease/Magic)'] += effectCounts.get(spa) || 0;
+  for (const spa of poolSPAs) categories['HP/Mana/Endurance'] += effectCounts.get(spa) || 0;
+  for (const spa of ccSPAs) categories['Crowd Control (Stun/Mez/Charm/Fear)'] += effectCounts.get(spa) || 0;
+  for (const spa of moveSPAs) categories['Movement (Snare/Root/Levitate)'] += effectCounts.get(spa) || 0;
+
+  lines.push('', '## Effect Categories', '');
+  lines.push('| Category | Total Spells |');
+  lines.push('|----------|-------------|');
+  for (const [cat, count] of Object.entries(categories)) {
+    lines.push(`| ${cat} | ${count.toLocaleString()} |`);
+  }
+
+  // Rarest effects
+  const rarest = sorted.filter(([, count]) => count <= 5).slice(0, 20);
+  if (rarest.length > 0) {
+    lines.push('', '## Rarest Effects (≤5 spells)', '');
+    lines.push('| SPA | Effect Name | Spells |');
+    lines.push('|-----|-------------|--------|');
+    for (const [spa, count] of rarest) {
+      const name = SPA_NAMES[spa] || `Unknown SPA ${spa}`;
+      lines.push(`| ${spa} | ${name} | ${count} |`);
+    }
+  }
+
+  return lines.join('\n');
+}
