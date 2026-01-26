@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 212 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 215 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **212 tools** for querying EverQuest data
+- **215 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -174,6 +174,7 @@ Then restart Claude Desktop.
 | `get_spell_scaling_analysis` | Spell scaling analysis — find all versions/ranks of a spell line and show how effects, mana cost, and power scale across ranks |
 | `get_spell_effect_rarity_index` | Spell effect rarity index — exclusive, rare, and universal effects per class, identifying what makes each class irreplaceable |
 | `get_spell_effect_encyclopedia` | Spell effect encyclopedia — deep dive into a specific SPA effect type showing all spells, class distribution, value ranges, slot positions, and examples |
+| `get_spell_debuff_comparison_by_class` | Spell debuff comparison — compare all 16 classes' debuff arsenals (Slow, Root, Stun, Mez, Charm, Snare, DoT, etc.) with rankings and diversity |
 
 ### Local Data - Character
 | Tool | Description |
@@ -287,6 +288,7 @@ Then restart Claude Desktop.
 | `get_overseer_slot_analysis` | Overseer quest slot patterns — job type demand, required vs optional ratios, bonus trait frequency, slots by difficulty, most demanding quests |
 | `get_overseer_minion_rarity_analysis` | Overseer agent rarity analysis — rarity distribution, traits/jobs per rarity tier, job levels by rarity, most common traits and jobs at each tier |
 | `get_overseer_quest_efficiency_analysis` | Overseer quest efficiency analysis — difficulty-to-slot ratios, category efficiency, most/least demanding quests, job diversity |
+| `get_overseer_agent_trait_job_matrix` | Overseer agent trait-job matrix — cross-reference traits with jobs, trait+job rarity, most versatile agents, and optimal selection |
 
 ### Local Data - Mercenaries
 | Tool | Description |
@@ -333,6 +335,7 @@ Then restart Claude Desktop.
 | `get_help_topic` | Read a specific help topic (augments, combat, mercenaries, etc.) |
 | `get_local_data_status` | Show which local data files are loaded |
 | `get_level_content_guide` | Content guide for a specific level — matching zones, new spells per class, nearby spell activity |
+| `get_content_progression_pathway` | Content progression pathway — milestone levels (1-125) showing new spells, zones, and cumulative content at each tier with spell density chart |
 | `get_game_data_summary_dashboard` | One-stop summary dashboard of ALL loaded EQ data — entry counts for all 19 data systems with key metrics |
 | `search_all_local_data` | Unified search across ALL local data systems (spells, zones, factions, achievements, AAs, tributes, creatures, overseer, events, lore, item effects) |
 | `get_db_string_type_overview` | Meta overview of all 68 string data types in dbstr_us.txt with entry counts, names, and samples |
@@ -369,7 +372,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (212 tools)
+├── tools.ts          # Tool definitions and handlers (215 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

@@ -220,6 +220,9 @@ import {
   getClassSynergyMatrix,
   getSpellEffectEncyclopedia,
   getAchievementPointOptimizer,
+  getOverseerAgentTraitJobMatrix,
+  getSpellDebuffComparisonByClass,
+  getContentProgressionPathway,
 } from './sources/index.js';
 
 export const tools = [
@@ -2909,6 +2912,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_overseer_agent_trait_job_matrix',
+    description: 'Overseer agent trait-job matrix — cross-reference traits with jobs, trait+job rarity, most versatile agents, and optimal selection strategy.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spell_debuff_comparison_by_class',
+    description: 'Spell debuff comparison — compare all 16 classes\' debuff arsenals (Slow, Root, Stun, Mez, Charm, Snare, DoT, Mana Drain, Fear, Blind, Silence, Dispel) with rankings and diversity.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_content_progression_pathway',
+    description: 'Content progression pathway — milestone levels (1-125) showing new spells, zones, and cumulative content at each tier with spell density chart.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4718,6 +4748,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_achievement_point_optimizer': {
         return getAchievementPointOptimizer();
+      }
+
+      case 'get_overseer_agent_trait_job_matrix': {
+        return getOverseerAgentTraitJobMatrix();
+      }
+
+      case 'get_spell_debuff_comparison_by_class': {
+        return getSpellDebuffComparisonByClass();
+      }
+
+      case 'get_content_progression_pathway': {
+        return getContentProgressionPathway();
       }
 
       case 'search_help_topics': {

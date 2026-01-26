@@ -19275,3 +19275,349 @@ export async function getAchievementPointOptimizer(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: OVERSEER AGENT TRAIT-JOB MATRIX ============
+
+export async function getOverseerAgentTraitJobMatrix(): Promise<string> {
+  await loadOverseerMinions();
+  await loadOverseerEnhancements();
+  if (!overseerMinions || overseerMinions.size === 0) return 'Overseer agent data not available.';
+
+  const lines = ['# Overseer Agent Trait-Job Matrix', ''];
+  lines.push('*Cross-reference agent traits with jobs to find optimal agent selection.*', '');
+
+  // Collect trait→job associations
+  const traitJobCounts = new Map<string, Map<string, number>>(); // trait → jobName → count
+  const traitCounts = new Map<string, number>();
+  const jobCounts = new Map<string, number>();
+
+  for (const minion of overseerMinions.values()) {
+    for (const trait of minion.traits) {
+      traitCounts.set(trait, (traitCounts.get(trait) || 0) + 1);
+      if (!traitJobCounts.has(trait)) traitJobCounts.set(trait, new Map());
+      const tjMap = traitJobCounts.get(trait)!;
+      for (const job of minion.jobs) {
+        const jobName = overseerJobNames?.get(job.jobTypeId) || `Job ${job.jobTypeId}`;
+        jobCounts.set(jobName, (jobCounts.get(jobName) || 0) + 1);
+        tjMap.set(jobName, (tjMap.get(jobName) || 0) + 1);
+      }
+    }
+  }
+
+  // Summary
+  lines.push('## Overview', '');
+  lines.push(`- **Total agents:** ${overseerMinions.size}`);
+  lines.push(`- **Unique traits:** ${traitCounts.size}`);
+  lines.push(`- **Unique job types:** ${jobCounts.size}`);
+
+  // Top traits
+  const sortedTraits = [...traitCounts.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('', '## Most Common Traits', '');
+  lines.push('| Trait | Agents | Job Types |');
+  lines.push('|-------|------:|----------:|');
+  for (const [trait, count] of sortedTraits.slice(0, 20)) {
+    const jobTypes = traitJobCounts.get(trait)?.size || 0;
+    lines.push(`| ${trait} | ${count} | ${jobTypes} |`);
+  }
+
+  // Top jobs
+  const sortedJobs = [...jobCounts.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('', '## Job Type Popularity', '');
+  lines.push('| Job Type | Agents | % |');
+  lines.push('|----------|------:|---:|');
+  for (const [job, count] of sortedJobs) {
+    const pct = Math.round(count / overseerMinions.size * 100);
+    lines.push(`| ${job} | ${count} | ${pct}% |`);
+  }
+
+  // Trait-Job matrix (top traits × top jobs)
+  const topTraits = sortedTraits.slice(0, 12).map(([t]) => t);
+  const topJobs = sortedJobs.slice(0, 8).map(([j]) => j);
+  lines.push('', '## Trait × Job Matrix (Top 12 Traits × Top 8 Jobs)', '');
+  lines.push(`| Trait | ${topJobs.join(' | ')} |`);
+  lines.push(`|-------|${topJobs.map(() => '---:').join('|')}|`);
+  for (const trait of topTraits) {
+    const tjMap = traitJobCounts.get(trait)!;
+    const cells = topJobs.map(j => {
+      const count = tjMap.get(j) || 0;
+      return count > 0 ? String(count) : '—';
+    });
+    lines.push(`| ${trait} | ${cells.join(' | ')} |`);
+  }
+
+  // Rarest trait-job combos (unique agents)
+  lines.push('', '## Rarest Trait-Job Combinations', '');
+  lines.push('*Trait-job pairs found in only 1 agent.*', '');
+  const rarePairs: { trait: string; job: string }[] = [];
+  for (const [trait, tjMap] of traitJobCounts) {
+    for (const [job, count] of tjMap) {
+      if (count === 1) {
+        rarePairs.push({ trait, job });
+      }
+    }
+  }
+  lines.push(`- **Rare pairs (count=1):** ${rarePairs.length}`);
+  for (const p of rarePairs.slice(0, 15)) {
+    lines.push(`  - ${p.trait} + ${p.job}`);
+  }
+  if (rarePairs.length > 15) lines.push(`  - *(${rarePairs.length - 15} more)*`);
+
+  // Most versatile agents (most jobs)
+  const byJobs = [...overseerMinions.values()].sort((a, b) => b.jobs.length - a.jobs.length);
+  lines.push('', '## Most Versatile Agents (Most Jobs)', '');
+  lines.push('| Agent | Rarity | Traits | Jobs |');
+  lines.push('|-------|------:|------:|-----:|');
+  for (const m of byJobs.slice(0, 15)) {
+    const rarityNames: Record<number, string> = { 1: 'Common', 2: 'Uncommon', 3: 'Rare', 4: 'Elite', 5: 'Legendary' };
+    lines.push(`| ${m.fullName} | ${rarityNames[m.rarity] || String(m.rarity)} | ${m.traits.length} | ${m.jobs.length} |`);
+  }
+
+  lines.push('', `*${overseerMinions.size} agents analyzed across ${traitCounts.size} traits and ${jobCounts.size} job types.*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: SPELL DEBUFF COMPARISON BY CLASS ============
+
+export async function getSpellDebuffComparisonByClass(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Spell Debuff Comparison by Class', ''];
+  lines.push('*Compare debuff arsenals across all 16 classes.*', '');
+
+  // Define debuff categories by SPA and conditions
+  const debuffTypes: { name: string; test: (spa: number, base: number, beneficial: boolean) => boolean }[] = [
+    { name: 'Slow (Melee)', test: (spa, _b, ben) => spa === 11 && !ben },
+    { name: 'Root', test: (spa) => spa === 99 },
+    { name: 'Stun', test: (spa) => spa === 21 },
+    { name: 'Mesmerize', test: (spa) => spa === 31 },
+    { name: 'Charm', test: (spa) => spa === 22 },
+    { name: 'Snare', test: (spa, _b, ben) => spa === 3 && !ben },
+    { name: 'HP DoT', test: (spa, base, ben) => spa === 0 && base < 0 && !ben },
+    { name: 'Mana Drain', test: (spa, base) => spa === 15 && base < 0 },
+    { name: 'Blind', test: (spa) => spa === 20 },
+    { name: 'Fear', test: (spa) => spa === 23 },
+    { name: 'Silence', test: (spa) => spa === 96 },
+    { name: 'Dispel', test: (spa) => spa === 27 },
+  ];
+
+  // Count debuff spells per class per type
+  const classDebuffs: Map<number, Map<string, number>> = new Map();
+  for (let cid = 1; cid <= 16; cid++) classDebuffs.set(cid, new Map());
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    // Parse effect slots
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        slotsField = i;
+        break;
+      }
+    }
+    if (slotsField < 0) continue;
+
+    const slots = spell.fields[slotsField].split('$');
+    const spellDebuffTypes = new Set<string>();
+
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spa = parseInt(parts[1]);
+        const base = parseInt(parts[2]) || 0;
+        for (const dt of debuffTypes) {
+          if (dt.test(spa, base, beneficial)) {
+            spellDebuffTypes.add(dt.name);
+          }
+        }
+      }
+    }
+
+    if (spellDebuffTypes.size === 0) continue;
+
+    for (let cid = 1; cid <= 16; cid++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level >= 1 && level <= 254) {
+        const dm = classDebuffs.get(cid)!;
+        for (const dt of spellDebuffTypes) {
+          dm.set(dt, (dm.get(dt) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  // Main comparison table
+  lines.push('## Debuff Arsenal by Class', '');
+  const dtNames = debuffTypes.map(d => d.name);
+  lines.push(`| Class | ${dtNames.join(' | ')} | Total |`);
+  lines.push(`|-------|${dtNames.map(() => '---:').join('|')}|------:|`);
+
+  for (let cid = 1; cid <= 16; cid++) {
+    const dm = classDebuffs.get(cid)!;
+    const cells = dtNames.map(dt => {
+      const count = dm.get(dt) || 0;
+      return count > 0 ? String(count) : '—';
+    });
+    const total = [...dm.values()].reduce((s, v) => s + v, 0);
+    lines.push(`| ${CLASS_SHORT[cid]} | ${cells.join(' | ')} | ${total} |`);
+  }
+
+  // Debuff type rankings
+  lines.push('', '## Debuff Type Rankings (Top 3 Classes Each)', '');
+  for (const dt of debuffTypes) {
+    const classRanks: { cid: number; count: number }[] = [];
+    for (let cid = 1; cid <= 16; cid++) {
+      const count = classDebuffs.get(cid)!.get(dt.name) || 0;
+      if (count > 0) classRanks.push({ cid, count });
+    }
+    classRanks.sort((a, b) => b.count - a.count);
+    if (classRanks.length > 0) {
+      const top3 = classRanks.slice(0, 3).map(r => `${CLASS_SHORT[r.cid]} (${r.count})`).join(', ');
+      lines.push(`- **${dt.name}:** ${top3}`);
+    }
+  }
+
+  // Class debuff diversity (how many different debuff types each class has)
+  lines.push('', '## Debuff Diversity by Class', '');
+  const diversityRanks: { cid: number; types: number; total: number }[] = [];
+  for (let cid = 1; cid <= 16; cid++) {
+    const dm = classDebuffs.get(cid)!;
+    const types = [...dm.values()].filter(v => v > 0).length;
+    const total = [...dm.values()].reduce((s, v) => s + v, 0);
+    diversityRanks.push({ cid, types, total });
+  }
+  diversityRanks.sort((a, b) => b.types - a.types || b.total - a.total);
+  lines.push('| Rank | Class | Debuff Types | Total Spells |');
+  lines.push('|-----:|-------|----------:|------------:|');
+  for (let i = 0; i < diversityRanks.length; i++) {
+    const d = diversityRanks[i];
+    lines.push(`| ${i + 1} | ${CLASS_IDS[d.cid]} (${CLASS_SHORT[d.cid]}) | ${d.types}/12 | ${d.total} |`);
+  }
+
+  // Exclusive debuff access (only 1-2 classes)
+  lines.push('', '## Rare Debuff Access (1-2 Classes)', '');
+  for (const dt of debuffTypes) {
+    const hasIt: number[] = [];
+    for (let cid = 1; cid <= 16; cid++) {
+      if ((classDebuffs.get(cid)!.get(dt.name) || 0) > 0) hasIt.push(cid);
+    }
+    if (hasIt.length >= 1 && hasIt.length <= 2) {
+      lines.push(`- **${dt.name}:** ${hasIt.map(c => `${CLASS_IDS[c]} (${CLASS_SHORT[c]})`).join(', ')}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CONTENT PROGRESSION PATHWAY ============
+
+export async function getContentProgressionPathway(): Promise<string> {
+  await Promise.all([loadSpells(), loadZones(), loadAchievements(), loadAAAbilities()]);
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Content Progression Pathway', ''];
+  lines.push('*Milestone levels showing new content unlocked at each tier.*', '');
+
+  const milestones = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125];
+
+  // Pre-compute: spells per level per class
+  const spellsByLevel = new Map<number, number>(); // level -> total new spells
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    for (let cid = 1; cid <= 16; cid++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level >= 1 && level <= 125) {
+        spellsByLevel.set(level, (spellsByLevel.get(level) || 0) + 1);
+      }
+    }
+  }
+
+  // Zones by level range
+  const zonesByLevel = new Map<number, string[]>(); // milestone -> zone names
+  if (zones && zones.size > 0) {
+    for (const z of zones.values()) {
+      if (z.levelMin > 0) {
+        for (const ml of milestones) {
+          if (z.levelMin <= ml && z.levelMax >= ml) {
+            if (!zonesByLevel.has(ml)) zonesByLevel.set(ml, []);
+            zonesByLevel.get(ml)!.push(z.name);
+          }
+        }
+      }
+    }
+  }
+
+  // Summary table
+  lines.push('## Content per Milestone Level', '');
+  lines.push('| Level | New Spells | Zones Available | Cumulative Spells |');
+  lines.push('|------:|----------:|:--------------:|------------------:|');
+
+  let cumulativeSpells = 0;
+  for (const ml of milestones) {
+    // Count spells at this exact level or in the bracket leading to it
+    const prevMl = milestones[milestones.indexOf(ml) - 1] || 0;
+    let bracketSpells = 0;
+    for (let lv = prevMl + 1; lv <= ml; lv++) {
+      bracketSpells += spellsByLevel.get(lv) || 0;
+    }
+    cumulativeSpells += bracketSpells;
+    const zoneCount = zonesByLevel.get(ml)?.length || 0;
+    lines.push(`| ${ml} | ${bracketSpells} | ${zoneCount} | ${cumulativeSpells.toLocaleString()} |`);
+  }
+
+  // Detail view for key milestones
+  const keyMilestones = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 125];
+  lines.push('', '## Key Milestone Details', '');
+
+  for (const ml of keyMilestones) {
+    lines.push(`### Level ${ml}`, '');
+
+    // Spells at this level by class
+    const classSpellCounts: { name: string; count: number }[] = [];
+    for (let cid = 1; cid <= 16; cid++) {
+      let count = 0;
+      for (const spell of spells.values()) {
+        if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+        const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+        if (level === ml) count++;
+      }
+      if (count > 0) classSpellCounts.push({ name: CLASS_SHORT[cid], count });
+    }
+    classSpellCounts.sort((a, b) => b.count - a.count);
+    if (classSpellCounts.length > 0) {
+      lines.push(`- **New spells:** ${classSpellCounts.map(c => `${c.name}:${c.count}`).join(', ')}`);
+    }
+
+    // Zones at this level
+    const levelZones = zonesByLevel.get(ml) || [];
+    if (levelZones.length > 0) {
+      lines.push(`- **Zones (${levelZones.length}):** ${levelZones.slice(0, 8).join(', ')}${levelZones.length > 8 ? ` (+${levelZones.length - 8} more)` : ''}`);
+    }
+    lines.push('');
+  }
+
+  // Spell density chart
+  lines.push('## Spell Density by Level', '');
+  const maxSpells = Math.max(...milestones.map(ml => {
+    const prevMl = milestones[milestones.indexOf(ml) - 1] || 0;
+    let count = 0;
+    for (let lv = prevMl + 1; lv <= ml; lv++) count += spellsByLevel.get(lv) || 0;
+    return count;
+  }));
+
+  for (const ml of milestones) {
+    const prevMl = milestones[milestones.indexOf(ml) - 1] || 0;
+    let bracketSpells = 0;
+    for (let lv = prevMl + 1; lv <= ml; lv++) bracketSpells += spellsByLevel.get(lv) || 0;
+    const barLen = maxSpells > 0 ? Math.round(bracketSpells / maxSpells * 40) : 0;
+    const bar = '█'.repeat(barLen);
+    lines.push(`- **Lv ${String(ml).padStart(3)}-${String(prevMl + 1).padStart(3)}:** ${bar} ${bracketSpells}`);
+  }
+
+  return lines.join('\n');
+}
