@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 215 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 218 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **215 tools** for querying EverQuest data
+- **218 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -175,6 +175,7 @@ Then restart Claude Desktop.
 | `get_spell_effect_rarity_index` | Spell effect rarity index — exclusive, rare, and universal effects per class, identifying what makes each class irreplaceable |
 | `get_spell_effect_encyclopedia` | Spell effect encyclopedia — deep dive into a specific SPA effect type showing all spells, class distribution, value ranges, slot positions, and examples |
 | `get_spell_debuff_comparison_by_class` | Spell debuff comparison — compare all 16 classes' debuff arsenals (Slow, Root, Stun, Mez, Charm, Snare, DoT, etc.) with rankings and diversity |
+| `get_spell_buff_duration_tier_list` | Spell buff duration tier list — beneficial spells grouped by duration tier (Instant, Short, Medium, Long, Very Long, Permanent) per class |
 
 ### Local Data - Character
 | Tool | Description |
@@ -215,6 +216,7 @@ Then restart Claude Desktop.
 | `get_class_endgame_profile` | Class endgame profile at level 125 — base stats, AC mitigation, skill caps, spell book summary, role assessment, and resource profile |
 | `get_class_group_buff_contribution` | Class group buff contribution — what unique group/raid buffs each class brings, exclusive buff categories, and synergy value |
 | `get_class_synergy_matrix` | Class synergy matrix — 16×16 class pair synergy scored by exclusive buff category coverage, best/worst partners, and redundancy analysis |
+| `get_class_healing_comparison_matrix` | Class healing comparison — compare healing capabilities across all 16 classes (Direct, HoT, Group, Cure, Resurrect) with role classification |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -255,6 +257,7 @@ Then restart Claude Desktop.
 | `get_faction_network_analysis` | Faction relationship network — factions connected through shared race/class/deity modifiers, most connected nodes, faction pairs |
 | `get_deity_faction_impact_analysis` | Deity faction impact — how each deity affects faction standing, best/worst factions per deity, accessibility ranking |
 | `get_race_deity_optimizer` | Race-deity optimizer — for each of 16 playable races, rank deities by net faction benefit with best/worst per race |
+| `get_zone_faction_web_analysis` | Zone-faction web analysis — cross-reference zone names with faction names to discover zone-faction relationships |
 
 ### Local Data - Achievements & AA
 | Tool | Description |
@@ -372,7 +375,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (215 tools)
+├── tools.ts          # Tool definitions and handlers (218 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

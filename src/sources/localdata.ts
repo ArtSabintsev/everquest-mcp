@@ -19621,3 +19621,356 @@ export async function getContentProgressionPathway(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: SPELL BUFF DURATION TIER LIST ============
+
+export async function getSpellBuffDurationTierList(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Spell Buff Duration Tier List', ''];
+  lines.push('*Beneficial spells grouped by duration tier per class.*', '');
+
+  // Duration formula interpretation:
+  // Formula 0, value 0 = instant
+  // Other formulas compute ticks (6s each)
+  // We'll compute approximate duration in seconds
+  function computeDurationTicks(formula: number, value: number): number {
+    if (formula === 0 && value === 0) return 0;
+    if (formula === 1) return value; // value ticks
+    if (formula === 2) return Math.floor(value / 2) + 5; // (value/2)+5 ticks
+    if (formula === 3) return value * 30; // value * 30 ticks (long)
+    if (formula === 4) return 50; // 50 ticks
+    if (formula === 5) return 2; // 2 ticks
+    if (formula === 6) return Math.floor(value / 2) + 2; // (value/2)+2 ticks
+    if (formula === 7) return value; // value ticks
+    if (formula === 8) return value + 10; // value+10 ticks
+    if (formula === 9) return value * 2 + 10; // 2*value+10 ticks
+    if (formula === 10) return value * 3 + 10; // 3*value+10 ticks
+    if (formula === 11) return value * 30 + 90; // 30*value+90 ticks
+    if (formula === 12) return value; // value ticks
+    if (formula === 15) return value; // value ticks (permanent if maintained)
+    if (formula === 50) return 72000; // permanent (72000 ticks = many hours)
+    if (formula === 3600) return 72000; // permanent marker
+    return value > 0 ? value : 0;
+  }
+
+  type DurTier = 'Instant' | 'Short (<30s)' | 'Medium (30s-5min)' | 'Long (5-30min)' | 'Very Long (30min+)' | 'Permanent';
+
+  function getTier(ticks: number): DurTier {
+    if (ticks <= 0) return 'Instant';
+    const seconds = ticks * 6;
+    if (seconds < 30) return 'Short (<30s)';
+    if (seconds < 300) return 'Medium (30s-5min)';
+    if (seconds < 1800) return 'Long (5-30min)';
+    if (ticks >= 72000) return 'Permanent';
+    return 'Very Long (30min+)';
+  }
+
+  const tierOrder: DurTier[] = ['Instant', 'Short (<30s)', 'Medium (30s-5min)', 'Long (5-30min)', 'Very Long (30min+)', 'Permanent'];
+
+  // Count beneficial spells by duration tier per class
+  const classTierCounts: Map<number, Map<DurTier, number>> = new Map();
+  for (let cid = 1; cid <= 16; cid++) classTierCounts.set(cid, new Map());
+  const overallTierCounts = new Map<DurTier, number>();
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue;
+
+    const formula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const value = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const ticks = computeDurationTicks(formula, value);
+    const tier = getTier(ticks);
+
+    overallTierCounts.set(tier, (overallTierCounts.get(tier) || 0) + 1);
+
+    for (let cid = 1; cid <= 16; cid++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level >= 1 && level <= 254) {
+        const m = classTierCounts.get(cid)!;
+        m.set(tier, (m.get(tier) || 0) + 1);
+      }
+    }
+  }
+
+  // Overall distribution
+  lines.push('## Overall Duration Distribution', '');
+  const totalBen = [...overallTierCounts.values()].reduce((s, v) => s + v, 0);
+  for (const tier of tierOrder) {
+    const count = overallTierCounts.get(tier) || 0;
+    const pct = Math.round(count / totalBen * 100);
+    const bar = '█'.repeat(Math.min(pct * 2, 40));
+    lines.push(`- **${tier}:** ${bar} ${pct}% (${count})`);
+  }
+
+  // Per-class table
+  lines.push('', '## Duration Tiers by Class', '');
+  lines.push(`| Class | ${tierOrder.join(' | ')} | Total |`);
+  lines.push(`|-------|${tierOrder.map(() => '---:').join('|')}|------:|`);
+
+  for (let cid = 1; cid <= 16; cid++) {
+    const m = classTierCounts.get(cid)!;
+    const cells = tierOrder.map(t => String(m.get(t) || 0));
+    const total = [...m.values()].reduce((s, v) => s + v, 0);
+    lines.push(`| ${CLASS_SHORT[cid]} | ${cells.join(' | ')} | ${total} |`);
+  }
+
+  // Buff upkeep rankings (% of long-duration buffs)
+  lines.push('', '## Buff Upkeep Profile (% Long/Very Long/Permanent)', '');
+  const upkeepRanks: { cid: number; longPct: number; total: number }[] = [];
+  for (let cid = 1; cid <= 16; cid++) {
+    const m = classTierCounts.get(cid)!;
+    const total = [...m.values()].reduce((s, v) => s + v, 0);
+    const longCount = (m.get('Long (5-30min)') || 0) + (m.get('Very Long (30min+)') || 0) + (m.get('Permanent') || 0);
+    upkeepRanks.push({ cid, longPct: total > 0 ? Math.round(longCount / total * 100) : 0, total });
+  }
+  upkeepRanks.sort((a, b) => b.longPct - a.longPct);
+  lines.push('| Rank | Class | Long+ Buffs % | Total Buffs |');
+  lines.push('|-----:|-------|----------:|------------:|');
+  for (let i = 0; i < upkeepRanks.length; i++) {
+    const r = upkeepRanks[i];
+    lines.push(`| ${i + 1} | ${CLASS_IDS[r.cid]} (${CLASS_SHORT[r.cid]}) | ${r.longPct}% | ${r.total} |`);
+  }
+
+  lines.push('', `*${totalBen} beneficial spells analyzed across 6 duration tiers.*`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CLASS HEALING COMPARISON MATRIX ============
+
+export async function getClassHealingComparisonMatrix(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Class Healing Comparison Matrix', ''];
+  lines.push('*Compare healing capabilities across all 16 classes.*', '');
+
+  // Heal types: SPA 0 with positive base and beneficial
+  // Categories: Direct Heal, HoT, Group Heal, Cure, Resurrect
+  // We'll detect by SPA + target type + category name keywords
+
+  interface HealInfo {
+    direct: number;    // SPA 0 positive, non-group target
+    hot: number;       // SPA 100 (HoT) or duration > 0 with SPA 0
+    group: number;     // Group target with heal
+    cure: number;      // SPA 35/36/37 or category contains "Cure"
+    resurrect: number; // SPA 82 (resurrect)
+  }
+
+  const classHeals: Map<number, HealInfo> = new Map();
+  for (let cid = 1; cid <= 16; cid++) {
+    classHeals.set(cid, { direct: 0, hot: 0, group: 0, cure: 0, resurrect: 0 });
+  }
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue;
+
+    // Parse effect slots
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        slotsField = i;
+        break;
+      }
+    }
+    if (slotsField < 0) continue;
+
+    const slots = spell.fields[slotsField].split('$');
+    let hasHeal = false;
+    let hasCure = false;
+    let hasRez = false;
+    let hasHoTSPA = false;
+
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spa = parseInt(parts[1]);
+        const base = parseInt(parts[2]) || 0;
+        if (spa === 0 && base > 0) hasHeal = true;
+        if (spa === 100) hasHoTSPA = true; // HoT SPA
+        if (spa === 35 || spa === 36 || spa === 37) hasCure = true;
+        if (spa === 82) hasRez = true;
+      }
+    }
+
+    if (!hasHeal && !hasCure && !hasRez && !hasHoTSPA) continue;
+
+    const targetType = spell.fields[SF.TARGET_TYPE] || '';
+    const isGroup = targetType === '3' || targetType === '41' || targetType === '40';
+    const durFormula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const durValue = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const hasDuration = durFormula > 0 || durValue > 0;
+
+    for (let cid = 1; cid <= 16; cid++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+
+      const h = classHeals.get(cid)!;
+      if (hasRez) h.resurrect++;
+      if (hasCure) h.cure++;
+      if (hasHeal || hasHoTSPA) {
+        if (isGroup) h.group++;
+        else if (hasDuration && (hasHoTSPA || hasHeal)) h.hot++;
+        else h.direct++;
+      }
+    }
+  }
+
+  // Main comparison table
+  lines.push('## Healing Arsenal by Class', '');
+  lines.push('| Class | Direct | HoT | Group | Cure | Resurrect | Total |');
+  lines.push('|-------|------:|----:|------:|-----:|----------:|------:|');
+  for (let cid = 1; cid <= 16; cid++) {
+    const h = classHeals.get(cid)!;
+    const total = h.direct + h.hot + h.group + h.cure + h.resurrect;
+    lines.push(`| ${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}) | ${h.direct} | ${h.hot} | ${h.group} | ${h.cure} | ${h.resurrect} | ${total} |`);
+  }
+
+  // Rankings per type
+  lines.push('', '## Top Healers by Type', '');
+  const healTypes: (keyof HealInfo)[] = ['direct', 'hot', 'group', 'cure', 'resurrect'];
+  const healLabels: Record<keyof HealInfo, string> = { direct: 'Direct Heal', hot: 'Heal over Time', group: 'Group Heal', cure: 'Cure', resurrect: 'Resurrect' };
+  for (const type of healTypes) {
+    const ranked = [];
+    for (let cid = 1; cid <= 16; cid++) {
+      const count = classHeals.get(cid)![type];
+      if (count > 0) ranked.push({ cid, count });
+    }
+    ranked.sort((a, b) => b.count - a.count);
+    if (ranked.length > 0) {
+      const top3 = ranked.slice(0, 3).map(r => `${CLASS_SHORT[r.cid]} (${r.count})`).join(', ');
+      lines.push(`- **${healLabels[type]}:** ${top3}`);
+    }
+  }
+
+  // Healing role classification
+  lines.push('', '## Healing Role Classification', '');
+  for (let cid = 1; cid <= 16; cid++) {
+    const h = classHeals.get(cid)!;
+    const total = h.direct + h.hot + h.group + h.cure + h.resurrect;
+    let role: string;
+    if (total >= 100) role = 'Primary Healer';
+    else if (total >= 30) role = 'Secondary Healer';
+    else if (total >= 5) role = 'Emergency Healer';
+    else if (total > 0) role = 'Minimal Healing';
+    else role = 'No Healing';
+    lines.push(`- **${CLASS_IDS[cid]} (${CLASS_SHORT[cid]}):** ${role} (${total} total heal spells)`);
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: ZONE-FACTION WEB ANALYSIS ============
+
+export async function getZoneFactionWebAnalysis(): Promise<string> {
+  await loadZones();
+  await loadFactions();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const lines = ['# Zone-Faction Web Analysis', ''];
+  lines.push('*Cross-reference zone names with faction names to discover zone-faction relationships.*', '');
+
+  // Build zone name word index
+  interface ZoneMatch { zoneId: number; zoneName: string; factions: { id: number; name: string; category: string }[] }
+  const matches: ZoneMatch[] = [];
+
+  for (const zone of zones.values()) {
+    if (!zone.name) continue;
+    const zoneLower = zone.name.toLowerCase();
+    const zoneWords = zoneLower.split(/[\s:,]+/).filter(w => w.length > 3);
+
+    const matchingFactions: { id: number; name: string; category: string }[] = [];
+    for (const faction of factions.values()) {
+      const facLower = faction.name.toLowerCase();
+      // Check if zone name appears in faction name, or key zone words do
+      if (facLower.includes(zoneLower) || zoneLower.includes(facLower)) {
+        matchingFactions.push({ id: faction.id, name: faction.name, category: faction.category || '' });
+      } else {
+        // Check significant zone words (not common words)
+        const skipWords = new Set(['the', 'of', 'east', 'west', 'north', 'south', 'great', 'upper', 'lower', 'old', 'new']);
+        for (const word of zoneWords) {
+          if (!skipWords.has(word) && facLower.includes(word)) {
+            matchingFactions.push({ id: faction.id, name: faction.name, category: faction.category || '' });
+            break;
+          }
+        }
+      }
+    }
+
+    if (matchingFactions.length > 0) {
+      matches.push({ zoneId: zone.id, zoneName: zone.name, factions: matchingFactions });
+    }
+  }
+
+  matches.sort((a, b) => b.factions.length - a.factions.length);
+
+  // Summary
+  lines.push('## Overview', '');
+  lines.push(`- **Zones with faction matches:** ${matches.length} / ${zones.size}`);
+  lines.push(`- **Total zone-faction links:** ${matches.reduce((s, m) => s + m.factions.length, 0)}`);
+
+  // Top zones by faction count
+  lines.push('', '## Zones with Most Associated Factions', '');
+  lines.push('| Zone | Factions | Sample Factions |');
+  lines.push('|------|--------:|-----------------|');
+  for (const m of matches.slice(0, 25)) {
+    const samples = m.factions.slice(0, 3).map(f => f.name).join(', ');
+    const more = m.factions.length > 3 ? ` (+${m.factions.length - 3})` : '';
+    lines.push(`| ${m.zoneName} | ${m.factions.length} | ${samples}${more} |`);
+  }
+
+  // Faction category breakdown for zone-associated factions
+  const catCounts = new Map<string, number>();
+  for (const m of matches) {
+    for (const f of m.factions) {
+      const cat = f.category || 'Uncategorized';
+      catCounts.set(cat, (catCounts.get(cat) || 0) + 1);
+    }
+  }
+  const sortedCats = [...catCounts.entries()].sort((a, b) => b[1] - a[1]);
+  if (sortedCats.length > 0) {
+    lines.push('', '## Faction Categories in Zone Matches', '');
+    lines.push('| Category | Links |');
+    lines.push('|----------|------:|');
+    for (const [cat, count] of sortedCats.slice(0, 15)) {
+      lines.push(`| ${cat} | ${count} |`);
+    }
+  }
+
+  // Zones with no faction matches
+  const unmatchedZones = [...zones.values()].filter(z => !matches.find(m => m.zoneId === z.id));
+  lines.push('', `## Zones Without Faction Matches: ${unmatchedZones.length}`, '');
+  if (unmatchedZones.length <= 20) {
+    for (const z of unmatchedZones) lines.push(`- ${z.name}`);
+  } else {
+    for (const z of unmatchedZones.slice(0, 15)) lines.push(`- ${z.name}`);
+    lines.push(`- *(${unmatchedZones.length - 15} more)*`);
+  }
+
+  // Factions matching most zones
+  const factionZoneCounts = new Map<number, { name: string; zoneCount: number }>();
+  for (const m of matches) {
+    for (const f of m.factions) {
+      const existing = factionZoneCounts.get(f.id);
+      if (existing) existing.zoneCount++;
+      else factionZoneCounts.set(f.id, { name: f.name, zoneCount: 1 });
+    }
+  }
+  const topFactions = [...factionZoneCounts.values()].sort((a, b) => b.zoneCount - a.zoneCount);
+  lines.push('', '## Factions Spanning Most Zones', '');
+  lines.push('| Faction | Zone Matches |');
+  lines.push('|---------|----------:|');
+  for (const f of topFactions.slice(0, 20)) {
+    lines.push(`| ${f.name} | ${f.zoneCount} |`);
+  }
+
+  lines.push('', `*${matches.length} zones linked to ${factionZoneCounts.size} factions.*`);
+
+  return lines.join('\n');
+}

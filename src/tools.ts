@@ -223,6 +223,9 @@ import {
   getOverseerAgentTraitJobMatrix,
   getSpellDebuffComparisonByClass,
   getContentProgressionPathway,
+  getSpellBuffDurationTierList,
+  getClassHealingComparisonMatrix,
+  getZoneFactionWebAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -2939,6 +2942,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_buff_duration_tier_list',
+    description: 'Spell buff duration tier list — beneficial spells grouped by duration tier (Instant, Short, Medium, Long, Very Long, Permanent) per class with upkeep profile rankings.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_healing_comparison_matrix',
+    description: 'Class healing comparison — compare healing capabilities across all 16 classes (Direct, HoT, Group, Cure, Resurrect) with role classification.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_zone_faction_web_analysis',
+    description: 'Zone-faction web analysis — cross-reference zone names with faction names to discover which factions are associated with which zones.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4760,6 +4790,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_content_progression_pathway': {
         return getContentProgressionPathway();
+      }
+
+      case 'get_spell_buff_duration_tier_list': {
+        return getSpellBuffDurationTierList();
+      }
+
+      case 'get_class_healing_comparison_matrix': {
+        return getClassHealingComparisonMatrix();
+      }
+
+      case 'get_zone_faction_web_analysis': {
+        return getZoneFactionWebAnalysis();
       }
 
       case 'search_help_topics': {
