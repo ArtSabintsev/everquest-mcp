@@ -83,6 +83,7 @@ import {
   searchSpellsByTarget,
   searchSpellStackingGroups,
   searchSpellsByDescription,
+  searchTimerGroup,
 } from './sources/index.js';
 
 export const tools = [
@@ -485,6 +486,24 @@ export const tools = [
         }
       },
       required: ['query']
+    }
+  },
+  {
+    name: 'search_timer_group',
+    description: 'Find all spells/disciplines that share a reuse timer group. Spells on the same timer cannot be used simultaneously. Provide a timer group number (1-22) or a spell name to find its timer group.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        timer: {
+          type: 'string',
+          description: 'Timer group number (1-22) or spell/discipline name to look up its timer group'
+        },
+        class: {
+          type: 'string',
+          description: 'Optional: filter to a specific class (e.g., "Warrior", "WAR")'
+        }
+      },
+      required: ['timer']
     }
   },
   {
@@ -1887,6 +1906,13 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!query) return 'Error: "query" parameter is required';
         const className = typeof args.class === 'string' ? args.class.trim() : undefined;
         return searchSpellsByDescription(query, className);
+      }
+
+      case 'search_timer_group': {
+        const timer = typeof args.timer === 'string' ? args.timer.trim() : '';
+        if (!timer) return 'Error: "timer" parameter is required';
+        const className = typeof args.class === 'string' ? args.class.trim() : undefined;
+        return searchTimerGroup(timer, className);
       }
 
       case 'get_spells_by_class': {

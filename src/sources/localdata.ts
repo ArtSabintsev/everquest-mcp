@@ -484,6 +484,8 @@ interface AchievementEntry {
   description: string;
   rewardId: number;
   points: number;
+  hidden: boolean;
+  locked: boolean;
 }
 
 interface SpellStackEntry {
@@ -1298,9 +1300,11 @@ async function loadAchievements(): Promise<void> {
     const description = fields[2];
     const rewardId = parseInt(fields[3]) || 0;
     const points = parseInt(fields[4]) || 0;
+    const hidden = fields[5] === '1';
+    const locked = fields[6] === '1';
     if (isNaN(id) || !name) continue;
 
-    achievements.set(id, { id, name, description, rewardId, points });
+    achievements.set(id, { id, name, description, rewardId, points, hidden, locked });
 
     const lowerName = name.toLowerCase();
     const existing = achievementNameIndex.get(lowerName) || [];
@@ -3236,6 +3240,116 @@ export async function searchSpellsByDescription(query: string, className?: strin
   return lines.join('\n');
 }
 
+export async function searchTimerGroup(timerGroupOrSpell: string, className?: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  let timerId: number;
+
+  // Try parsing as a number first
+  const parsed = parseInt(timerGroupOrSpell);
+  if (!isNaN(parsed) && parsed > 0) {
+    timerId = parsed;
+  } else {
+    // Try finding the spell by name and getting its timer group
+    const normalized = timerGroupOrSpell.toLowerCase();
+    let foundTimer: number | undefined;
+    for (const [, spell] of spells) {
+      if (spell.name.toLowerCase() === normalized) {
+        const t = parseInt(spell.fields[SF.TIMER_ID]);
+        if (!isNaN(t) && t > 0) {
+          foundTimer = t;
+          break;
+        }
+      }
+    }
+    if (!foundTimer) {
+      // Fuzzy search
+      for (const [, spell] of spells) {
+        if (spell.name.toLowerCase().includes(normalized)) {
+          const t = parseInt(spell.fields[SF.TIMER_ID]);
+          if (!isNaN(t) && t > 0) {
+            foundTimer = t;
+            break;
+          }
+        }
+      }
+    }
+    if (!foundTimer) {
+      return `No timer group found for "${timerGroupOrSpell}". Provide a timer group number (1-22) or a spell/discipline name that uses a timer group.`;
+    }
+    timerId = foundTimer;
+  }
+
+  // Optional class filter
+  let classId: number | undefined;
+  let classIndex: number | undefined;
+  if (className) {
+    classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+    if (!classId) {
+      return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+    }
+    classIndex = classId - 1;
+  }
+
+  const CLASS_NAMES_SHORT = ['WAR','CLR','PAL','RNG','SHD','DRU','MNK','BRD','ROG','SHM','NEC','WIZ','MAG','ENC','BST','BER'];
+  const matches: { id: number; name: string; level: number; recast: number; classes: string[] }[] = [];
+
+  for (const [spellId, spell] of spells) {
+    const t = parseInt(spell.fields[SF.TIMER_ID]);
+    if (t !== timerId) continue;
+
+    // Class filter
+    if (classIndex !== undefined) {
+      const lvl = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+      if (isNaN(lvl) || lvl === 255 || lvl <= 0) continue;
+    }
+
+    // Get class info and min level
+    const classes: string[] = [];
+    let minLevel = 999;
+    for (let c = 0; c < 16; c++) {
+      const lvl = parseInt(spell.fields[SF.CLASS_LEVEL_START + c]);
+      if (!isNaN(lvl) && lvl > 0 && lvl < 255) {
+        classes.push(`${CLASS_NAMES_SHORT[c]}(${lvl})`);
+        if (lvl < minLevel) minLevel = lvl;
+      }
+    }
+
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+
+    matches.push({ id: spellId, name: spell.name, level: minLevel, recast, classes });
+  }
+
+  if (matches.length === 0) {
+    const classLabel = classId ? ` for ${CLASS_IDS[classId]}` : '';
+    return `No spells found on timer group ${timerId}${classLabel}.`;
+  }
+
+  // Sort by level then name
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const classLabel = classId ? ` - ${CLASS_IDS[classId]}` : '';
+  const lines = [
+    `## Timer Group ${timerId}${classLabel}`,
+    `*${matches.length} spells/abilities share this reuse timer*`,
+    '',
+  ];
+
+  const shown = matches.slice(0, 100);
+  for (const m of shown) {
+    const recastStr = m.recast > 0 ? ` — recast ${(m.recast / 1000).toFixed(0)}s` : '';
+    const classStr = !classId && m.classes.length > 0 && m.classes.length <= 8 ? ` — ${m.classes.join(', ')}` : '';
+    lines.push(`- **${m.name}** (ID: ${m.id})${recastStr}${classStr}`);
+  }
+
+  if (matches.length > 100) {
+    lines.push(`*...and ${matches.length - 100} more*`);
+  }
+
+  return lines.join('\n');
+}
+
 export async function getLocalSpell(id: string): Promise<SpellData | null> {
   await loadSpells();
   await loadSpellStrings();
@@ -3562,6 +3676,9 @@ export async function getAchievement(id: string): Promise<string> {
     '',
     `**Points:** ${ach.points}`,
   ];
+
+  if (ach.hidden) lines.push(`**Hidden:** Yes`);
+  if (ach.locked) lines.push(`**Locked:** Yes`);
 
   if (ach.rewardId > 0) {
     lines.push(`**Reward ID:** ${ach.rewardId}`);
