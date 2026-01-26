@@ -96,6 +96,8 @@ import {
   getSharedSpells,
   getSpellLine,
   searchSpellsByBeneficial,
+  getExclusiveSpells,
+  compareClasses,
 } from './sources/index.js';
 
 export const tools = [
@@ -592,6 +594,42 @@ export const tools = [
         }
       },
       required: ['class', 'beneficial']
+    }
+  },
+  {
+    name: 'get_exclusive_spells',
+    description: 'Find spells that only one specific class can cast — no other class has access. Shows what makes each class unique in terms of spell abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: {
+          type: 'string',
+          description: 'Class name (e.g., "Bard", "BRD", "Enchanter", "ENC")'
+        },
+        level: {
+          type: 'number',
+          description: 'Optional: max level filter (only show spells obtainable at or below this level)'
+        }
+      },
+      required: ['class']
+    }
+  },
+  {
+    name: 'compare_classes',
+    description: 'Compare two EverQuest classes side by side. Shows available races, total/shared/exclusive spell counts, and spell category breakdown. Useful for choosing between classes or understanding class overlap.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class1: {
+          type: 'string',
+          description: 'First class name (e.g., "Cleric", "CLR")'
+        },
+        class2: {
+          type: 'string',
+          description: 'Second class name (e.g., "Druid", "DRU")'
+        }
+      },
+      required: ['class1', 'class2']
     }
   },
   {
@@ -2156,6 +2194,21 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const beneficial = typeof args.beneficial === 'boolean' ? args.beneficial : true;
         const level = typeof args.level === 'number' ? args.level : undefined;
         return searchSpellsByBeneficial(className, beneficial, level);
+      }
+
+      case 'get_exclusive_spells': {
+        const className = typeof args.class === 'string' ? args.class.trim() : '';
+        if (!className) return 'Error: "class" parameter is required';
+        const level = typeof args.level === 'number' ? args.level : undefined;
+        return getExclusiveSpells(className, level);
+      }
+
+      case 'compare_classes': {
+        const class1 = typeof args.class1 === 'string' ? args.class1.trim() : '';
+        const class2 = typeof args.class2 === 'string' ? args.class2.trim() : '';
+        if (!class1) return 'Error: "class1" parameter is required';
+        if (!class2) return 'Error: "class2" parameter is required';
+        return compareClasses(class1, class2);
       }
 
       case 'get_spells_by_class': {

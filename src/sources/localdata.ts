@@ -6979,6 +6979,194 @@ export async function searchSpellsByBeneficial(className: string, beneficial: bo
   return lines.join('\n');
 }
 
+// ============ PUBLIC API: EXCLUSIVE SPELLS ============
+
+export async function getExclusiveSpells(className: string, level?: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+
+  const classIndex = classId - 1;
+  const exclusive: { id: number; name: string; level: number; category?: string }[] = [];
+
+  for (const [id, spell] of spells) {
+    const classLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]);
+    if (isNaN(classLevel) || classLevel === 255 || classLevel <= 0) continue;
+    if (level !== undefined && classLevel > level) continue;
+
+    // Check if no other class can use this spell
+    let otherClassHas = false;
+    for (let i = 0; i < 16; i++) {
+      if (i === classIndex) continue;
+      const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + i]);
+      if (!isNaN(lv) && lv !== 255 && lv > 0) {
+        otherClassHas = true;
+        break;
+      }
+    }
+
+    if (!otherClassHas) {
+      let cat: string | undefined;
+      if (spellCategories) {
+        const catId = parseInt(spell.fields[SF.CATEGORY]);
+        if (!isNaN(catId) && catId > 0) cat = spellCategories.get(catId);
+      }
+      exclusive.push({ id, name: spell.name, level: classLevel, category: cat });
+    }
+  }
+
+  exclusive.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  if (exclusive.length === 0) {
+    return `No exclusive spells found for ${CLASS_IDS[classId]}${level ? ` at or below level ${level}` : ''}.`;
+  }
+
+  const lines = [
+    `## ${CLASS_IDS[classId]} — Exclusive Spells${level ? ` (≤ Level ${level})` : ''}`,
+    `*${exclusive.length} spells only ${CLASS_IDS[classId]} can cast*`,
+    '',
+  ];
+
+  // Category summary
+  const byCategory = new Map<string, number>();
+  for (const s of exclusive) {
+    const cat = s.category || 'Uncategorized';
+    byCategory.set(cat, (byCategory.get(cat) || 0) + 1);
+  }
+  const sortedCats = [...byCategory.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push('### By Category');
+  for (const [cat, count] of sortedCats) {
+    lines.push(`- **${cat}**: ${count}`);
+  }
+  lines.push('');
+
+  let currentLevel = -1;
+  let count = 0;
+  for (const s of exclusive) {
+    if (count >= 200) {
+      lines.push(`\n*... and ${exclusive.length - count} more*`);
+      break;
+    }
+    if (s.level !== currentLevel) {
+      currentLevel = s.level;
+      lines.push(`\n### Level ${currentLevel}`);
+    }
+    lines.push(`- **${s.name}** (${s.id})${s.category ? ` [${s.category}]` : ''}`);
+    count++;
+  }
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CLASS COMPARISON ============
+
+export async function compareClasses(class1: string, class2: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  await loadRaceClassInfo();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId1 = CLASS_NAME_TO_ID[class1.toLowerCase()];
+  const classId2 = CLASS_NAME_TO_ID[class2.toLowerCase()];
+  if (!classId1) return `Unknown class: "${class1}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (!classId2) return `Unknown class: "${class2}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (classId1 === classId2) return `Please specify two different classes to compare.`;
+
+  const name1 = CLASS_IDS[classId1];
+  const name2 = CLASS_IDS[classId2];
+  const idx1 = classId1 - 1;
+  const idx2 = classId2 - 1;
+
+  // Races
+  const races1 = new Set<string>();
+  const races2 = new Set<string>();
+  for (const [raceId, classIds] of Object.entries(RACE_CLASSES)) {
+    const raceName = RACE_IDS[parseInt(raceId)];
+    if (!raceName) continue;
+    if (classIds.includes(classId1)) races1.add(raceName);
+    if (classIds.includes(classId2)) races2.add(raceName);
+  }
+
+  const sharedRaces = [...races1].filter(r => races2.has(r));
+  const uniqueRaces1 = [...races1].filter(r => !races2.has(r));
+  const uniqueRaces2 = [...races2].filter(r => !races1.has(r));
+
+  // Spell analysis
+  let total1 = 0, total2 = 0, shared = 0;
+  const cats1 = new Map<string, number>();
+  const cats2 = new Map<string, number>();
+  const catsShared = new Map<string, number>();
+
+  for (const [, spell] of spells) {
+    const lv1 = parseInt(spell.fields[SF.CLASS_LEVEL_START + idx1]);
+    const lv2 = parseInt(spell.fields[SF.CLASS_LEVEL_START + idx2]);
+    const has1 = !isNaN(lv1) && lv1 !== 255 && lv1 > 0;
+    const has2 = !isNaN(lv2) && lv2 !== 255 && lv2 > 0;
+
+    let cat = 'Uncategorized';
+    if (spellCategories) {
+      const catId = parseInt(spell.fields[SF.CATEGORY]);
+      if (!isNaN(catId) && catId > 0) {
+        cat = spellCategories.get(catId) || 'Uncategorized';
+      }
+    }
+
+    if (has1) { total1++; cats1.set(cat, (cats1.get(cat) || 0) + 1); }
+    if (has2) { total2++; cats2.set(cat, (cats2.get(cat) || 0) + 1); }
+    if (has1 && has2) { shared++; catsShared.set(cat, (catsShared.get(cat) || 0) + 1); }
+  }
+
+  const lines = [
+    `## Class Comparison: ${name1} vs ${name2}`,
+    '',
+    '### Races',
+    `| | ${name1} | ${name2} |`,
+    `|---|---|---|`,
+    `| Total | ${races1.size} | ${races2.size} |`,
+    `| Shared | ${sharedRaces.length} | ${sharedRaces.length} |`,
+    '',
+    `**Shared:** ${sharedRaces.join(', ') || 'None'}`,
+    `**${name1} only:** ${uniqueRaces1.join(', ') || 'None'}`,
+    `**${name2} only:** ${uniqueRaces2.join(', ') || 'None'}`,
+    '',
+    '### Spells',
+    `| | ${name1} | ${name2} |`,
+    `|---|---|---|`,
+    `| Total spells | ${total1} | ${total2} |`,
+    `| Shared spells | ${shared} | ${shared} |`,
+    `| Exclusive spells | ${total1 - shared} | ${total2 - shared} |`,
+    '',
+  ];
+
+  // Category comparison
+  const allCats = new Set([...cats1.keys(), ...cats2.keys()]);
+  const catComparison: { cat: string; c1: number; c2: number; s: number }[] = [];
+  for (const cat of allCats) {
+    catComparison.push({
+      cat,
+      c1: cats1.get(cat) || 0,
+      c2: cats2.get(cat) || 0,
+      s: catsShared.get(cat) || 0,
+    });
+  }
+  catComparison.sort((a, b) => (b.c1 + b.c2) - (a.c1 + a.c2));
+
+  lines.push('### Spell Categories');
+  lines.push(`| Category | ${name1} | ${name2} | Shared |`);
+  lines.push(`|----------|---|---|---|`);
+  for (const c of catComparison.slice(0, 30)) {
+    lines.push(`| ${c.cat} | ${c.c1} | ${c.c2} | ${c.s} |`);
+  }
+  if (catComparison.length > 30) {
+    lines.push(`*...and ${catComparison.length - 30} more categories*`);
+  }
+
+  return lines.join('\n');
+}
+
 // ============ DATA STATUS ============
 
 export async function getLocalDataStatus(): Promise<string> {
