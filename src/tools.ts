@@ -202,6 +202,9 @@ import {
   getSpellScalingAnalysis,
   getRaceDeityOptimizer,
   getClassComparisonRadar,
+  getExpansionImpactScore,
+  getGroupCompositionAdvisor,
+  getClassEndgameProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -2714,6 +2717,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_expansion_impact_score',
+    description: 'Expansion impact score — each of 33 expansions scored by content volume (factions, achievements, achievement points, event mentions) with category leaders and aggregate totals.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_group_composition_advisor',
+    description: 'Group composition advisor — optimal 6-person group compositions (Classic Trinity, Max DPS, Survival, Balanced) with class role scores and synergy notes.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_endgame_profile',
+    description: 'Class endgame profile at level 125 — base stats, AC mitigation, all skill caps, spell book summary (categories, level distribution, unique SPAs), role assessment, and resource profile.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class name or short code (e.g., "WAR", "Warrior", "CLR", "Cleric")'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -4445,6 +4480,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_class_comparison_radar': {
         return getClassComparisonRadar();
+      }
+
+      case 'get_expansion_impact_score': {
+        return getExpansionImpactScore();
+      }
+
+      case 'get_group_composition_advisor': {
+        return getGroupCompositionAdvisor();
+      }
+
+      case 'get_class_endgame_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required. Use short codes (WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER) or full names.';
+        return getClassEndgameProfile(className);
       }
 
       case 'search_help_topics': {

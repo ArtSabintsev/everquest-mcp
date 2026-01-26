@@ -16890,3 +16890,521 @@ export async function getClassComparisonRadar(): Promise<string> {
 
   return lines.join('\n');
 }
+
+// ============ PUBLIC API: EXPANSION IMPACT SCORE ============
+
+export async function getExpansionImpactScore(): Promise<string> {
+  await loadExpansions();
+  await loadFactions();
+  await loadAchievements();
+  await loadAchievementCategories();
+  await loadGameEvents();
+  await loadZones();
+  if (!expansionNames || expansionNames.size === 0) return 'Expansion data not available.';
+
+  const lines = ['# Expansion Impact Score', ''];
+  lines.push('*Each expansion scored by content volume across factions, achievements, and events.*', '');
+
+  interface ExpScore {
+    id: number;
+    name: string;
+    factionCount: number;
+    achievementCount: number;
+    achievementPoints: number;
+    eventMentions: number;
+    totalScore: number;
+  }
+
+  const scores: ExpScore[] = [];
+
+  for (const [expId, expName] of expansionNames) {
+    // Count factions matching expansion category
+    let factionCount = 0;
+    if (factions) {
+      const expLower = expName.toLowerCase();
+      for (const f of factions.values()) {
+        if (f.category && f.category.toLowerCase() === expLower) factionCount++;
+      }
+    }
+
+    // Count achievements in categories matching expansion name
+    let achievementCount = 0;
+    let achievementPoints = 0;
+    if (achievementCategories && achievements && categoryToAchievements) {
+      for (const [catId, cat] of achievementCategories) {
+        if (cat.name.toLowerCase().includes(expName.toLowerCase()) ||
+            expName.toLowerCase().includes(cat.name.toLowerCase())) {
+          const achIds = categoryToAchievements.get(catId) || [];
+          achievementCount += achIds.length;
+          for (const aId of achIds) {
+            const ach = achievements.get(aId);
+            if (ach) achievementPoints += ach.points;
+          }
+        }
+      }
+    }
+
+    // Count event mentions
+    let eventMentions = 0;
+    if (gameEvents) {
+      const expLower = expName.toLowerCase();
+      for (const evt of gameEvents.values()) {
+        const text = (evt.banner + ' ' + evt.description).toLowerCase();
+        if (text.includes(expLower)) eventMentions++;
+      }
+    }
+
+    // Composite score (weighted)
+    const totalScore = factionCount * 3 + achievementCount * 1 + achievementPoints + eventMentions * 5;
+
+    scores.push({ id: expId, name: expName, factionCount, achievementCount, achievementPoints, eventMentions, totalScore });
+  }
+
+  // Sort by total score descending
+  scores.sort((a, b) => b.totalScore - a.totalScore);
+
+  lines.push('## Impact Rankings', '');
+  lines.push('| Rank | Expansion | Factions | Achievements | Ach Points | Events | Score |');
+  lines.push('|-----:|-----------|--------:|-----------:|-----------:|------:|------:|');
+  let rank = 1;
+  for (const s of scores) {
+    if (s.totalScore > 0) {
+      lines.push(`| ${rank++} | ${s.name} | ${s.factionCount} | ${s.achievementCount} | ${s.achievementPoints} | ${s.eventMentions} | ${s.totalScore} |`);
+    }
+  }
+
+  // Expansions with zero score
+  const zeroScore = scores.filter(s => s.totalScore === 0);
+  if (zeroScore.length > 0) {
+    lines.push('', `*${zeroScore.length} expansions have no linked content in local data:*`);
+    lines.push(zeroScore.map(s => `${s.id}. ${s.name}`).join(', '));
+  }
+
+  // Aggregate stats
+  const totalFactions = scores.reduce((s, e) => s + e.factionCount, 0);
+  const totalAch = scores.reduce((s, e) => s + e.achievementCount, 0);
+  const totalPts = scores.reduce((s, e) => s + e.achievementPoints, 0);
+  const totalEvts = scores.reduce((s, e) => s + e.eventMentions, 0);
+
+  lines.push('', '## Aggregate Totals', '');
+  lines.push(`- **Factions linked to expansions:** ${totalFactions}`);
+  lines.push(`- **Achievements linked to expansions:** ${totalAch}`);
+  lines.push(`- **Total achievement points:** ${totalPts}`);
+  lines.push(`- **Event mentions:** ${totalEvts}`);
+
+  // Content density per expansion
+  const withContent = scores.filter(s => s.totalScore > 0);
+  if (withContent.length > 0) {
+    const avgScore = Math.round(withContent.reduce((s, e) => s + e.totalScore, 0) / withContent.length);
+    lines.push(`- **Average impact score (expansions with content):** ${avgScore}`);
+    lines.push(`- **Above-average expansions:** ${withContent.filter(s => s.totalScore > avgScore).length}`);
+  }
+
+  // Top content categories
+  lines.push('', '## Content Category Leaders', '');
+  const byFactions = [...scores].sort((a, b) => b.factionCount - a.factionCount).slice(0, 3);
+  const byAch = [...scores].sort((a, b) => b.achievementCount - a.achievementCount).slice(0, 3);
+  const byPts = [...scores].sort((a, b) => b.achievementPoints - a.achievementPoints).slice(0, 3);
+  lines.push(`- **Most factions:** ${byFactions.map(s => `${s.name} (${s.factionCount})`).join(', ')}`);
+  lines.push(`- **Most achievements:** ${byAch.map(s => `${s.name} (${s.achievementCount})`).join(', ')}`);
+  lines.push(`- **Most achievement points:** ${byPts.map(s => `${s.name} (${s.achievementPoints})`).join(', ')}`);
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: GROUP COMPOSITION ADVISOR ============
+
+export async function getGroupCompositionAdvisor(): Promise<string> {
+  await loadSpells();
+  await loadBaseStats();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines = ['# Group Composition Advisor', ''];
+  lines.push('*Optimal 6-person group compositions based on class role synergy and spell coverage.*', '');
+
+  // Build role scores per class (same logic as class role analysis)
+  const HEAL_SPAS = new Set([0, 147]);
+  const TANK_SPAS = new Set([1, 55, 69, 162, 172]);
+  const DPS_SPAS = new Set([0, 79, 85, 119, 330, 374, 413]);
+  const CC_SPAS = new Set([21, 22, 23, 31, 74]);
+  const BUFF_SPAS = new Set([2, 3, 4, 5, 11, 15, 21, 35, 36, 55, 69, 100, 127, 170, 192, 264, 294]);
+  const UTILITY_SPAS = new Set([3, 26, 57, 59, 106, 123]);
+
+  interface ClassProfile {
+    classId: number;
+    name: string;
+    short: string;
+    heal: number;
+    tank: number;
+    dps: number;
+    cc: number;
+    buff: number;
+    utility: number;
+    totalSpells: number;
+    hp: number;
+    mana: number;
+  }
+
+  const profiles: ClassProfile[] = [];
+
+  for (let cid = 1; cid <= 16; cid++) {
+    let heal = 0, tank = 0, dps = 0, cc = 0, buff = 0, utility = 0;
+    let totalSpells = 0;
+
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level < 1 || level > 254) continue;
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+      totalSpells++;
+
+      let effectField = '';
+      for (let i = spell.fields.length - 1; i >= 0; i--) {
+        if (spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+      }
+      if (!effectField) continue;
+
+      const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (isNaN(spaId) || spaId <= 0) continue;
+          if (HEAL_SPAS.has(spaId) && isBeneficial) heal++;
+          if (TANK_SPAS.has(spaId)) tank++;
+          if (DPS_SPAS.has(spaId) && !isBeneficial) dps++;
+          if (CC_SPAS.has(spaId)) cc++;
+          if (BUFF_SPAS.has(spaId) && isBeneficial) buff++;
+          if (UTILITY_SPAS.has(spaId)) utility++;
+        }
+      }
+    }
+
+    let hp = 0, mana = 0;
+    if (baseStats) {
+      const stat = baseStats.find(s => s.classId === cid && s.level === 100);
+      if (stat) { hp = stat.hp; mana = stat.mana; }
+    }
+
+    profiles.push({
+      classId: cid, name: CLASS_IDS[cid], short: CLASS_SHORT[cid],
+      heal, tank, dps, cc, buff, utility, totalSpells, hp, mana
+    });
+  }
+
+  // Normalize scores
+  const dims: (keyof ClassProfile)[] = ['heal', 'tank', 'dps', 'cc', 'buff', 'utility'];
+  const maxVals: Record<string, number> = {};
+  for (const d of dims) {
+    maxVals[d] = Math.max(...profiles.map(p => p[d] as number));
+  }
+  const normProfiles = profiles.map(p => {
+    const norm: Record<string, number> = {};
+    for (const d of dims) {
+      norm[d] = maxVals[d] > 0 ? Math.round(((p[d] as number) / maxVals[d]) * 100) : 0;
+    }
+    return { ...p, norm };
+  });
+
+  // Classify each class
+  for (const p of normProfiles) {
+    const n = p.norm;
+    let role = 'DPS';
+    if (n.heal > 50 && n.heal >= n.dps) role = 'Healer';
+    else if (n.tank > 50 && n.tank >= n.dps) role = 'Tank';
+    else if (n.cc > 40 && n.cc >= n.dps) role = 'CC/Support';
+    (p as any).role = role;
+  }
+
+  // Define group templates
+  const templates = [
+    { name: 'Classic Holy Trinity', desc: 'Tank + Healer + CC + 3 DPS', slots: ['Tank', 'Healer', 'CC/Support', 'DPS', 'DPS', 'DPS'] },
+    { name: 'Max DPS Rush', desc: 'Tank + Healer + 4 DPS', slots: ['Tank', 'Healer', 'DPS', 'DPS', 'DPS', 'DPS'] },
+    { name: 'Survival Focus', desc: 'Tank + 2 Healers + CC + 2 DPS', slots: ['Tank', 'Healer', 'Healer', 'CC/Support', 'DPS', 'DPS'] },
+    { name: 'Balanced', desc: 'Tank + Healer + CC + Buff + 2 DPS', slots: ['Tank', 'Healer', 'CC/Support', 'DPS', 'DPS', 'DPS'] },
+  ];
+
+  // Find best class for each role
+  const bestByRole = (role: string, exclude: Set<number> = new Set()): typeof normProfiles[0] | null => {
+    const candidates = normProfiles
+      .filter(p => !exclude.has(p.classId))
+      .sort((a, b) => {
+        const scoreA = a.norm[role.toLowerCase()] || (a as any).norm?.dps || 0;
+        const scoreB = b.norm[role.toLowerCase()] || (b as any).norm?.dps || 0;
+        return scoreB - scoreA;
+      });
+    return candidates[0] || null;
+  };
+
+  const roleToKey: Record<string, string> = {
+    'Tank': 'tank', 'Healer': 'heal', 'CC/Support': 'cc', 'DPS': 'dps'
+  };
+
+  for (const template of templates) {
+    lines.push(`## ${template.name}`, '');
+    lines.push(`*${template.desc}*`, '');
+
+    const used = new Set<number>();
+    const picks: { role: string; p: typeof normProfiles[0] }[] = [];
+
+    for (const slot of template.slots) {
+      const key = roleToKey[slot] || 'dps';
+      const candidates = normProfiles
+        .filter(p => !used.has(p.classId))
+        .sort((a, b) => (b.norm[key] || 0) - (a.norm[key] || 0));
+      if (candidates.length > 0) {
+        picks.push({ role: slot, p: candidates[0] });
+        used.add(candidates[0].classId);
+      }
+    }
+
+    lines.push('| Slot | Role | Class | Score | Spells |');
+    lines.push('|-----:|------|-------|------:|-------:|');
+    for (let i = 0; i < picks.length; i++) {
+      const { role, p } = picks[i];
+      const key = roleToKey[role] || 'dps';
+      lines.push(`| ${i + 1} | ${role} | ${p.name} (${p.short}) | ${p.norm[key]} | ${p.totalSpells} |`);
+    }
+    lines.push('');
+  }
+
+  // Class role summary table
+  lines.push('## Class Role Scores (Normalized 0-100)', '');
+  lines.push('| Class | Heal | Tank | DPS | CC | Buff | Utility | Primary |');
+  lines.push('|-------|-----:|-----:|----:|---:|-----:|--------:|---------|');
+  for (const p of normProfiles) {
+    const n = p.norm;
+    lines.push(`| ${p.short} | ${n.heal} | ${n.tank} | ${n.dps} | ${n.cc} | ${n.buff} | ${n.utility} | ${(p as any).role} |`);
+  }
+
+  // Synergy notes
+  lines.push('', '## Class Synergy Notes', '');
+  lines.push('- **Enchanter + Melee DPS:** Enchanter haste/slow complements Rogue, Berserker, Monk burst DPS');
+  lines.push('- **Shaman + Melee group:** Slows, buffs, DoTs complement melee-heavy groups');
+  lines.push('- **Bard + Any group:** ADPS (bard song stacking), pulling, CC — universal enhancer');
+  lines.push('- **Druid + Wizard:** Both teleport, druid heals allow wizard to focus on DPS');
+  lines.push('- **Cleric + Warrior:** Strongest single-target heal + highest tank mitigation');
+  lines.push('- **Necromancer + Shadowknight:** Both use lifetap/dark magic, shared faction concerns');
+
+  return lines.join('\n');
+}
+
+// ============ PUBLIC API: CLASS ENDGAME PROFILE ============
+
+export async function getClassEndgameProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadBaseStats();
+  await loadSkillCaps();
+  await loadACMitigation();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve class
+  const cn = className.toUpperCase().trim();
+  let classId = 0;
+  const shortEntry = Object.entries(CLASS_SHORT).find(([, short]) => short === cn);
+  if (shortEntry) {
+    classId = parseInt(shortEntry[0]);
+  } else {
+    const fullEntry = Object.entries(CLASS_IDS).find(([, name]) =>
+      name.toLowerCase() === className.toLowerCase().trim()
+    );
+    if (fullEntry) classId = parseInt(fullEntry[0]);
+  }
+
+  if (!classId || !CLASS_IDS[classId]) {
+    return `Unknown class: "${className}". Use short codes (WAR, CLR, PAL, RNG, SHD, DRU, MNK, BRD, ROG, SHM, NEC, WIZ, MAG, ENC, BST, BER) or full names.`;
+  }
+
+  const fullName = CLASS_IDS[classId];
+  const short = CLASS_SHORT[classId];
+  const MAX_LEVEL = 125;
+
+  const lines = [`# ${fullName} (${short}) — Endgame Profile (Level ${MAX_LEVEL})`, ''];
+
+  // Base stats at max level
+  lines.push('## Base Stats at Level 125', '');
+  if (baseStats) {
+    const stat = baseStats.find(s => s.classId === classId && s.level === MAX_LEVEL);
+    if (stat) {
+      lines.push(`| Stat | Value |`);
+      lines.push(`|------|------:|`);
+      lines.push(`| HP | ${stat.hp.toLocaleString()} |`);
+      lines.push(`| Mana | ${stat.mana.toLocaleString()} |`);
+      lines.push(`| Endurance | ${stat.endurance.toLocaleString()} |`);
+      lines.push(`| HP Regen | ${stat.hpRegen} |`);
+      lines.push(`| Mana Regen | ${stat.manaRegen} |`);
+      lines.push(`| End Regen | ${stat.enduranceRegen} |`);
+    } else {
+      lines.push('*No base stat data at level 125.*');
+    }
+  }
+
+  // AC mitigation
+  if (acMitigation) {
+    const ac = acMitigation.find(a => a.classId === classId && a.level === MAX_LEVEL);
+    if (ac) {
+      lines.push('', `**AC Soft Cap:** ${ac.acCap} | **Multiplier:** ${ac.softCapMultiplier}`);
+    }
+  }
+
+  // Skill caps at max level
+  lines.push('', '## Skill Caps at Level 125', '');
+  if (skillCaps) {
+    const caps = skillCaps.filter(s => s.classId === classId && s.level === MAX_LEVEL && s.cap > 0);
+    if (caps.length > 0) {
+      caps.sort((a, b) => b.cap - a.cap);
+      lines.push('| Skill | Cap |');
+      lines.push('|-------|----:|');
+      for (const c of caps) {
+        const name = SKILL_NAMES[c.skillId] || `Skill ${c.skillId}`;
+        lines.push(`| ${name} | ${c.cap} |`);
+      }
+      lines.push(``, `*${caps.length} skills available*`);
+    } else {
+      lines.push('*No skill data at level 125.*');
+    }
+  }
+
+  // Spell analysis
+  lines.push('', '## Spell Book Summary', '');
+  let totalSpells = 0, beneficial = 0, detrimental = 0;
+  const categoryMap = new Map<string, { count: number; ben: number; det: number }>();
+  const levelBuckets = new Map<string, number>();
+  const effectSet = new Set<number>();
+  let maxSpellLevel = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+    if (level < 1 || level > 254) continue;
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    totalSpells++;
+    if (level <= 125 && level > maxSpellLevel) maxSpellLevel = level;
+    const isBen = spell.fields[SF.BENEFICIAL] === '1';
+    if (isBen) beneficial++; else detrimental++;
+
+    // Category
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Category ${catId}`);
+    const entry = categoryMap.get(catName) || { count: 0, ben: 0, det: 0 };
+    entry.count++;
+    if (isBen) entry.ben++; else entry.det++;
+    categoryMap.set(catName, entry);
+
+    // Level bucket
+    const bracket = level <= 60 ? '1-60' : level <= 70 ? '61-70' : level <= 80 ? '71-80' :
+      level <= 90 ? '81-90' : level <= 100 ? '91-100' : level <= 110 ? '101-110' : '111-125';
+    levelBuckets.set(bracket, (levelBuckets.get(bracket) || 0) + 1);
+
+    // Track unique SPAs
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (!isNaN(spaId) && spaId > 0) effectSet.add(spaId);
+        }
+      }
+    }
+  }
+
+  lines.push(`- **Total spells:** ${totalSpells}`);
+  lines.push(`- **Beneficial:** ${beneficial} (${totalSpells > 0 ? Math.round(beneficial / totalSpells * 100) : 0}%)`);
+  lines.push(`- **Detrimental:** ${detrimental} (${totalSpells > 0 ? Math.round(detrimental / totalSpells * 100) : 0}%)`);
+  lines.push(`- **Unique spell effects (SPAs):** ${effectSet.size}`);
+  lines.push(`- **Max spell level:** ${maxSpellLevel}`);
+
+  // Level distribution
+  lines.push('', '### Spells by Level Bracket', '');
+  const brackets = ['1-60', '61-70', '71-80', '81-90', '91-100', '101-110', '111-125'];
+  for (const b of brackets) {
+    const count = levelBuckets.get(b) || 0;
+    const bar = '#'.repeat(Math.min(Math.round(count / 5), 40));
+    lines.push(`- **${b}:** ${count} ${bar}`);
+  }
+
+  // Top categories
+  lines.push('', '### Top Spell Categories', '');
+  const sortedCats = [...categoryMap.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, 15);
+  lines.push('| Category | Count | Beneficial | Detrimental |');
+  lines.push('|----------|------:|-----------:|------------:|');
+  for (const [cat, data] of sortedCats) {
+    lines.push(`| ${cat} | ${data.count} | ${data.ben} | ${data.det} |`);
+  }
+
+  // Role score (quick version)
+  lines.push('', '## Role Assessment', '');
+  const HEAL_SPAS = new Set([0, 147]);
+  const TANK_SPAS = new Set([1, 55, 69, 162, 172]);
+  const DPS_SPAS = new Set([0, 79, 85, 119, 330, 374, 413]);
+  const CC_SPAS = new Set([21, 22, 23, 31, 74]);
+  const UTILITY_SPAS_LOCAL = new Set([3, 26, 57, 59, 106, 123]);
+
+  let healScore = 0, tankScore = 0, dpsScore = 0, ccScore = 0, utilityScore = 0;
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+    if (level < 1 || level > 254) continue;
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const isBen = spell.fields[SF.BENEFICIAL] === '1';
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spaId = parseInt(parts[1]);
+        if (isNaN(spaId) || spaId <= 0) continue;
+        if (HEAL_SPAS.has(spaId) && isBen) healScore++;
+        if (TANK_SPAS.has(spaId)) tankScore++;
+        if (DPS_SPAS.has(spaId) && !isBen) dpsScore++;
+        if (CC_SPAS.has(spaId)) ccScore++;
+        if (UTILITY_SPAS_LOCAL.has(spaId)) utilityScore++;
+      }
+    }
+  }
+
+  const maxRole = Math.max(healScore, tankScore, dpsScore, ccScore, utilityScore, 1);
+  const roles = [
+    { name: 'Healing', score: healScore },
+    { name: 'Tanking', score: tankScore },
+    { name: 'DPS', score: dpsScore },
+    { name: 'Crowd Control', score: ccScore },
+    { name: 'Utility', score: utilityScore },
+  ];
+  roles.sort((a, b) => b.score - a.score);
+
+  for (const r of roles) {
+    const pct = Math.round((r.score / maxRole) * 100);
+    const bar = '█'.repeat(Math.round(pct / 5));
+    lines.push(`- **${r.name}:** ${bar} ${pct}% (${r.score} effects)`);
+  }
+
+  const primaryRole = roles[0].name;
+  const secondaryRole = roles[1].score > 0 ? roles[1].name : 'None';
+  lines.push('', `**Primary role:** ${primaryRole} | **Secondary:** ${secondaryRole}`);
+
+  // Endgame resource type
+  lines.push('', '## Resource Profile', '');
+  if (baseStats) {
+    const stat = baseStats.find(s => s.classId === classId && s.level === MAX_LEVEL);
+    if (stat) {
+      const hasMana = stat.mana > 0;
+      const hasEnd = stat.endurance > 0;
+      if (hasMana && hasEnd) lines.push(`*Hybrid resource class — uses both mana (${stat.mana.toLocaleString()}) and endurance (${stat.endurance.toLocaleString()}).*`);
+      else if (hasMana) lines.push(`*Pure caster — mana-dependent (${stat.mana.toLocaleString()} mana pool).*`);
+      else if (hasEnd) lines.push(`*Pure melee — endurance-dependent (${stat.endurance.toLocaleString()} endurance pool).*`);
+      else lines.push('*Minimal resource dependency.*');
+    }
+  }
+
+  return lines.join('\n');
+}

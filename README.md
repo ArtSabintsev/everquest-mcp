@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 194 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 197 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **194 tools** for querying EverQuest data
+- **197 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -207,6 +207,8 @@ Then restart Claude Desktop.
 | `get_class_power_milestone_timeline` | Unified class power progression — spells, stats, and skill unlocks by level bracket with stat growth curve |
 | `get_class_role_analysis` | Class role analysis — each class classified by role (Tank/Healer/DPS/CC/Utility) based on spell effects and stat profile |
 | `get_class_comparison_radar` | Class comparison radar — all 16 classes scored 0-100 across 8 dimensions (Heal, Tank, Nuke, CC, Utility, Buff, Pets, Mobility) |
+| `get_group_composition_advisor` | Group composition advisor — optimal 6-person group compositions (Classic Trinity, Max DPS, Survival, Balanced) with class role scores and synergy notes |
+| `get_class_endgame_profile` | Class endgame profile at level 125 — base stats, AC mitigation, skill caps, spell book summary, role assessment, and resource profile |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -310,6 +312,7 @@ Then restart Claude Desktop.
 | `get_game_event_overview` | Game event overview with category breakdown (seasonal, expansion, double XP, etc.) |
 | `get_expansion_timeline` | Timeline of all 33 expansions with faction and achievement counts per expansion |
 | `get_expansion_content_density` | Cross-system content density — factions by expansion, achievements by category, zones by level range, content ratios |
+| `get_expansion_impact_score` | Expansion impact score — each of 33 expansions scored by content volume (factions, achievements, achievement points, event mentions) |
 | `get_expansion` | Expansion content summary with factions and achievements |
 | `get_banner_categories` | Guild banner and fellowship campsite types |
 | `search_help_topics` | Search 75 official in-game help topics on game mechanics |
@@ -351,7 +354,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (194 tools)
+├── tools.ts          # Tool definitions and handlers (197 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
