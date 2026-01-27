@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 368 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 371 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **368 tools** for querying EverQuest data
+- **371 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -348,6 +348,9 @@ Then restart Claude Desktop.
 | `get_class_teleport_profile` | Teleport and gate spells — destination zones and transport capabilities |
 | `get_class_resist_profile` | Resist modification profile — fire, cold, poison, disease, magic resist buffs/debuffs |
 | `get_class_mana_drain_profile` | Mana drain and regen profile — offensive mana drain and beneficial mana regen |
+| `get_class_spell_slot_profile` | Spell effect slot profile — SPA slot count distribution and most complex spells |
+| `get_class_spell_rank_distribution` | Spell rank distribution — Rk. I/II/III vs non-ranked by level bracket |
+| `get_class_combat_ability_profile` | Combat ability profile — mana spells vs endurance abilities vs free-cost |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -526,7 +529,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (368 tools)
+├── tools.ts          # Tool definitions and handlers (371 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

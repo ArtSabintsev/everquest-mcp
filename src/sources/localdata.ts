@@ -37617,3 +37617,200 @@ export async function getClassManaDrainProfile(className: string): Promise<strin
   lines.push('', `*${drainSpells.length + regenSpells.length} mana manipulation spells for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 369: Class spell slot profile
+export async function getClassSpellSlotProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const slotCounts: Record<number, number> = {};
+  const complexSpells: { name: string; level: number; slots: number }[] = [];
+  let totalSpellsSP = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsSP++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+
+    let slotCount = 0;
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (spaId > 0) slotCount++;
+        }
+      }
+    }
+
+    slotCounts[slotCount] = (slotCounts[slotCount] || 0) + 1;
+    if (slotCount >= 8) {
+      complexSpells.push({ name: spell.fields[SF.NAME], level, slots: slotCount });
+    }
+  }
+
+  complexSpells.sort((a, b) => b.slots - a.slots || a.level - b.level);
+
+  const avgSlots = Object.entries(slotCounts).reduce((sum, [s, c]) => sum + parseInt(s) * c, 0) / totalSpellsSP;
+
+  const lines = [`# ${classFullName} Spell Effect Slot Profile`, ''];
+  lines.push('*Analyzes how many effect slots (SPAs) each spell uses — measures spell complexity.*', '');
+  lines.push(`**Total spells:** ${totalSpellsSP}`);
+  lines.push(`**Average slots per spell:** ${avgSlots.toFixed(2)}`, '');
+
+  lines.push('## Slot Count Distribution', '');
+  lines.push('| Slots | Count | % |');
+  lines.push('|------:|------:|--:|');
+  for (const slots of Object.keys(slotCounts).map(Number).sort((a, b) => a - b)) {
+    const count = slotCounts[slots];
+    lines.push(`| ${slots} | ${count} | ${((count / totalSpellsSP) * 100).toFixed(1)}% |`);
+  }
+
+  if (complexSpells.length > 0) {
+    lines.push('', `## Most Complex Spells (8+ slots, top 30)`, '');
+    lines.push('| Spell | Level | Slots |');
+    lines.push('|:------|------:|------:|');
+    for (const s of complexSpells.slice(0, 30)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.slots} |`);
+    }
+    if (complexSpells.length > 30) lines.push(`| ...and ${complexSpells.length - 30} more | | |`);
+  }
+
+  lines.push('', `*${totalSpellsSP} spells analyzed for ${classFullName} slot complexity.*`);
+  return lines.join('\n');
+}
+
+// Tool 370: Class spell rank distribution
+export async function getClassSpellRankDistribution(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const rankCounts: Record<string, number> = { 'Base (Rk. I)': 0, 'Rk. II': 0, 'Rk. III': 0, 'Non-ranked': 0 };
+  const rankByLevel: Record<string, Record<string, number>> = {};
+  let totalSpellsRD = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsRD++;
+
+    const name = spell.fields[SF.NAME] || '';
+    let rank: string;
+    if (name.endsWith('Rk. III')) rank = 'Rk. III';
+    else if (name.endsWith('Rk. II')) rank = 'Rk. II';
+    else if (name.match(/\bRk\.\s/)) rank = 'Base (Rk. I)';
+    else {
+      // Check if other ranks of this spell exist (making this a base rank)
+      rank = 'Non-ranked';
+    }
+    rankCounts[rank]++;
+
+    const bracket = level <= 50 ? '1-50' : level <= 70 ? '51-70' : level <= 85 ? '71-85' :
+      level <= 100 ? '86-100' : level <= 115 ? '101-115' : '116+';
+    if (!rankByLevel[bracket]) rankByLevel[bracket] = {};
+    rankByLevel[bracket][rank] = (rankByLevel[bracket][rank] || 0) + 1;
+  }
+
+  const lines = [`# ${classFullName} Spell Rank Distribution`, ''];
+  lines.push('*Analyzes distribution of Rk. I / Rk. II / Rk. III vs non-ranked spells.*', '');
+  lines.push(`**Total spells:** ${totalSpellsRD}`, '');
+
+  lines.push('## Overall Rank Distribution', '');
+  lines.push('| Rank | Count | % |');
+  lines.push('|:-----|------:|--:|');
+  for (const [rank, count] of Object.entries(rankCounts)) {
+    if (count > 0) lines.push(`| ${rank} | ${count} | ${((count / totalSpellsRD) * 100).toFixed(1)}% |`);
+  }
+
+  lines.push('', '## Rank Distribution by Level Bracket', '');
+  lines.push('| Bracket | Non-ranked | Rk. I | Rk. II | Rk. III |');
+  lines.push('|:--------|----------:|------:|-------:|--------:|');
+  for (const bracket of ['1-50', '51-70', '71-85', '86-100', '101-115', '116+']) {
+    const b = rankByLevel[bracket] || {};
+    lines.push(`| ${bracket} | ${b['Non-ranked'] || 0} | ${b['Base (Rk. I)'] || 0} | ${b['Rk. II'] || 0} | ${b['Rk. III'] || 0} |`);
+  }
+
+  lines.push('', `*${totalSpellsRD} spells analyzed for ${classFullName} rank distribution.*`);
+  return lines.join('\n');
+}
+
+// Tool 371: Class combat ability profile
+export async function getClassCombatAbilityProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const manaSpells: { name: string; level: number; cost: number }[] = [];
+  const enduranceSpells: { name: string; level: number; cost: number }[] = [];
+  const freeSpells: { name: string; level: number }[] = [];
+  let totalSpellsCA = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsCA++;
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+
+    if (endurance > 0 && mana === 0) {
+      enduranceSpells.push({ name: spell.fields[SF.NAME], level, cost: endurance });
+    } else if (mana > 0) {
+      manaSpells.push({ name: spell.fields[SF.NAME], level, cost: mana });
+    } else {
+      freeSpells.push({ name: spell.fields[SF.NAME], level });
+    }
+  }
+
+  enduranceSpells.sort((a, b) => b.cost - a.cost);
+  manaSpells.sort((a, b) => b.cost - a.cost);
+
+  const lines = [`# ${classFullName} Combat Ability Profile`, ''];
+  lines.push('*Analyzes mana-cost spells vs endurance-cost combat abilities vs free-cost abilities.*', '');
+  lines.push(`**Total spells/abilities:** ${totalSpellsCA}`);
+  lines.push(`**Mana spells:** ${manaSpells.length} (${((manaSpells.length / totalSpellsCA) * 100).toFixed(1)}%)`);
+  lines.push(`**Endurance abilities:** ${enduranceSpells.length} (${((enduranceSpells.length / totalSpellsCA) * 100).toFixed(1)}%)`);
+  lines.push(`**Free-cost:** ${freeSpells.length} (${((freeSpells.length / totalSpellsCA) * 100).toFixed(1)}%)`, '');
+
+  if (enduranceSpells.length > 0) {
+    lines.push('## Top Endurance Combat Abilities (by cost)', '');
+    lines.push('| Ability | Level | Endurance |');
+    lines.push('|:--------|------:|----------:|');
+    for (const s of enduranceSpells.slice(0, 25)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.cost} |`);
+    }
+    if (enduranceSpells.length > 25) lines.push(`| ...and ${enduranceSpells.length - 25} more | | |`);
+  }
+
+  if (manaSpells.length > 0) {
+    lines.push('', '## Top Mana Spells (by cost)', '');
+    lines.push('| Spell | Level | Mana |');
+    lines.push('|:------|------:|-----:|');
+    for (const s of manaSpells.slice(0, 25)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.cost} |`);
+    }
+    if (manaSpells.length > 25) lines.push(`| ...and ${manaSpells.length - 25} more | | |`);
+  }
+
+  lines.push('', `*${totalSpellsCA} spells/abilities analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

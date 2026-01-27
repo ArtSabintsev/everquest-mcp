@@ -376,6 +376,9 @@ import {
   getClassTeleportProfile,
   getClassResistProfile,
   getClassManaDrainProfile,
+  getClassSpellSlotProfile,
+  getClassSpellRankDistribution,
+  getClassCombatAbilityProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4621,6 +4624,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_slot_profile',
+    description: 'Spell effect slot profile — how many SPA effect slots each spell uses, measuring spell complexity distribution.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_rank_distribution',
+    description: 'Spell rank distribution — Rk. I / Rk. II / Rk. III vs non-ranked spells, broken down by level bracket.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Ranger", "Paladin")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_combat_ability_profile',
+    description: 'Combat ability profile — mana spells vs endurance combat abilities vs free-cost abilities with top costs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Rogue")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7271,6 +7307,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassManaDrainProfile(className);
+      }
+
+      case 'get_class_spell_slot_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellSlotProfile(className);
+      }
+
+      case 'get_class_spell_rank_distribution': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellRankDistribution(className);
+      }
+
+      case 'get_class_combat_ability_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassCombatAbilityProfile(className);
       }
 
       case 'search_help_topics': {
