@@ -26988,3 +26988,489 @@ export async function getClassUtilitySpellComparison(): Promise<string> {
   lines.push('', `*${categories.length} utility categories compared across 16 classes.*`);
   return lines.join('\n');
 }
+
+// ============ CLASS DOT PROFILE ============
+
+export async function getClassDoTProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const dots: { name: string; level: number; totalDmg: number; durationTicks: number; resistType: string; targetType: string; mana: number; category: string; slots: { spa: number; base: number }[] }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] === '1') continue; // only detrimental
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    if (durationVal <= 0) continue; // must have duration (DoT, not DD)
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    let hasDamage = false;
+    let totalDmgPerTick = 0;
+    const slots: { spa: number; base: number }[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          if (spaId === 0 && base < 0) {
+            hasDamage = true;
+            totalDmgPerTick += Math.abs(base);
+          }
+          if (spaId > 0) slots.push({ spa: spaId, base });
+        }
+      }
+    }
+    if (!hasDamage) continue;
+
+    const resistTypeId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    dots.push({
+      name: spell.fields[SF.NAME],
+      level,
+      totalDmg: totalDmgPerTick * durationVal,
+      durationTicks: durationVal,
+      resistType: RESIST_TYPES[resistTypeId] || `Type ${resistTypeId}`,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      mana,
+      category,
+      slots,
+    });
+  }
+
+  const lines = [`# ${classFullName} DoT (Damage over Time) Profile`, ''];
+  lines.push(`*Analyzes all damage-over-time spells: total damage, duration, efficiency, resist types.*`, '');
+
+  if (dots.length === 0) {
+    lines.push('No DoT spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total DoT spells:** ${dots.length}`, '');
+
+  // Top damage DoTs
+  const byDamage = [...dots].sort((a, b) => b.totalDmg - a.totalDmg);
+  lines.push('## Highest Total Damage DoTs (Top 20)', '');
+  lines.push('| Spell | Level | Total Dmg | Ticks | Dmg/Tick | Mana | Resist |');
+  lines.push('|:------|------:|----------:|------:|---------:|-----:|:-------|');
+  for (const d of byDamage.slice(0, 20)) {
+    const perTick = Math.round(d.totalDmg / d.durationTicks);
+    lines.push(`| ${d.name} | ${d.level} | ${d.totalDmg.toLocaleString()} | ${d.durationTicks} | ${perTick.toLocaleString()} | ${d.mana || '—'} | ${d.resistType} |`);
+  }
+
+  // Best mana efficiency (damage per mana)
+  const withMana = dots.filter(d => d.mana > 0);
+  if (withMana.length > 0) {
+    const byEfficiency = withMana.sort((a, b) => (b.totalDmg / b.mana) - (a.totalDmg / a.mana));
+    lines.push('', '## Most Mana-Efficient DoTs (Top 15)', '');
+    lines.push('| Spell | Level | Total Dmg | Mana | Dmg/Mana | Resist |');
+    lines.push('|:------|------:|----------:|-----:|---------:|:-------|');
+    for (const d of byEfficiency.slice(0, 15)) {
+      const ratio = (d.totalDmg / d.mana).toFixed(1);
+      lines.push(`| ${d.name} | ${d.level} | ${d.totalDmg.toLocaleString()} | ${d.mana} | ${ratio} | ${d.resistType} |`);
+    }
+  }
+
+  // Duration distribution
+  const durationBuckets: Record<string, number> = {};
+  for (const d of dots) {
+    const label = d.durationTicks <= 3 ? '1-3 ticks' : d.durationTicks <= 6 ? '4-6 ticks' : d.durationTicks <= 12 ? '7-12 ticks' : d.durationTicks <= 30 ? '13-30 ticks' : '31+ ticks';
+    durationBuckets[label] = (durationBuckets[label] || 0) + 1;
+  }
+  lines.push('', '## Duration Distribution', '');
+  for (const [label, count] of Object.entries(durationBuckets)) {
+    const pct = ((count / dots.length) * 100).toFixed(1);
+    lines.push(`- **${label}:** ${count} DoTs (${pct}%)`);
+  }
+
+  // Resist type breakdown
+  const resistCounts: Record<string, number> = {};
+  for (const d of dots) resistCounts[d.resistType] = (resistCounts[d.resistType] || 0) + 1;
+  lines.push('', '## DoT Resist Type Distribution', '');
+  for (const [resist, count] of Object.entries(resistCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${resist}:** ${count} DoTs`);
+  }
+
+  // Target type breakdown
+  const targetCounts: Record<string, number> = {};
+  for (const d of dots) targetCounts[d.targetType] = (targetCounts[d.targetType] || 0) + 1;
+  lines.push('', '## DoT Target Type Distribution', '');
+  for (const [target, count] of Object.entries(targetCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${target}:** ${count} DoTs`);
+  }
+
+  // Level distribution
+  lines.push('', '## DoT Level Distribution', '');
+  const lvlRanges = [
+    { label: '1-30', min: 1, max: 30 },
+    { label: '31-60', min: 31, max: 60 },
+    { label: '61-80', min: 61, max: 80 },
+    { label: '81-100', min: 81, max: 100 },
+    { label: '101-115', min: 101, max: 115 },
+    { label: '116+', min: 116, max: 999 },
+  ];
+  lines.push('| Level Range | Count | Avg Total Dmg | Max Total Dmg |');
+  lines.push('|:------------|------:|--------------:|--------------:|');
+  for (const r of lvlRanges) {
+    const inRange = dots.filter(d => d.level >= r.min && d.level <= r.max);
+    if (inRange.length === 0) continue;
+    const avgDmg = Math.round(inRange.reduce((s, d) => s + d.totalDmg, 0) / inRange.length);
+    const maxDmg = Math.max(...inRange.map(d => d.totalDmg));
+    lines.push(`| ${r.label} | ${inRange.length} | ${avgDmg.toLocaleString()} | ${maxDmg.toLocaleString()} |`);
+  }
+
+  lines.push('', `*${dots.length} DoT spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ CLASS DIRECT DAMAGE PROFILE ============
+
+export async function getClassDirectDamageProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const dds: { name: string; level: number; damage: number; castTime: number; recast: number; mana: number; resistType: string; targetType: string; category: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] === '1') continue;
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    if (durationVal > 0) continue; // skip DoTs
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    let totalDamage = 0;
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          if (spaId === 0 && base < 0) totalDamage += Math.abs(base);
+        }
+      }
+    }
+    if (totalDamage === 0) continue;
+
+    const resistTypeId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    dds.push({
+      name: spell.fields[SF.NAME],
+      level,
+      damage: totalDamage,
+      castTime,
+      recast,
+      mana,
+      resistType: RESIST_TYPES[resistTypeId] || `Type ${resistTypeId}`,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      category,
+    });
+  }
+
+  const lines = [`# ${classFullName} Direct Damage (Nuke) Profile`, ''];
+  lines.push(`*Analyzes all instant-damage spells: raw damage, cast time efficiency, mana efficiency, resist types.*`, '');
+
+  if (dds.length === 0) {
+    lines.push('No direct damage spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total DD spells:** ${dds.length}`, '');
+
+  // Highest raw damage
+  const byDamage = [...dds].sort((a, b) => b.damage - a.damage);
+  lines.push('## Highest Damage Nukes (Top 20)', '');
+  lines.push('| Spell | Level | Damage | Cast (s) | Mana | Resist | Target |');
+  lines.push('|:------|------:|-------:|---------:|-----:|:-------|:-------|');
+  for (const d of byDamage.slice(0, 20)) {
+    const castSec = (d.castTime / 1000).toFixed(1);
+    lines.push(`| ${d.name} | ${d.level} | ${d.damage.toLocaleString()} | ${castSec} | ${d.mana || '—'} | ${d.resistType} | ${d.targetType} |`);
+  }
+
+  // Best DPS (damage per cast time second)
+  const withCast = dds.filter(d => d.castTime > 0);
+  if (withCast.length > 0) {
+    const byDPS = [...withCast].sort((a, b) => (b.damage / b.castTime) - (a.damage / a.castTime));
+    lines.push('', '## Highest DPS Nukes (Damage / Cast Time) (Top 15)', '');
+    lines.push('| Spell | Level | Damage | Cast (s) | DPS | Resist |');
+    lines.push('|:------|------:|-------:|---------:|----:|:-------|');
+    for (const d of byDPS.slice(0, 15)) {
+      const castSec = (d.castTime / 1000).toFixed(1);
+      const dps = Math.round(d.damage / (d.castTime / 1000));
+      lines.push(`| ${d.name} | ${d.level} | ${d.damage.toLocaleString()} | ${castSec} | ${dps.toLocaleString()} | ${d.resistType} |`);
+    }
+  }
+
+  // Best mana efficiency
+  const withMana = dds.filter(d => d.mana > 0);
+  if (withMana.length > 0) {
+    const byEfficiency = [...withMana].sort((a, b) => (b.damage / b.mana) - (a.damage / a.mana));
+    lines.push('', '## Most Mana-Efficient Nukes (Top 15)', '');
+    lines.push('| Spell | Level | Damage | Mana | Dmg/Mana | Resist |');
+    lines.push('|:------|------:|-------:|-----:|---------:|:-------|');
+    for (const d of byEfficiency.slice(0, 15)) {
+      const ratio = (d.damage / d.mana).toFixed(1);
+      lines.push(`| ${d.name} | ${d.level} | ${d.damage.toLocaleString()} | ${d.mana} | ${ratio} | ${d.resistType} |`);
+    }
+  }
+
+  // Resist type breakdown
+  const resistCounts: Record<string, number> = {};
+  for (const d of dds) resistCounts[d.resistType] = (resistCounts[d.resistType] || 0) + 1;
+  lines.push('', '## DD Resist Type Distribution', '');
+  for (const [resist, count] of Object.entries(resistCounts).sort((a, b) => b[1] - a[1])) {
+    const pct = ((count / dds.length) * 100).toFixed(1);
+    lines.push(`- **${resist}:** ${count} nukes (${pct}%)`);
+  }
+
+  // Target type breakdown
+  const targetCounts: Record<string, number> = {};
+  for (const d of dds) targetCounts[d.targetType] = (targetCounts[d.targetType] || 0) + 1;
+  lines.push('', '## DD Target Type Distribution', '');
+  for (const [target, count] of Object.entries(targetCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${target}:** ${count} nukes`);
+  }
+
+  // AE nukes
+  const aeNukes = dds.filter(d => ['AE (PC v1)', 'AE (PC v2)', 'PB AE', 'Targeted AE', 'Directional AE', 'Beam', 'Target Ring AE'].includes(d.targetType));
+  if (aeNukes.length > 0) {
+    lines.push('', `## AE Nukes (${aeNukes.length})`, '');
+    lines.push('| Spell | Level | Damage | Cast (s) | Target | Resist |');
+    lines.push('|:------|------:|-------:|---------:|:-------|:-------|');
+    for (const d of aeNukes.sort((a, b) => b.damage - a.damage).slice(0, 15)) {
+      const castSec = (d.castTime / 1000).toFixed(1);
+      lines.push(`| ${d.name} | ${d.level} | ${d.damage.toLocaleString()} | ${castSec} | ${d.targetType} | ${d.resistType} |`);
+    }
+  }
+
+  // Level distribution
+  lines.push('', '## DD Level Distribution', '');
+  const lvlRanges = [
+    { label: '1-30', min: 1, max: 30 },
+    { label: '31-60', min: 31, max: 60 },
+    { label: '61-80', min: 61, max: 80 },
+    { label: '81-100', min: 81, max: 100 },
+    { label: '101-115', min: 101, max: 115 },
+    { label: '116+', min: 116, max: 999 },
+  ];
+  lines.push('| Level Range | Count | Avg Damage | Max Damage |');
+  lines.push('|:------------|------:|-----------:|-----------:|');
+  for (const r of lvlRanges) {
+    const inRange = dds.filter(d => d.level >= r.min && d.level <= r.max);
+    if (inRange.length === 0) continue;
+    const avg = Math.round(inRange.reduce((s, d) => s + d.damage, 0) / inRange.length);
+    const max = Math.max(...inRange.map(d => d.damage));
+    lines.push(`| ${r.label} | ${inRange.length} | ${avg.toLocaleString()} | ${max.toLocaleString()} |`);
+  }
+
+  lines.push('', `*${dds.length} direct damage spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ SPELL PROC EFFECT ANALYSIS ============
+
+export async function getSpellProcEffectAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // Proc SPAs: 85=Spell Proc, 119=Melee Proc, 120=Range Proc, 139=Proc Rate Modifier
+  const PROC_SPAS: Record<number, string> = {
+    85: 'Spell Proc', 119: 'Melee Proc', 120: 'Range Proc', 139: 'Proc Rate Modifier',
+  };
+
+  const procSpells: { name: string; level: number; procTypes: string[]; procSpellIds: number[]; beneficial: boolean; mana: number; duration: number; targetType: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const foundProcs: string[] = [];
+    const procIds: number[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          if (PROC_SPAS[spaId]) {
+            foundProcs.push(PROC_SPAS[spaId]);
+            if (spaId !== 139 && base > 0) procIds.push(base); // proc spell ID
+          }
+        }
+      }
+    }
+    if (foundProcs.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    procSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      procTypes: [...new Set(foundProcs)],
+      procSpellIds: procIds,
+      beneficial,
+      mana,
+      duration: durationVal,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+    });
+  }
+
+  const lines = [`# ${classFullName} Proc Effect Analysis`, ''];
+  lines.push(`*Analyzes spell procs, melee procs, and range procs: types, proc spell references, buff/debuff breakdown.*`, '');
+
+  if (procSpells.length === 0) {
+    lines.push('No proc spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total proc-bearing spells:** ${procSpells.length}`, '');
+
+  // Proc type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of procSpells) {
+    for (const t of s.procTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Proc Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const pct = ((count / procSpells.length) * 100).toFixed(1);
+    lines.push(`- **${type}:** ${count} spells (${pct}%)`);
+  }
+
+  // By proc type
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const spellsOfType = procSpells.filter(s => s.procTypes.includes(type)).sort((a, b) => b.level - a.level);
+    lines.push('', `## ${type} Spells (${spellsOfType.length})`, '');
+    lines.push('| Spell | Level | Duration | Target | Mana | Buff/Debuff |');
+    lines.push('|:------|------:|---------:|:-------|-----:|:------------|');
+    for (const s of spellsOfType.slice(0, 20)) {
+      const buffType = s.beneficial ? 'Buff' : 'Debuff';
+      lines.push(`| ${s.name} | ${s.level} | ${s.duration} | ${s.targetType} | ${s.mana || '—'} | ${buffType} |`);
+    }
+    if (spellsOfType.length > 20) lines.push(`| ... +${spellsOfType.length - 20} more | | | | | |`);
+  }
+
+  // Buff vs Debuff proc distribution
+  const buffProcs = procSpells.filter(s => s.beneficial);
+  const debuffProcs = procSpells.filter(s => !s.beneficial);
+  lines.push('', '## Buff vs Debuff Proc Distribution', '');
+  lines.push(`- **Beneficial (buff) procs:** ${buffProcs.length} (${((buffProcs.length / procSpells.length) * 100).toFixed(1)}%)`);
+  lines.push(`- **Detrimental (debuff) procs:** ${debuffProcs.length} (${((debuffProcs.length / procSpells.length) * 100).toFixed(1)}%)`);
+
+  // Self vs other targeting
+  const selfProcs = procSpells.filter(s => s.targetType === 'Self');
+  const singleProcs = procSpells.filter(s => s.targetType === 'Single');
+  lines.push('', '## Proc Target Type Distribution', '');
+  lines.push(`- **Self-targeted procs:** ${selfProcs.length}`);
+  lines.push(`- **Single-target procs:** ${singleProcs.length}`);
+  lines.push(`- **Other targets:** ${procSpells.length - selfProcs.length - singleProcs.length}`);
+
+  // Level distribution
+  lines.push('', '## Proc Availability by Level Range', '');
+  const ranges = [
+    { label: '1-30', min: 1, max: 30 },
+    { label: '31-60', min: 31, max: 60 },
+    { label: '61-80', min: 61, max: 80 },
+    { label: '81-100', min: 81, max: 100 },
+    { label: '101-115', min: 101, max: 115 },
+    { label: '116+', min: 116, max: 999 },
+  ];
+  lines.push('| Level Range | Total Procs | Types |');
+  lines.push('|:------------|----------:|:------|');
+  for (const r of ranges) {
+    const inRange = procSpells.filter(s => s.level >= r.min && s.level <= r.max);
+    const types = [...new Set(inRange.flatMap(s => s.procTypes))].sort();
+    lines.push(`| ${r.label} | ${inRange.length} | ${types.join(', ') || '—'} |`);
+  }
+
+  // Unique proc spell IDs referenced
+  const allProcIds = new Set(procSpells.flatMap(s => s.procSpellIds));
+  lines.push('', `## Proc Spell References`, '');
+  lines.push(`- **Unique proc effects referenced:** ${allProcIds.size}`);
+
+  // Show top referenced proc spells (look them up)
+  if (allProcIds.size > 0) {
+    const procNameCounts: Record<string, number> = {};
+    for (const s of procSpells) {
+      for (const pid of s.procSpellIds) {
+        const procSpell = spells.get(pid);
+        const procName = procSpell ? procSpell.fields[SF.NAME] : `Spell #${pid}`;
+        procNameCounts[procName] = (procNameCounts[procName] || 0) + 1;
+      }
+    }
+    lines.push('', '### Most Referenced Proc Effects (Top 15)', '');
+    lines.push('| Proc Effect | Referenced By |');
+    lines.push('|:------------|------------:|');
+    const sorted = Object.entries(procNameCounts).sort((a, b) => b[1] - a[1]);
+    for (const [name, count] of sorted.slice(0, 15)) {
+      lines.push(`| ${name} | ${count} spells |`);
+    }
+  }
+
+  lines.push('', `*${procSpells.length} proc spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

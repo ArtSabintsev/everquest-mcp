@@ -286,6 +286,9 @@ import {
   getClassCrowdControlProfile,
   getClassEmergencyAbilityAnalysis,
   getClassUtilitySpellComparison,
+  getClassDoTProfile,
+  getClassDirectDamageProfile,
+  getSpellProcEffectAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -3552,6 +3555,39 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'get_class_dot_profile',
+    description: 'DoT (damage over time) spell profile for a class — highest total damage, mana efficiency, duration distribution, resist types, target types, level scaling.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Necromancer", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_direct_damage_profile',
+    description: 'Direct damage (nuke) spell profile for a class — highest damage, DPS (damage/cast time), mana efficiency, AE nukes, resist types, target types, level scaling.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Magician")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_spell_proc_effect_analysis',
+    description: 'Proc effect analysis for a class — spell procs, melee procs, range procs, proc rate modifiers, buff/debuff breakdown, target types, referenced proc effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Ranger", "Rogue")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5665,6 +5701,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_class_utility_spell_comparison': {
         return getClassUtilitySpellComparison();
+      }
+
+      case 'get_class_dot_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDoTProfile(className);
+      }
+
+      case 'get_class_direct_damage_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDirectDamageProfile(className);
+      }
+
+      case 'get_spell_proc_effect_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellProcEffectAnalysis(className);
       }
 
       case 'search_help_topics': {

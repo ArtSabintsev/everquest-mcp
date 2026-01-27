@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 278 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 281 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **278 tools** for querying EverQuest data
+- **281 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -258,6 +258,9 @@ Then restart Claude Desktop.
 | `get_class_crowd_control_profile` | CC spell profile for a class — stun, mez, charm, fear, root, snare, calm counts, AE vs single target, resist types, level availability |
 | `get_class_emergency_ability_analysis` | Emergency/survival ability analysis for a class — FD, gate, invis, runes, cures, aggro drops, instant-cast abilities, first-available levels |
 | `get_class_utility_spell_comparison` | Cross-class utility spell matrix — resurrect, gate, summon, bind, invis, levitate, dispel, cure, illusion, FD, pacify, regen, haste across all 16 classes |
+| `get_class_dot_profile` | DoT spell profile for a class — highest total damage, mana efficiency, duration distribution, resist types, target types, level scaling |
+| `get_class_direct_damage_profile` | Direct damage (nuke) profile for a class — highest damage, DPS, mana efficiency, AE nukes, resist types, level scaling |
+| `get_spell_proc_effect_analysis` | Proc effect analysis for a class — spell procs, melee procs, range procs, buff/debuff breakdown, referenced proc effects |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -436,7 +439,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (278 tools)
+├── tools.ts          # Tool definitions and handlers (281 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
