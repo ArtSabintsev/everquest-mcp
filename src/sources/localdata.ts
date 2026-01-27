@@ -39041,3 +39041,190 @@ export async function getClassSpellByRecastTime(className: string, minRecastSeco
   lines.push('', `*${matches.length} spells with recast ≥ ${minRecastSeconds}s for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassSpellByCategory(className: string, category: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Try numeric category ID first
+  const numId = parseInt(category);
+  let matchCatId = -1;
+  let matchCatName = '';
+  if (!isNaN(numId) && spellCategories && spellCategories.has(numId)) {
+    matchCatId = numId;
+    matchCatName = spellCategories.get(numId) || `Category ${numId}`;
+  } else if (spellCategories) {
+    const catLower = category.toLowerCase();
+    for (const [id, name] of spellCategories.entries()) {
+      if (name.toLowerCase() === catLower || name.toLowerCase().includes(catLower)) {
+        matchCatId = id;
+        matchCatName = name;
+        break;
+      }
+    }
+  }
+  if (matchCatId === -1) {
+    // List some available categories
+    const sampleCats: string[] = [];
+    if (spellCategories) {
+      for (const [, name] of spellCategories.entries()) {
+        if (sampleCats.length < 20) sampleCats.push(name);
+      }
+    }
+    return `Unknown category: "${category}". Sample categories: ${sampleCats.join(', ')}`;
+  }
+
+  const matches: { name: string; level: number; target: string; beneficial: boolean; mana: number }[] = [];
+  let totalSpellsCAT = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsCAT++;
+
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const subCatId = parseInt(spell.fields[SF.SUBCATEGORY]) || 0;
+    if (catId !== matchCatId && subCatId !== matchCatId) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    matches.push({ name: spell.fields[SF.NAME], level, target: targetName, beneficial, mana });
+  }
+
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} — Category: ${matchCatName}`, ''];
+  lines.push(`*All spells in category "${matchCatName}" (ID: ${matchCatId}).*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsCAT}`);
+  lines.push(`**Matching spells:** ${matches.length} (${((matches.length / totalSpellsCAT) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    lines.push('| Spell | Level | Target | Mana | Type |');
+    lines.push('|:------|------:|:-------|-----:|:-----|');
+    for (const m of matches.slice(0, 50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.target} | ${m.mana} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells in category "${matchCatName}" for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellByRange(className: string, minRange: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const matches: { name: string; level: number; range: number; target: string; beneficial: boolean; mana: number }[] = [];
+  let totalSpellsRG = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsRG++;
+
+    const range = parseInt(spell.fields[SF.RANGE]) || 0;
+    if (range < minRange) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    matches.push({ name: spell.fields[SF.NAME], level, range, target: targetName, beneficial, mana });
+  }
+
+  matches.sort((a, b) => b.range - a.range || a.level - b.level);
+
+  const lines = [`# ${classFullName} — Spells with Range ≥ ${minRange}`, ''];
+  lines.push(`*All spells with range at or above ${minRange} units.*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsRG}`);
+  lines.push(`**Matching spells:** ${matches.length} (${((matches.length / totalSpellsRG) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    // Range bracket breakdown
+    const r0_100 = matches.filter(m => m.range < 100).length;
+    const r100_200 = matches.filter(m => m.range >= 100 && m.range < 200).length;
+    const r200_plus = matches.filter(m => m.range >= 200).length;
+
+    lines.push('### Range Distribution');
+    lines.push('| Bracket | Count |');
+    lines.push('|:--------|------:|');
+    if (r0_100 > 0) lines.push(`| ${minRange}–99 | ${r0_100} |`);
+    if (r100_200 > 0) lines.push(`| 100–199 | ${r100_200} |`);
+    if (r200_plus > 0) lines.push(`| 200+ | ${r200_plus} |`);
+    lines.push('');
+
+    lines.push('| Spell | Level | Range | Target | Mana | Type |');
+    lines.push('|:------|------:|------:|:-------|-----:|:-----|');
+    for (const m of matches.slice(0, 50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.range} | ${m.target} | ${m.mana} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells with range ≥ ${minRange} for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellByEnduranceCost(className: string, minEndurance: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const matches: { name: string; level: number; endurance: number; target: string; beneficial: boolean; castTime: number }[] = [];
+  let totalSpellsEC = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsEC++;
+
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    if (endurance < minEndurance) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    const castTime = (parseInt(spell.fields[SF.CAST_TIME]) || 0) / 1000;
+    matches.push({ name: spell.fields[SF.NAME], level, endurance, target: targetName, beneficial, castTime });
+  }
+
+  matches.sort((a, b) => b.endurance - a.endurance || a.level - b.level);
+
+  const lines = [`# ${classFullName} — Spells with Endurance Cost ≥ ${minEndurance}`, ''];
+  lines.push(`*All spells costing ${minEndurance} or more endurance.*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsEC}`);
+  lines.push(`**Matching spells:** ${matches.length} (${((matches.length / totalSpellsEC) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    const avgEnd = Math.round(matches.reduce((s, m) => s + m.endurance, 0) / matches.length);
+    const maxEnd = matches[0].endurance;
+    lines.push(`**Average endurance:** ${avgEnd} | **Max endurance:** ${maxEnd}`, '');
+
+    lines.push('| Spell | Level | Endurance | Cast (s) | Target | Type |');
+    lines.push('|:------|------:|----------:|---------:|:-------|:-----|');
+    for (const m of matches.slice(0, 50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.endurance} | ${m.castTime.toFixed(1)} | ${m.target} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells with endurance ≥ ${minEndurance} for ${classFullName}.*`);
+  return lines.join('\n');
+}

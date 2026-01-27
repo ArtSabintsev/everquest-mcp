@@ -397,6 +397,9 @@ import {
   getClassSpellByManaCost,
   getClassSpellByDuration,
   getClassSpellByRecastTime,
+  getClassSpellByCategory,
+  getClassSpellByRange,
+  getClassSpellByEnduranceCost,
 } from './sources/index.js';
 
 export const tools = [
@@ -4879,6 +4882,42 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_by_category',
+    description: 'Filter spells by category — find all spells in a specific spell category by name or ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Druid")' },
+        category: { type: 'string', description: 'Category name or ID (e.g. "Direct Damage", "Heal", "Utility Beneficial", "Transport")' }
+      },
+      required: ['class_name', 'category']
+    }
+  },
+  {
+    name: 'get_class_spell_by_range',
+    description: 'Filter spells by minimum range — find all spells with range at or above threshold in game units.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Ranger", "Wizard")' },
+        min_range: { type: 'number', description: 'Minimum spell range in units (e.g. 100, 200, 300)' }
+      },
+      required: ['class_name', 'min_range']
+    }
+  },
+  {
+    name: 'get_class_spell_by_endurance_cost',
+    description: 'Filter spells by minimum endurance cost — find combat abilities and disciplines using endurance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Berserker")' },
+        min_endurance: { type: 'number', description: 'Minimum endurance cost (e.g. 100, 500, 1000)' }
+      },
+      required: ['class_name', 'min_endurance']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7671,6 +7710,30 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!className) return 'Error: "class_name" parameter is required.';
         if (isNaN(minRecast)) return 'Error: "min_recast_seconds" parameter is required (number).';
         return getClassSpellByRecastTime(className, minRecast);
+      }
+
+      case 'get_class_spell_by_category': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const category = typeof args.category === 'string' ? args.category.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (!category) return 'Error: "category" parameter is required.';
+        return getClassSpellByCategory(className, category);
+      }
+
+      case 'get_class_spell_by_range': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const minRange = typeof args.min_range === 'number' ? args.min_range : parseInt(String(args.min_range));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(minRange)) return 'Error: "min_range" parameter is required (number).';
+        return getClassSpellByRange(className, minRange);
+      }
+
+      case 'get_class_spell_by_endurance_cost': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const minEnd = typeof args.min_endurance === 'number' ? args.min_endurance : parseInt(String(args.min_endurance));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(minEnd)) return 'Error: "min_endurance" parameter is required (number).';
+        return getClassSpellByEnduranceCost(className, minEnd);
       }
 
       case 'search_help_topics': {

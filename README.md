@@ -1,6 +1,6 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 389 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 392 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
@@ -369,6 +369,9 @@ Then restart Claude Desktop.
 | `get_class_spell_by_mana_cost` | Filter spells by minimum mana cost threshold |
 | `get_class_spell_by_duration` | Filter spells by minimum duration in ticks (1 tick = 6 seconds) |
 | `get_class_spell_by_recast_time` | Filter spells by minimum recast time threshold in seconds |
+| `get_class_spell_by_category` | Filter spells by category name or ID (Direct Damage, Heal, etc.) |
+| `get_class_spell_by_range` | Filter spells by minimum range in game units |
+| `get_class_spell_by_endurance_cost` | Filter spells by minimum endurance cost |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -547,7 +550,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (389 tools)
+├── tools.ts          # Tool definitions and handlers (392 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
