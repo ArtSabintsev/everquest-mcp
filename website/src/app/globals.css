@@ -1,0 +1,132 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --color-bg-primary: #0C0E14;
+  --color-bg-card: #141824;
+  --color-bg-card-hover: #1a2030;
+  --color-bg-input: #1a1f2e;
+  --color-border: #2A3347;
+  --color-border-light: #3a4560;
+  --color-gold: #C9A554;
+  --color-gold-dim: #9a7d3f;
+  --color-gold-bright: #e6c366;
+  --color-silver: #8BA4B8;
+  --color-silver-dim: #6a839a;
+  --color-text-primary: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+
+  /* Class colors */
+  --color-class-warrior: #C69B6D;
+  --color-class-cleric: #F5E6CA;
+  --color-class-paladin: #F48CBA;
+  --color-class-ranger: #67B23D;
+  --color-class-shadowknight: #C41E3A;
+  --color-class-druid: #FF7C0A;
+  --color-class-monk: #00FF98;
+  --color-class-bard: #3FC7EB;
+  --color-class-rogue: #FFF468;
+  --color-class-shaman: #0070DD;
+  --color-class-necromancer: #9482C9;
+  --color-class-wizard: #6959CD;
+  --color-class-magician: #B44CD4;
+  --color-class-enchanter: #E6CC80;
+  --color-class-beastlord: #D4A017;
+  --color-class-berserker: #E25822;
+
+  /* Resist type colors */
+  --color-resist-magic: #6B8AFF;
+  --color-resist-fire: #FF4444;
+  --color-resist-cold: #44DDFF;
+  --color-resist-poison: #44FF44;
+  --color-resist-disease: #AAAA44;
+  --color-resist-chromatic: #FF44FF;
+  --color-resist-prismatic: #FFFFFF;
+  --color-resist-physical: #CCAA88;
+  --color-resist-corruption: #AA44AA;
+  --color-resist-unresistable: #FF8800;
+
+  --font-heading: 'Cinzel', serif;
+  --font-body: 'Inter', sans-serif;
+}
+
+/* Base styles */
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-light);
+}
+
+/* Markdown prose overrides for dark theme */
+.prose {
+  --tw-prose-body: var(--color-text-primary);
+  --tw-prose-headings: var(--color-gold);
+  --tw-prose-links: var(--color-silver);
+  --tw-prose-bold: var(--color-text-primary);
+  --tw-prose-code: var(--color-gold-bright);
+  --tw-prose-pre-bg: var(--color-bg-primary);
+  --tw-prose-pre-code: var(--color-text-primary);
+  --tw-prose-th-borders: var(--color-border);
+  --tw-prose-td-borders: var(--color-border);
+  --tw-prose-hr: var(--color-border);
+  --tw-prose-quotes: var(--color-silver);
+  --tw-prose-counters: var(--color-text-secondary);
+  --tw-prose-bullets: var(--color-gold-dim);
+}
+
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.prose th,
+.prose td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+}
+
+.prose th {
+  background-color: var(--color-bg-card);
+  color: var(--color-gold);
+  text-align: left;
+}
+
+.prose tr:nth-child(even) {
+  background-color: rgba(20, 24, 36, 0.5);
+}
+
+.prose code:not(pre code) {
+  background-color: var(--color-bg-card);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+}
+
+.prose pre {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+
+.prose a:hover {
+  color: var(--color-gold);
+}
