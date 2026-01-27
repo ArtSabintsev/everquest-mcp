@@ -322,6 +322,9 @@ import {
   getClassSongModifierProfile,
   getClassACAttackProfile,
   getClassHasteSlowProfile,
+  getClassSpellResistTypeProfile,
+  getClassDeathSaveProfile,
+  getClassSpellLineProgression,
 } from './sources/index.js';
 
 export const tools = [
@@ -3972,6 +3975,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_resist_type_profile',
+    description: 'Spell resist type distribution for a class — how spells break down across Magic, Fire, Cold, Poison, Disease, Chromatic, Prismatic, Physical, Corruption resist types.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_death_save_profile',
+    description: 'Death save and escape profile for a class — feign death, fade, death save, max negative HP, shroud of stealth, fake death abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Monk", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_line_progression',
+    description: 'Spell line progression for a class — tracks spell families showing how they progress across levels with ranks, mana scaling, and level brackets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6297,6 +6333,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassHasteSlowProfile(className);
+      }
+
+      case 'get_class_spell_resist_type_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellResistTypeProfile(className);
+      }
+
+      case 'get_class_death_save_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDeathSaveProfile(className);
+      }
+
+      case 'get_class_spell_line_progression': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellLineProgression(className);
       }
 
       case 'search_help_topics': {

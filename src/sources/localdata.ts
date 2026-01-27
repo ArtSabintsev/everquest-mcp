@@ -32272,3 +32272,354 @@ export async function getClassHasteSlowProfile(className: string): Promise<strin
   return lines.join('\n');
 }
 
+// Tool 315: Spell resist type distribution per class
+export async function getClassSpellResistTypeProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  interface ResistSpell {
+    name: string;
+    level: number;
+    resistType: string;
+    resistId: number;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    beneficial: boolean;
+  }
+
+  const resistSpells: ResistSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const resistType = RESIST_TYPES[resistId] || `Unknown (${resistId})`;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    resistSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      resistType,
+      resistId,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Spell Resist Type Profile`, ''];
+  lines.push('*Analyzes how class spells distribute across resist types: Magic, Fire, Cold, Poison, Disease, Chromatic, Prismatic, Physical, Corruption.*', '');
+
+  if (resistSpells.length === 0) {
+    lines.push('No spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total class spells:** ${resistSpells.length}`, '');
+
+  // Resist type distribution
+  const resistCounts: Record<string, number> = {};
+  for (const s of resistSpells) {
+    resistCounts[s.resistType] = (resistCounts[s.resistType] || 0) + 1;
+  }
+  const maxCount = Math.max(...Object.values(resistCounts));
+  lines.push('## Resist Type Distribution', '');
+  lines.push('| Resist Type | Count | % | Bar |');
+  lines.push('|:------------|------:|--:|:----|');
+  for (const [type, count] of Object.entries(resistCounts).sort((a, b) => b[1] - a[1])) {
+    const pct = ((count / resistSpells.length) * 100).toFixed(1);
+    const barLen = Math.round((count / maxCount) * 10);
+    const bar = '█'.repeat(barLen);
+    lines.push(`| ${type} | ${count} | ${pct}% | ${bar} |`);
+  }
+
+  // Beneficial vs detrimental by resist type
+  const beneficialByResist: Record<string, number> = {};
+  const detrimentalByResist: Record<string, number> = {};
+  for (const s of resistSpells) {
+    if (s.beneficial) {
+      beneficialByResist[s.resistType] = (beneficialByResist[s.resistType] || 0) + 1;
+    } else {
+      detrimentalByResist[s.resistType] = (detrimentalByResist[s.resistType] || 0) + 1;
+    }
+  }
+  lines.push('', '## Beneficial vs Detrimental by Resist Type', '');
+  lines.push('| Resist Type | Beneficial | Detrimental |');
+  lines.push('|:------------|----------:|-----------:|');
+  for (const [type] of Object.entries(resistCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${type} | ${beneficialByResist[type] || 0} | ${detrimentalByResist[type] || 0} |`);
+  }
+
+  // Detrimental spells by resist type (top per type)
+  const detrimentalSpells = resistSpells.filter(s => !s.beneficial && s.resistId > 0);
+  const resistTypes = [...new Set(detrimentalSpells.map(s => s.resistType))].sort();
+  for (const rt of resistTypes) {
+    const typeSpells = detrimentalSpells.filter(s => s.resistType === rt);
+    if (typeSpells.length > 0) {
+      lines.push('', `## ${rt} Resist Spells (${typeSpells.length}) — Top 10`, '');
+      lines.push('| Spell | Level | Cast (s) | Mana | Target |');
+      lines.push('|:------|------:|:---------|-----:|:-------|');
+      for (const s of typeSpells.sort((a, b) => b.level - a.level).slice(0, 10)) {
+        const castSec = (s.castTime / 1000).toFixed(1);
+        lines.push(`| ${s.name} | ${s.level} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+      }
+    }
+  }
+
+  lines.push('', `*${resistSpells.length} spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 316: Death save / feign / fade / escape profile per class
+export async function getClassDeathSaveProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const ESCAPE_SPAS: Record<number, string> = {
+    68: 'Feign Death',
+    195: 'Shroud of Stealth',
+    264: 'Max Negative HP',
+    265: 'DeathSave',
+    333: 'Fake Death',
+    389: 'Feign Death Chance',
+    439: 'Fade',
+  };
+
+  interface EscapeSpell {
+    name: string;
+    level: number;
+    escapeTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    endurance: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+  }
+
+  const escapeSpells: EscapeSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const escapeTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (ESCAPE_SPAS[spaId]) {
+        escapeTypes.push(ESCAPE_SPAS[spaId]);
+        values[ESCAPE_SPAS[spaId]] = base;
+      }
+    }
+    if (escapeTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    escapeSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      escapeTypes: [...new Set(escapeTypes)],
+      values,
+      mana,
+      endurance,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Death Save & Escape Profile`, ''];
+  lines.push('*Analyzes death-prevention and escape spells: feign death, fade, death save, max negative HP, shroud of stealth, fake death.*', '');
+
+  if (escapeSpells.length === 0) {
+    lines.push('No death save/escape spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total escape/death save spells:** ${escapeSpells.length}`, '');
+
+  // Type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of escapeSpells) {
+    for (const t of s.escapeTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Escape Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // By category
+  const categories = ['Feign Death', 'Fake Death', 'Fade', 'DeathSave', 'Max Negative HP', 'Feign Death Chance', 'Shroud of Stealth'];
+  for (const cat of categories) {
+    const catSpells = escapeSpells.filter(s => s.escapeTypes.includes(cat));
+    if (catSpells.length === 0) continue;
+    lines.push('', `## ${cat} Spells (${catSpells.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Value | Cast (s) | Cost | Duration | Target |');
+    lines.push('|:------|------:|------:|:---------|-----:|---------:|:-------|');
+    for (const s of catSpells.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const val = s.values[cat] || 0;
+      const cost = s.endurance > 0 ? `${s.endurance.toLocaleString()} end` : `${s.mana.toLocaleString()} mana`;
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${castSec} | ${cost} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // First available per type
+  lines.push('', '## First Available Level by Escape Type', '');
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const first = escapeSpells.filter(s => s.escapeTypes.includes(type)).reduce((min, s) => Math.min(min, s.level), 999);
+    if (first < 999) lines.push(`- **${type}:** Level ${first}`);
+  }
+
+  lines.push('', `*${escapeSpells.length} death save/escape spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 317: Spell line progression per class
+export async function getClassSpellLineProgression(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  interface ClassSpell {
+    name: string;
+    level: number;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    baseName: string;
+  }
+
+  const classSpells: ClassSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const name = spell.fields[SF.NAME];
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+
+    // Extract base name by removing rank suffixes and roman numerals
+    let baseName = name
+      .replace(/ Rk\. (II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII|XIV|XV)$/i, '')
+      .replace(/ (XL|XXX|XX|XIX|XVIII|XVII|XVI|XV|XIV|XIII|XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)$/i, '')
+      .replace(/ (XXXVII|XXXVI|XXXV|XXXIV|XXXIII|XXXII|XXXI|XXX|XXIX|XXVIII|XXVII|XXVI|XXV|XXIV|XXIII|XXII|XXI|XX|XIX|XVIII|XVII|XVI|XV|XIV|XIII|XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)$/i, '')
+      .trim();
+    if (baseName === name) {
+      // Try removing trailing numbers
+      baseName = name.replace(/ \d+$/, '').trim();
+    }
+
+    classSpells.push({
+      name,
+      level,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      baseName,
+    });
+  }
+
+  const lines = [`# ${classFullName} Spell Line Progression`, ''];
+  lines.push('*Tracks spell families/lines showing how they progress across levels.*', '');
+
+  if (classSpells.length === 0) {
+    lines.push('No spells found for this class.');
+    return lines.join('\n');
+  }
+
+  // Group by base name
+  const spellFamilies: Record<string, ClassSpell[]> = {};
+  for (const s of classSpells) {
+    if (!spellFamilies[s.baseName]) spellFamilies[s.baseName] = [];
+    spellFamilies[s.baseName].push(s);
+  }
+
+  // Find families with multiple members (true progression lines)
+  const progressionLines = Object.entries(spellFamilies)
+    .filter(([, members]) => members.length >= 3)
+    .sort((a, b) => b[1].length - a[1].length);
+
+  lines.push(`**Total class spells:** ${classSpells.length}`);
+  lines.push(`**Unique spell families:** ${Object.keys(spellFamilies).length}`);
+  lines.push(`**Progression lines (3+ ranks):** ${progressionLines.length}`, '');
+
+  // Longest progression lines
+  lines.push('## Longest Spell Lines (Top 20)', '');
+  for (const [baseName, members] of progressionLines.slice(0, 20)) {
+    const sorted = members.sort((a, b) => a.level - b.level);
+    const levelRange = `${sorted[0].level}-${sorted[sorted.length - 1].level}`;
+    const manaRange = `${sorted[0].mana}-${sorted[sorted.length - 1].mana}`;
+    lines.push(`- **${baseName}** (${members.length} ranks, levels ${levelRange}, mana ${manaRange})`);
+  }
+
+  // Detailed view of top 10 longest lines
+  lines.push('', '## Detailed Progression — Top 10 Lines', '');
+  for (const [baseName, members] of progressionLines.slice(0, 10)) {
+    const sorted = members.sort((a, b) => a.level - b.level);
+    lines.push(`### ${baseName} (${members.length} ranks)`, '');
+    lines.push('| Rank | Level | Mana | Cast (s) | Target |');
+    lines.push('|:-----|------:|-----:|:---------|:-------|');
+    for (const s of sorted) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.mana.toLocaleString()} | ${castSec} | ${s.targetType} |`);
+    }
+    lines.push('');
+  }
+
+  // Level bracket summary
+  const brackets: Record<string, number> = {};
+  for (const s of classSpells) {
+    const bracket = `${Math.floor((s.level - 1) / 10) * 10 + 1}-${Math.floor((s.level - 1) / 10) * 10 + 10}`;
+    brackets[bracket] = (brackets[bracket] || 0) + 1;
+  }
+  lines.push('## Spells by Level Bracket', '');
+  lines.push('| Bracket | Count |');
+  lines.push('|:--------|------:|');
+  for (const [bracket, count] of Object.entries(brackets).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    lines.push(`| ${bracket} | ${count} |`);
+  }
+
+  lines.push('', `*${classSpells.length} spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
