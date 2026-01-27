@@ -391,6 +391,9 @@ import {
   getClassSpellBySPA,
   getClassSpellByResistType,
   getClassSpellByTargetType,
+  getClassSpellSearch,
+  getClassSpellByLevel,
+  getClassSpellByCastTime,
 } from './sources/index.js';
 
 export const tools = [
@@ -4801,6 +4804,42 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_search',
+    description: 'Search spells by name pattern — find all spells for a class whose name contains the search string (case-insensitive).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Cleric")' },
+        name_pattern: { type: 'string', description: 'Name pattern to search for (e.g. "fire", "heal", "ward", "rune")' }
+      },
+      required: ['class_name', 'name_pattern']
+    }
+  },
+  {
+    name: 'get_class_spell_by_level',
+    description: 'Query all spells gained at a specific level — shows spells available at exact level with targets, resists, mana, cast times.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Paladin")' },
+        level: { type: 'number', description: 'Exact level to query (1-254)' }
+      },
+      required: ['class_name', 'level']
+    }
+  },
+  {
+    name: 'get_class_spell_by_cast_time',
+    description: 'Filter spells by maximum cast time — find all spells with cast time at or below a threshold in seconds.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Magician")' },
+        max_cast_seconds: { type: 'number', description: 'Maximum cast time in seconds (e.g. 0 for instant, 1.5, 3.0)' }
+      },
+      required: ['class_name', 'max_cast_seconds']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7545,6 +7584,30 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!className) return 'Error: "class_name" parameter is required.';
         if (!targetType) return 'Error: "target_type" parameter is required.';
         return getClassSpellByTargetType(className, targetType);
+      }
+
+      case 'get_class_spell_search': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const namePattern = typeof args.name_pattern === 'string' ? args.name_pattern.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (!namePattern) return 'Error: "name_pattern" parameter is required.';
+        return getClassSpellSearch(className, namePattern);
+      }
+
+      case 'get_class_spell_by_level': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const level = typeof args.level === 'number' ? args.level : parseInt(String(args.level));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(level)) return 'Error: "level" parameter is required (number).';
+        return getClassSpellByLevel(className, level);
+      }
+
+      case 'get_class_spell_by_cast_time': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const maxCastSeconds = typeof args.max_cast_seconds === 'number' ? args.max_cast_seconds : parseFloat(String(args.max_cast_seconds));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(maxCastSeconds)) return 'Error: "max_cast_seconds" parameter is required (number).';
+        return getClassSpellByCastTime(className, maxCastSeconds);
       }
 
       case 'search_help_topics': {

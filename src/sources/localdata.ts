@@ -38708,3 +38708,170 @@ export async function getClassSpellByTargetType(className: string, targetType: s
   lines.push('', `*${matches.length} ${matchedTargetName} target spells for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassSpellSearch(className: string, namePattern: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const patternLower = namePattern.toLowerCase();
+  const matches: { name: string; level: number; target: string; resist: string; beneficial: boolean }[] = [];
+  let totalSpellsSS = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsSS++;
+
+    if (!spell.fields[SF.NAME].toLowerCase().includes(patternLower)) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const resistName = RESIST_TYPES[resistId] || `Resist ${resistId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    matches.push({ name: spell.fields[SF.NAME], level, target: targetName, resist: resistName, beneficial });
+  }
+
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} — Spell Search: "${namePattern}"`, ''];
+  lines.push(`*Spells matching "${namePattern}" (case-insensitive).*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsSS}`);
+  lines.push(`**Matches:** ${matches.length}`, '');
+
+  if (matches.length > 0) {
+    lines.push('| Spell | Level | Target | Resist | Type |');
+    lines.push('|:------|------:|:-------|:-------|:-----|');
+    for (const m of matches.slice(0, 50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.target} | ${m.resist} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells matching "${namePattern}" for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellByLevel(className: string, level: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const matches: { name: string; target: string; resist: string; beneficial: boolean; mana: number; castTime: number }[] = [];
+  let totalSpellsBL = 0;
+
+  for (const spell of spells.values()) {
+    const spellLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (spellLevel <= 0 || spellLevel >= 255) continue;
+    totalSpellsBL++;
+
+    if (spellLevel !== level) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const resistName = RESIST_TYPES[resistId] || `Resist ${resistId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = (parseInt(spell.fields[SF.CAST_TIME]) || 0) / 1000;
+    matches.push({ name: spell.fields[SF.NAME], target: targetName, resist: resistName, beneficial, mana, castTime });
+  }
+
+  matches.sort((a, b) => a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} — Level ${level} Spells`, ''];
+  lines.push(`*All spells gained at level ${level}.*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsBL}`);
+  lines.push(`**Level ${level} spells:** ${matches.length}`, '');
+
+  if (matches.length > 0) {
+    const benefCount = matches.filter(m => m.beneficial).length;
+    const detrCount = matches.length - benefCount;
+    lines.push(`**Beneficial:** ${benefCount} | **Detrimental:** ${detrCount}`, '');
+
+    lines.push('| Spell | Target | Resist | Mana | Cast (s) | Type |');
+    lines.push('|:------|:-------|:-------|-----:|---------:|:-----|');
+    for (const m of matches.slice(0, 60)) {
+      lines.push(`| ${m.name} | ${m.target} | ${m.resist} | ${m.mana} | ${m.castTime.toFixed(1)} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 60) lines.push(`| ...and ${matches.length - 60} more | | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells at level ${level} for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellByCastTime(className: string, maxCastSeconds: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const maxMs = maxCastSeconds * 1000;
+  const matches: { name: string; level: number; castTime: number; target: string; beneficial: boolean; mana: number }[] = [];
+  let totalSpellsCT = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsCT++;
+
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    if (castTime > maxMs) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    matches.push({ name: spell.fields[SF.NAME], level, castTime: castTime / 1000, target: targetName, beneficial, mana });
+  }
+
+  matches.sort((a, b) => a.castTime - b.castTime || a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} — Spells with Cast Time ≤ ${maxCastSeconds}s`, ''];
+  lines.push(`*All spells with cast time at or below ${maxCastSeconds} seconds.*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsCT}`);
+  lines.push(`**Matching spells:** ${matches.length} (${((matches.length / totalSpellsCT) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    // Cast time bracket breakdown
+    const instant = matches.filter(m => m.castTime === 0).length;
+    const sub1 = matches.filter(m => m.castTime > 0 && m.castTime <= 1).length;
+    const sub2 = matches.filter(m => m.castTime > 1 && m.castTime <= 2).length;
+    const sub3 = matches.filter(m => m.castTime > 2 && m.castTime <= 3).length;
+    const rest = matches.length - instant - sub1 - sub2 - sub3;
+
+    lines.push('### Cast Time Distribution');
+    lines.push('| Bracket | Count |');
+    lines.push('|:--------|------:|');
+    if (instant > 0) lines.push(`| Instant (0s) | ${instant} |`);
+    if (sub1 > 0) lines.push(`| 0.1–1.0s | ${sub1} |`);
+    if (sub2 > 0) lines.push(`| 1.1–2.0s | ${sub2} |`);
+    if (sub3 > 0) lines.push(`| 2.1–3.0s | ${sub3} |`);
+    if (rest > 0) lines.push(`| 3.1–${maxCastSeconds}s | ${rest} |`);
+    lines.push('');
+
+    lines.push('### Spells');
+    lines.push('| Spell | Level | Cast (s) | Target | Mana | Type |');
+    lines.push('|:------|------:|---------:|:-------|-----:|:-----|');
+    for (const m of matches.slice(-50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.castTime.toFixed(1)} | ${m.target} | ${m.mana} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells with cast time ≤ ${maxCastSeconds}s for ${classFullName}.*`);
+  return lines.join('\n');
+}
