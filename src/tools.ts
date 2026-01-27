@@ -352,6 +352,9 @@ import {
   getClassRecourseProfile,
   getClassPushbackProfile,
   getClassSpellRecoveryProfile,
+  getClassSpellOverlap,
+  getClassAERangeProfile,
+  getClassSpellDensityMap,
 } from './sources/index.js';
 
 export const tools = [
@@ -4332,6 +4335,40 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_overlap',
+    description: 'Compare spell overlap between two classes — shows shared spells, unique spells, overlap percentage, and which class gets shared spells at earlier levels.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name_1: { type: 'string', description: 'First class name (e.g. "Druid")' },
+        class_name_2: { type: 'string', description: 'Second class name (e.g. "Shaman")' }
+      },
+      required: ['class_name_1', 'class_name_2']
+    }
+  },
+  {
+    name: 'get_class_ae_range_profile',
+    description: 'AE range profile for a class — analyzes area-of-effect range distribution, range brackets, AE range by target type, and largest-radius abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Magician")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_density_map',
+    description: 'Spell density heat map for a class — shows spell count per level in 5-level buckets, peak levels, densest levels, and level gaps with no spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Bard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6837,6 +6874,25 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellRecoveryProfile(className);
+      }
+
+      case 'get_class_spell_overlap': {
+        const cn1 = typeof args.class_name_1 === 'string' ? args.class_name_1.trim() : '';
+        const cn2 = typeof args.class_name_2 === 'string' ? args.class_name_2.trim() : '';
+        if (!cn1 || !cn2) return 'Error: both "class_name_1" and "class_name_2" parameters are required.';
+        return getClassSpellOverlap(cn1, cn2);
+      }
+
+      case 'get_class_ae_range_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassAERangeProfile(className);
+      }
+
+      case 'get_class_spell_density_map': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellDensityMap(className);
       }
 
       case 'search_help_topics': {

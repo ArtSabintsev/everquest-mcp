@@ -35702,3 +35702,267 @@ export async function getClassSpellRecoveryProfile(className: string): Promise<s
   lines.push('', `*${totalSpellsSR} spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassSpellOverlap(className1: string, className2: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId1 = CLASS_NAME_TO_ID[className1.toLowerCase()];
+  const classId2 = CLASS_NAME_TO_ID[className2.toLowerCase()];
+  if (!classId1) return `Unknown class: "${className1}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (!classId2) return `Unknown class: "${className2}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  if (classId1 === classId2) return 'Please provide two different class names.';
+  const name1 = CLASS_IDS[classId1];
+  const name2 = CLASS_IDS[classId2];
+  const idx1 = classId1 - 1;
+  const idx2 = classId2 - 1;
+
+  const shared: { name: string; lvl1: number; lvl2: number }[] = [];
+  let only1 = 0, only2 = 0;
+  const only1Examples: string[] = [];
+  const only2Examples: string[] = [];
+
+  for (const spell of spells.values()) {
+    const lvl1 = parseInt(spell.fields[SF.CLASS_LEVEL_START + idx1]) || 255;
+    const lvl2 = parseInt(spell.fields[SF.CLASS_LEVEL_START + idx2]) || 255;
+    const has1 = lvl1 > 0 && lvl1 < 255;
+    const has2 = lvl2 > 0 && lvl2 < 255;
+    if (!has1 && !has2) continue;
+    if (has1 && has2) {
+      shared.push({ name: spell.fields[SF.NAME], lvl1, lvl2 });
+    } else if (has1) {
+      only1++;
+      if (only1Examples.length < 10) only1Examples.push(`${spell.fields[SF.NAME]} (${lvl1})`);
+    } else {
+      only2++;
+      if (only2Examples.length < 10) only2Examples.push(`${spell.fields[SF.NAME]} (${lvl2})`);
+    }
+  }
+
+  shared.sort((a, b) => a.name.localeCompare(b.name));
+  const total1 = shared.length + only1;
+  const total2 = shared.length + only2;
+  const overlapPct1 = ((shared.length / total1) * 100).toFixed(1);
+  const overlapPct2 = ((shared.length / total2) * 100).toFixed(1);
+
+  const lines = [`# ${name1} vs ${name2} Spell Overlap`, ''];
+  lines.push(`*Compares spell availability between two classes.*`, '');
+  lines.push(`| Metric | ${name1} | ${name2} |`);
+  lines.push(`|:-------|-------:|-------:|`);
+  lines.push(`| Total spells | ${total1} | ${total2} |`);
+  lines.push(`| Shared | ${shared.length} | ${shared.length} |`);
+  lines.push(`| Unique | ${only1} | ${only2} |`);
+  lines.push(`| Overlap % | ${overlapPct1}% | ${overlapPct2}% |`);
+
+  lines.push('', '## Shared Spells — Sample (first 30)', '');
+  lines.push(`| Spell | ${name1} Lvl | ${name2} Lvl | Diff |`);
+  lines.push('|:------|----------:|----------:|-----:|');
+  for (const s of shared.slice(0, 30)) {
+    const diff = s.lvl1 - s.lvl2;
+    const diffStr = diff === 0 ? '—' : diff > 0 ? `+${diff}` : `${diff}`;
+    lines.push(`| ${s.name} | ${s.lvl1} | ${s.lvl2} | ${diffStr} |`);
+  }
+
+  // Level difference stats for shared spells
+  const diffs = shared.map(s => s.lvl1 - s.lvl2);
+  const sameLevel = diffs.filter(d => d === 0).length;
+  const class1Earlier = diffs.filter(d => d < 0).length;
+  const class2Earlier = diffs.filter(d => d > 0).length;
+
+  lines.push('', '## Shared Spell Level Comparison', '');
+  lines.push(`| Who gets it first | Count | % |`);
+  lines.push(`|:------------------|------:|--:|`);
+  lines.push(`| Same level | ${sameLevel} | ${((sameLevel / shared.length) * 100).toFixed(1)}% |`);
+  lines.push(`| ${name1} earlier | ${class1Earlier} | ${((class1Earlier / shared.length) * 100).toFixed(1)}% |`);
+  lines.push(`| ${name2} earlier | ${class2Earlier} | ${((class2Earlier / shared.length) * 100).toFixed(1)}% |`);
+
+  lines.push('', `## Unique to ${name1} — Sample`, '');
+  for (const ex of only1Examples) lines.push(`- ${ex}`);
+  if (only1 > 10) lines.push(`- ...and ${only1 - 10} more`);
+
+  lines.push('', `## Unique to ${name2} — Sample`, '');
+  for (const ex of only2Examples) lines.push(`- ${ex}`);
+  if (only2 > 10) lines.push(`- ...and ${only2 - 10} more`);
+
+  lines.push('', `*${shared.length} shared spells between ${name1} and ${name2}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassAERangeProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const rangeBrackets: Record<string, number> = {
+    'No AE range': 0, '1-25': 0, '26-50': 0, '51-100': 0, '101-200': 0, '201-500': 0, '500+': 0
+  };
+  const aeSpells: { name: string; level: number; aeRange: number; range: number; target: string }[] = [];
+  let totalSpellsAE = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsAE++;
+
+    const aeRange = parseInt(spell.fields[SF.AE_RANGE]) || 0;
+    const range = parseInt(spell.fields[SF.RANGE]) || 0;
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+
+    if (aeRange <= 0) { rangeBrackets['No AE range']++; continue; }
+
+    if (aeRange <= 25) rangeBrackets['1-25']++;
+    else if (aeRange <= 50) rangeBrackets['26-50']++;
+    else if (aeRange <= 100) rangeBrackets['51-100']++;
+    else if (aeRange <= 200) rangeBrackets['101-200']++;
+    else if (aeRange <= 500) rangeBrackets['201-500']++;
+    else rangeBrackets['500+']++;
+
+    aeSpells.push({ name: spell.fields[SF.NAME], level, aeRange, range, target: targetName });
+  }
+
+  aeSpells.sort((a, b) => b.aeRange - a.aeRange);
+  const withAE = totalSpellsAE - rangeBrackets['No AE range'];
+
+  const lines = [`# ${classFullName} AE Range Profile`, ''];
+  lines.push('*Analyzes area-of-effect range distribution — radius of AE spells and largest-range abilities.*', '');
+  lines.push(`**Total spells:** ${totalSpellsAE}`);
+  lines.push(`- With AE range: ${withAE} (${((withAE / totalSpellsAE) * 100).toFixed(1)}%)`);
+  lines.push(`- No AE range: ${rangeBrackets['No AE range']}`, '');
+
+  lines.push('## AE Range Brackets', '');
+  lines.push('| Bracket | Count | % | Bar |');
+  lines.push('|:--------|------:|--:|:----|');
+  const maxB = Math.max(...Object.values(rangeBrackets).filter((_, i) => i > 0));
+  for (const [bracket, count] of Object.entries(rangeBrackets)) {
+    if (bracket === 'No AE range') continue;
+    if (count === 0) continue;
+    const pct = ((count / withAE) * 100).toFixed(1);
+    const bar = '█'.repeat(Math.round((count / maxB) * 15));
+    lines.push(`| ${bracket} | ${count} | ${pct}% | ${bar} |`);
+  }
+
+  // By target type
+  const aeByTarget: Record<string, { count: number; avgRange: number; total: number }> = {};
+  for (const s of aeSpells) {
+    if (!aeByTarget[s.target]) aeByTarget[s.target] = { count: 0, avgRange: 0, total: 0 };
+    aeByTarget[s.target].count++;
+    aeByTarget[s.target].total += s.aeRange;
+  }
+  for (const t of Object.values(aeByTarget)) t.avgRange = Math.round(t.total / t.count);
+
+  lines.push('', '## AE Range by Target Type', '');
+  lines.push('| Target | Count | Avg Range |');
+  lines.push('|:-------|------:|----------:|');
+  const sortedTargets = Object.entries(aeByTarget).sort((a, b) => b[1].count - a[1].count);
+  for (const [target, data] of sortedTargets) {
+    lines.push(`| ${target} | ${data.count} | ${data.avgRange} |`);
+  }
+
+  lines.push('', '## Largest AE Range Spells — Top 15', '');
+  lines.push('| Spell | Level | AE Range | Range | Target |');
+  lines.push('|:------|------:|---------:|------:|:-------|');
+  for (const s of aeSpells.slice(0, 15)) {
+    lines.push(`| ${s.name} | ${s.level} | ${s.aeRange} | ${s.range} | ${s.target} |`);
+  }
+
+  lines.push('', `*${withAE} AE spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellDensityMap(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const levelCounts: Record<number, number> = {};
+  let totalSpellsDM = 0;
+  let maxLevel = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsDM++;
+    levelCounts[level] = (levelCounts[level] || 0) + 1;
+    if (level > maxLevel) maxLevel = level;
+  }
+
+  // Find peaks and valleys
+  const sortedLevels = Object.entries(levelCounts)
+    .map(([l, c]) => ({ level: parseInt(l), count: c }))
+    .sort((a, b) => b.count - a.count);
+
+  const maxCount = sortedLevels.length > 0 ? sortedLevels[0].count : 1;
+
+  // Per-5-level buckets for the heat map
+  const buckets: { range: string; count: number; levels: number }[] = [];
+  for (let start = 1; start <= maxLevel; start += 5) {
+    const end = Math.min(start + 4, maxLevel);
+    let count = 0;
+    let levelsWithSpells = 0;
+    for (let l = start; l <= end; l++) {
+      if (levelCounts[l]) { count += levelCounts[l]; levelsWithSpells++; }
+    }
+    if (count > 0) buckets.push({ range: `${start}-${end}`, count, levels: levelsWithSpells });
+  }
+
+  const maxBucket = buckets.length > 0 ? Math.max(...buckets.map(b => b.count)) : 1;
+
+  const lines = [`# ${classFullName} Spell Density Map`, ''];
+  lines.push('*Shows spell density by level — how many spells are available at each level range.*', '');
+  lines.push(`**Total spells:** ${totalSpellsDM}`);
+  lines.push(`**Levels with spells:** ${Object.keys(levelCounts).length}`);
+  lines.push(`**Peak level:** ${sortedLevels[0]?.level || 0} (${sortedLevels[0]?.count || 0} spells)`, '');
+
+  lines.push('## Spell Density by 5-Level Buckets', '');
+  lines.push('| Level Range | Spells | Heat |');
+  lines.push('|:------------|------:|:-----|');
+  for (const b of buckets) {
+    const heat = '█'.repeat(Math.round((b.count / maxBucket) * 20));
+    lines.push(`| ${b.range} | ${b.count} | ${heat} |`);
+  }
+
+  lines.push('', '## Top 20 Densest Levels', '');
+  lines.push('| Level | Spells |');
+  lines.push('|------:|------:|');
+  for (const entry of sortedLevels.slice(0, 20)) {
+    lines.push(`| ${entry.level} | ${entry.count} |`);
+  }
+
+  // Empty level ranges (gaps)
+  const allLevels = Object.keys(levelCounts).map(Number).sort((a, b) => a - b);
+  const gaps: string[] = [];
+  if (allLevels.length > 1) {
+    let gapStart = -1;
+    for (let l = allLevels[0]; l <= allLevels[allLevels.length - 1]; l++) {
+      if (!levelCounts[l]) {
+        if (gapStart === -1) gapStart = l;
+      } else if (gapStart !== -1) {
+        const gapEnd = l - 1;
+        if (gapEnd - gapStart >= 2) gaps.push(`${gapStart}-${gapEnd}`);
+        gapStart = -1;
+      }
+    }
+    if (gapStart !== -1) {
+      const gapEnd = allLevels[allLevels.length - 1] - 1;
+      if (gapEnd - gapStart >= 2) gaps.push(`${gapStart}-${gapEnd}`);
+    }
+  }
+
+  if (gaps.length > 0) {
+    lines.push('', '## Level Gaps (3+ consecutive levels with no spells)', '');
+    for (const g of gaps.slice(0, 15)) lines.push(`- ${g}`);
+    if (gaps.length > 15) lines.push(`- ...and ${gaps.length - 15} more gaps`);
+  }
+
+  lines.push('', `*${totalSpellsDM} spells across ${Object.keys(levelCounts).length} levels for ${classFullName}.*`);
+  return lines.join('\n');
+}
