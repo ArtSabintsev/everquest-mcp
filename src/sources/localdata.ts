@@ -31816,3 +31816,459 @@ export async function getClassSkillModifierProfile(className: string): Promise<s
   return lines.join('\n');
 }
 
+// Tool 312: Song modifier profile per class
+export async function getClassSongModifierProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const SONG_SPAS: Record<number, string> = {
+    150: 'Song DoT',
+    151: 'Song DoT2',
+    164: 'Bard AE DoT',
+    212: 'Add Singing Mod',
+    213: 'Song Mod Cap',
+    217: 'Increase Singing',
+    348: 'Instrument Mod',
+    358: 'Song Range',
+    360: 'Song AOE',
+  };
+
+  interface SongSpell {
+    name: string;
+    level: number;
+    songTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+  }
+
+  const songSpells: SongSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const songTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (SONG_SPAS[spaId]) {
+        songTypes.push(SONG_SPAS[spaId]);
+        values[SONG_SPAS[spaId]] = base;
+      }
+    }
+    if (songTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    songSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      songTypes: [...new Set(songTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Song Modifier Profile`, ''];
+  lines.push('*Analyzes song-related effects: song DoT, singing mods, instrument mods, song range, song AOE, bard AE DoT.*', '');
+
+  if (songSpells.length === 0) {
+    lines.push('No song modifier spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total song modifier spells:** ${songSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of songSpells) {
+    for (const t of s.songTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Song Modifier Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  const singMods = songSpells.filter(s => s.songTypes.includes('Add Singing Mod') || s.songTypes.includes('Increase Singing') || s.songTypes.includes('Instrument Mod') || s.songTypes.includes('Song Mod Cap'));
+  if (singMods.length > 0) {
+    lines.push('', `## Singing/Instrument Modifiers (${singMods.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Mod Value | Duration | Target |');
+    lines.push('|:------|------:|----------:|:---------|:-------|');
+    for (const s of singMods.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const modVal = s.values['Add Singing Mod'] || s.values['Increase Singing'] || s.values['Instrument Mod'] || s.values['Song Mod Cap'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${modVal > 0 ? '+' : ''}${modVal} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  const dotEffects = songSpells.filter(s => s.songTypes.includes('Song DoT') || s.songTypes.includes('Song DoT2') || s.songTypes.includes('Bard AE DoT'));
+  if (dotEffects.length > 0) {
+    lines.push('', `## Song DoT Effects (${dotEffects.length}) — Top 15`, '');
+    lines.push('| Spell | Level | DoT Value | Cast (s) | Duration | Target |');
+    lines.push('|:------|------:|----------:|:---------|:---------|:-------|');
+    for (const s of dotEffects.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const dotVal = s.values['Song DoT'] || s.values['Song DoT2'] || s.values['Bard AE DoT'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${dotVal} | ${castSec} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  const rangeMods = songSpells.filter(s => s.songTypes.includes('Song Range') || s.songTypes.includes('Song AOE'));
+  if (rangeMods.length > 0) {
+    lines.push('', `## Song Range/AOE Modifiers (${rangeMods.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Effects | Duration | Target |');
+    lines.push('|:------|------:|:--------|:---------|:-------|');
+    for (const s of rangeMods.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  const multiSong = songSpells.filter(s => s.songTypes.length >= 2);
+  if (multiSong.length > 0) {
+    lines.push('', `## Multi-Song Effect Spells (${multiSong.length}) — Top 15`, '');
+    for (const s of multiSong.sort((a, b) => b.songTypes.length - a.songTypes.length || b.level - a.level).slice(0, 15)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`- **${s.name}** (Level ${s.level}, ${s.songTypes.length} effects) — ${fx}`);
+    }
+  }
+
+  lines.push('', `*${songSpells.length} song modifier spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 313: AC and Attack rating profile per class
+export async function getClassACAttackProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const AC_ATK_SPAS: Record<number, string> = {
+    1: 'AC',
+    2: 'ATK',
+    171: 'AC Soft Cap',
+    272: 'AC vs Type',
+    328: 'Melee Damage Amt',
+    351: 'Base Damage Adj',
+    408: 'Base Damage',
+    411: 'AC2',
+    424: 'Worn Attack Cap',
+    468: 'Worn Attack',
+  };
+
+  interface ACSpell {
+    name: string;
+    level: number;
+    acTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const acSpells: ACSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const acTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (AC_ATK_SPAS[spaId]) {
+        acTypes.push(AC_ATK_SPAS[spaId]);
+        values[AC_ATK_SPAS[spaId]] = base;
+      }
+    }
+    if (acTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    acSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      acTypes: [...new Set(acTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} AC & Attack Profile`, ''];
+  lines.push('*Analyzes AC and attack rating spells: armor class, attack rating, AC soft cap, melee damage amount, base damage, worn attack.*', '');
+
+  if (acSpells.length === 0) {
+    lines.push('No AC/Attack spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const buffs = acSpells.filter(s => s.beneficial);
+  const debuffs = acSpells.filter(s => !s.beneficial);
+  lines.push(`**Total AC/Attack spells:** ${acSpells.length}`);
+  lines.push(`- Buffs: ${buffs.length}`);
+  lines.push(`- Debuffs: ${debuffs.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of acSpells) {
+    for (const t of s.acTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## AC/Attack Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  const acBuffs = acSpells.filter(s => s.beneficial && (s.acTypes.includes('AC') || s.acTypes.includes('AC2') || s.acTypes.includes('AC Soft Cap') || s.acTypes.includes('AC vs Type')));
+  if (acBuffs.length > 0) {
+    lines.push('', `## AC Buffs (${acBuffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | AC Value | Duration | Target |');
+    lines.push('|:------|------:|---------:|:---------|:-------|');
+    for (const s of acBuffs.sort((a, b) => {
+      const aVal = a.values['AC'] || a.values['AC2'] || a.values['AC Soft Cap'] || a.values['AC vs Type'] || 0;
+      const bVal = b.values['AC'] || b.values['AC2'] || b.values['AC Soft Cap'] || b.values['AC vs Type'] || 0;
+      return bVal - aVal;
+    }).slice(0, 15)) {
+      const acVal = s.values['AC'] || s.values['AC2'] || s.values['AC Soft Cap'] || s.values['AC vs Type'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | +${acVal.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  const atkBuffs = acSpells.filter(s => s.beneficial && (s.acTypes.includes('ATK') || s.acTypes.includes('Worn Attack') || s.acTypes.includes('Worn Attack Cap')));
+  if (atkBuffs.length > 0) {
+    lines.push('', `## Attack Rating Buffs (${atkBuffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | ATK Value | Duration | Target |');
+    lines.push('|:------|------:|----------:|:---------|:-------|');
+    for (const s of atkBuffs.sort((a, b) => {
+      const aVal = a.values['ATK'] || a.values['Worn Attack'] || a.values['Worn Attack Cap'] || 0;
+      const bVal = b.values['ATK'] || b.values['Worn Attack'] || b.values['Worn Attack Cap'] || 0;
+      return bVal - aVal;
+    }).slice(0, 15)) {
+      const atkVal = s.values['ATK'] || s.values['Worn Attack'] || s.values['Worn Attack Cap'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | +${atkVal.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  if (debuffs.length > 0) {
+    lines.push('', `## AC/ATK Debuffs (${debuffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Effects | Cast (s) | Duration | Target |');
+    lines.push('|:------|------:|:--------|:---------|:---------|:-------|');
+    for (const s of debuffs.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${castSec} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  const meleeDmg = acSpells.filter(s => s.acTypes.includes('Melee Damage Amt') || s.acTypes.includes('Base Damage Adj') || s.acTypes.includes('Base Damage'));
+  if (meleeDmg.length > 0) {
+    lines.push('', `## Melee/Base Damage Modifiers (${meleeDmg.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Damage Mod | Duration | Target |');
+    lines.push('|:------|------:|-----------:|:---------|:-------|');
+    for (const s of meleeDmg.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const dmgVal = s.values['Melee Damage Amt'] || s.values['Base Damage Adj'] || s.values['Base Damage'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${dmgVal > 0 ? '+' : ''}${dmgVal.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  const multiAC = acSpells.filter(s => s.acTypes.length >= 2);
+  if (multiAC.length > 0) {
+    lines.push('', `## Multi-AC/ATK Effect Spells (${multiAC.length}) — Top 15`, '');
+    for (const s of multiAC.sort((a, b) => b.acTypes.length - a.acTypes.length || b.level - a.level).slice(0, 15)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`- **${s.name}** (Level ${s.level}, ${s.acTypes.length} effects) — ${fx}`);
+    }
+  }
+
+  lines.push('', `*${acSpells.length} AC/Attack spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 314: Haste and slow profile per class
+export async function getClassHasteSlowProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const HASTE_SPAS: Record<number, string> = {
+    11: 'Melee Haste',
+    147: 'Slow',
+    167: 'Pet Haste',
+  };
+
+  interface HasteSpell {
+    name: string;
+    level: number;
+    hasteTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const hasteSpells: HasteSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const hasteTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (HASTE_SPAS[spaId]) {
+        hasteTypes.push(HASTE_SPAS[spaId]);
+        values[HASTE_SPAS[spaId]] = base;
+      }
+    }
+    if (hasteTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    hasteSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      hasteTypes: [...new Set(hasteTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Haste & Slow Profile`, ''];
+  lines.push('*Analyzes melee haste buffs, slow debuffs, and pet haste effects.*', '');
+
+  if (hasteSpells.length === 0) {
+    lines.push('No haste/slow spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const hasteBuffs = hasteSpells.filter(s => s.values['Melee Haste'] && s.values['Melee Haste'] > 0);
+  const slowDebuffs = hasteSpells.filter(s => s.hasteTypes.includes('Slow') || (s.values['Melee Haste'] && s.values['Melee Haste'] < 0));
+  const petHaste = hasteSpells.filter(s => s.hasteTypes.includes('Pet Haste'));
+
+  lines.push(`**Total haste/slow spells:** ${hasteSpells.length}`);
+  lines.push(`- Haste buffs: ${hasteBuffs.length}`);
+  lines.push(`- Slow debuffs: ${slowDebuffs.length}`);
+  lines.push(`- Pet haste: ${petHaste.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of hasteSpells) {
+    for (const t of s.hasteTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Haste/Slow Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  if (hasteBuffs.length > 0) {
+    lines.push('', `## Haste Buffs (${hasteBuffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Haste % | Cast (s) | Mana | Duration | Target |');
+    lines.push('|:------|------:|--------:|:---------|-----:|---------:|:-------|');
+    for (const s of hasteBuffs.sort((a, b) => (b.values['Melee Haste'] || 0) - (a.values['Melee Haste'] || 0)).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | +${s.values['Melee Haste']}% | ${castSec} | ${s.mana.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  if (slowDebuffs.length > 0) {
+    lines.push('', `## Slow Debuffs (${slowDebuffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Slow % | Cast (s) | Mana | Duration | Target |');
+    lines.push('|:------|------:|-------:|:---------|-----:|---------:|:-------|');
+    for (const s of slowDebuffs.sort((a, b) => {
+      const aVal = a.values['Slow'] || a.values['Melee Haste'] || 0;
+      const bVal = b.values['Slow'] || b.values['Melee Haste'] || 0;
+      return aVal - bVal;
+    }).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const slowVal = s.values['Slow'] || s.values['Melee Haste'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${slowVal}% | ${castSec} | ${s.mana.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  if (petHaste.length > 0) {
+    lines.push('', `## Pet Haste (${petHaste.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Pet Haste | Duration | Target |');
+    lines.push('|:------|------:|----------:|:---------|:-------|');
+    for (const s of petHaste.sort((a, b) => (b.values['Pet Haste'] || 0) - (a.values['Pet Haste'] || 0)).slice(0, 10)) {
+      lines.push(`| ${s.name} | ${s.level} | +${s.values['Pet Haste'] || 0}% | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  lines.push('', '## First Available Level by Type', '');
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const first = hasteSpells.filter(s => s.hasteTypes.includes(type)).reduce((min, s) => Math.min(min, s.level), 999);
+    if (first < 999) lines.push(`- **${type}:** Level ${first}`);
+  }
+
+  lines.push('', `*${hasteSpells.length} haste/slow spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+

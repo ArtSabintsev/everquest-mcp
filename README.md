@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 311 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 314 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **311 tools** for querying EverQuest data
+- **314 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -291,6 +291,9 @@ Then restart Claude Desktop.
 | `get_class_aggro_management_profile` | Aggro management profile — hate generation, aggro reduction, taunt, AE taunt, spell hate, improved taunt |
 | `get_class_endurance_profile` | Endurance profile — endurance regen, max endurance buffs, endurance drain, burn, absorb effects |
 | `get_class_skill_modifier_profile` | Skill modifier profile — skill damage, archery damage, offhand damage, skill attack, accuracy, timer reduction |
+| `get_class_song_modifier_profile` | Song modifier profile — song DoT, singing mods, instrument mods, song range, song AOE, bard AE DoT |
+| `get_class_ac_attack_profile` | AC and Attack rating profile — armor class buffs/debuffs, attack rating, AC soft cap, melee damage, worn attack |
+| `get_class_haste_slow_profile` | Haste and slow profile — melee haste buffs, slow debuffs, pet haste effects with percentages |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -469,7 +472,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (311 tools)
+├── tools.ts          # Tool definitions and handlers (314 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

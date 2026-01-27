@@ -319,6 +319,9 @@ import {
   getClassAggroManagementProfile,
   getClassEnduranceProfile,
   getClassSkillModifierProfile,
+  getClassSongModifierProfile,
+  getClassACAttackProfile,
+  getClassHasteSlowProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -3936,6 +3939,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_song_modifier_profile',
+    description: 'Song modifier profile for a class — song DoT, singing mods, instrument mods, song range, song AOE, bard AE DoT effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Bard", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_ac_attack_profile',
+    description: 'AC and Attack rating profile for a class — armor class buffs/debuffs, attack rating, AC soft cap, melee damage amount, base damage, worn attack.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_haste_slow_profile',
+    description: 'Haste and slow profile for a class — melee haste buffs, slow debuffs, pet haste effects with percentages and durations.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6243,6 +6279,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSkillModifierProfile(className);
+      }
+
+      case 'get_class_song_modifier_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSongModifierProfile(className);
+      }
+
+      case 'get_class_ac_attack_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassACAttackProfile(className);
+      }
+
+      case 'get_class_haste_slow_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassHasteSlowProfile(className);
       }
 
       case 'search_help_topics': {
