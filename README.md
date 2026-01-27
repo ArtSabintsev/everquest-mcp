@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 305 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 308 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **305 tools** for querying EverQuest data
+- **308 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -285,6 +285,9 @@ Then restart Claude Desktop.
 | `get_class_ae_spell_profile` | AE spell profile for a class — PB AE, Targeted AE, Directional, Beam, Ring AE; radius, resist types, beneficial vs detrimental |
 | `get_class_instant_cast_profile` | Instant-cast spell profile for a class — zero cast time spells, categories, effects, emergency tools, endurance vs mana |
 | `get_class_buff_duration_analysis` | Buff duration tier analysis for a class — instant/short/medium/long tiers, average by category, longest buffs |
+| `get_class_melee_combat_profile` | Melee combat enhancement profile — crit, double/triple attack, flurry, riposte, parry, dodge, backstab, headshot, strikethrough |
+| `get_class_stat_buff_profile` | Stat buff/debuff profile — STR, DEX, AGI, STA, INT, WIS, CHA modifiers, strongest buffs/debuffs, multi-stat spells |
+| `get_class_lifetap_profile` | Lifetap and HP profile — lifetap spells, HP drain, max HP buffs, HP change effects, HP percent reduction |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -463,7 +466,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (305 tools)
+├── tools.ts          # Tool definitions and handlers (308 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

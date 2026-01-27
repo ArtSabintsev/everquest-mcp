@@ -30857,3 +30857,459 @@ export async function getClassBuffDurationAnalysis(className: string): Promise<s
   lines.push('', `*${buffs.length} beneficial spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 306: Melee combat enhancement profile per class
+export async function getClassMeleeCombatProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const MELEE_SPAS: Record<number, string> = {
+    130: 'Strikethrough',
+    173: 'Primary Melee Double',
+    176: 'Parry Chance',
+    177: 'Dodge Chance',
+    178: 'Riposte Chance',
+    184: 'Accuracy',
+    185: 'Headshot',
+    187: 'Slay Undead',
+    189: 'Double Riposte',
+    192: 'Frontal Backstab Chance',
+    193: 'Chaotic Stab',
+    194: 'Shield Block Chance',
+    202: 'Melee Crit Chance',
+    210: 'Triple Backstab',
+    255: 'Triple Attack',
+    345: 'Dual Wield',
+    346: 'Double Attack',
+    380: 'Melee Flurry',
+    385: 'Flurry Chance',
+    423: 'Triple Attack Chance',
+    475: 'Double Attack Chance',
+  };
+
+  interface MeleeSpell {
+    name: string;
+    level: number;
+    meleeTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    endurance: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+  }
+
+  const meleeSpells: MeleeSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const meleeTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (MELEE_SPAS[spaId]) {
+        meleeTypes.push(MELEE_SPAS[spaId]);
+        values[MELEE_SPAS[spaId]] = base;
+      }
+    }
+    if (meleeTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    meleeSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      meleeTypes: [...new Set(meleeTypes)],
+      values,
+      mana,
+      endurance,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Melee Combat Profile`, ''];
+  lines.push('*Analyzes melee combat enhancements: crit, double/triple attack, flurry, riposte, parry, dodge, backstab, headshot.*', '');
+
+  if (meleeSpells.length === 0) {
+    lines.push('No melee combat enhancement spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total melee combat spells:** ${meleeSpells.length}`, '');
+
+  // Type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of meleeSpells) {
+    for (const t of s.meleeTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Melee Enhancement Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Highest level melee buffs
+  lines.push('', '## Highest Level Melee Enhancements (Top 15)', '');
+  lines.push('| Spell | Level | Enhancements | Duration | Target |');
+  lines.push('|:------|------:|:-------------|:---------|:-------|');
+  for (const s of meleeSpells.sort((a, b) => b.level - a.level).slice(0, 15)) {
+    const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+    lines.push(`| ${s.name} | ${s.level} | ${fx} | ${s.duration || '—'} | ${s.targetType} |`);
+  }
+
+  // Multi-enhancement spells
+  const multiMelee = meleeSpells.filter(s => s.meleeTypes.length >= 2);
+  if (multiMelee.length > 0) {
+    lines.push('', `## Multi-Enhancement Spells (${multiMelee.length}) — Top 15`, '');
+    for (const s of multiMelee.sort((a, b) => b.meleeTypes.length - a.meleeTypes.length || b.level - a.level).slice(0, 15)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`- **${s.name}** (Level ${s.level}, ${s.meleeTypes.length} effects) — ${fx}`);
+    }
+  }
+
+  // First available per type
+  lines.push('', '## First Available Level by Enhancement', '');
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const first = meleeSpells.filter(s => s.meleeTypes.includes(type)).reduce((min, s) => Math.min(min, s.level), 999);
+    if (first < 999) lines.push(`- **${type}:** Level ${first}`);
+  }
+
+  lines.push('', `*${meleeSpells.length} melee combat spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 307: Stat buff profile per class
+export async function getClassStatBuffProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const STAT_SPAS: Record<number, string> = {
+    4: 'STR', 5: 'DEX', 6: 'AGI', 7: 'STA', 8: 'INT', 9: 'WIS', 10: 'CHA',
+    259: 'Stats Cap',
+  };
+
+  interface StatSpell {
+    name: string;
+    level: number;
+    statTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const statSpells: StatSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const statTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (STAT_SPAS[spaId]) {
+        statTypes.push(STAT_SPAS[spaId]);
+        values[STAT_SPAS[spaId]] = base;
+      }
+    }
+    if (statTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    statSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      statTypes: [...new Set(statTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial: isBeneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Stat Buff Profile`, ''];
+  lines.push('*Analyzes stat-modifying spells: STR, DEX, AGI, STA, INT, WIS, CHA buffs and debuffs.*', '');
+
+  if (statSpells.length === 0) {
+    lines.push('No stat-modifying spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const statBuffs = statSpells.filter(s => s.beneficial);
+  const statDebuffs = statSpells.filter(s => !s.beneficial);
+
+  lines.push(`**Total stat spells:** ${statSpells.length}`);
+  lines.push(`- Stat buffs: ${statBuffs.length}`);
+  lines.push(`- Stat debuffs: ${statDebuffs.length}`);
+
+  // Stat type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of statSpells) {
+    for (const t of s.statTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('', '## Stat Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Strongest stat buffs
+  if (statBuffs.length > 0) {
+    const sorted = statBuffs.sort((a, b) => {
+      const aMax = Math.max(...Object.values(a.values));
+      const bMax = Math.max(...Object.values(b.values));
+      return bMax - aMax;
+    });
+    lines.push('', '## Strongest Stat Buffs (Top 15)', '');
+    lines.push('| Spell | Level | Stat Changes | Duration | Target |');
+    lines.push('|:------|------:|:-------------|:---------|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const changes = Object.entries(s.values).map(([t, v]) => `${t}: +${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${changes} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Strongest stat debuffs
+  if (statDebuffs.length > 0) {
+    const sorted = statDebuffs.sort((a, b) => {
+      const aMin = Math.min(...Object.values(a.values));
+      const bMin = Math.min(...Object.values(b.values));
+      return aMin - bMin;
+    });
+    lines.push('', '## Strongest Stat Debuffs (Top 15)', '');
+    lines.push('| Spell | Level | Stat Changes | Duration | Target |');
+    lines.push('|:------|------:|:-------------|:---------|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const changes = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${changes} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Multi-stat spells (affect 3+ stats)
+  const multiStat = statSpells.filter(s => s.statTypes.length >= 3);
+  if (multiStat.length > 0) {
+    lines.push('', `## Multi-Stat Spells (${multiStat.length}) — Top 15`, '');
+    for (const s of multiStat.sort((a, b) => b.statTypes.length - a.statTypes.length || b.level - a.level).slice(0, 15)) {
+      const changes = Object.entries(s.values).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+      lines.push(`- **${s.name}** (Level ${s.level}, ${s.statTypes.length} stats) — ${changes}`);
+    }
+  }
+
+  lines.push('', `*${statSpells.length} stat spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 308: Lifetap / HP drain profile per class
+export async function getClassLifetapProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Lifetap/HP-related SPAs
+  const HP_SPAS: Record<number, string> = {
+    0: 'HP',
+    69: 'Max HP',
+    79: 'HP Limit',
+    98: 'Reduce Target HP %',
+    101: 'HP Change',
+    104: 'Max HP Change',
+    269: 'Max HP Mod',
+    273: 'Max HP',
+    335: 'Max HP Increase',
+    347: 'Lifetap from Weapon',
+    353: 'HP Change per Tick',
+  };
+
+  interface HPSpell {
+    name: string;
+    level: number;
+    hpTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+    hasLifetap: boolean;
+  }
+
+  const hpSpells: HPSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const hpTypes: string[] = [];
+    const values: Record<string, number> = {};
+    let hasNegHP = false;
+    let hasPosHP = false;
+    let hasLifetapSPA = false;
+
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (HP_SPAS[spaId]) {
+        hpTypes.push(HP_SPAS[spaId]);
+        values[HP_SPAS[spaId]] = base;
+        if (spaId === 0 && base < 0) hasNegHP = true;
+        if (spaId === 0 && base > 0) hasPosHP = true;
+        if (spaId === 347) hasLifetapSPA = true;
+      }
+    }
+    if (hpTypes.length === 0) continue;
+
+    // Only include spells with HP-relevant effects (not just max HP buffs)
+    const hasInteresting = hasNegHP || hasPosHP || hasLifetapSPA ||
+      hpTypes.some(t => ['Reduce Target HP %', 'HP Change', 'HP Change per Tick', 'Lifetap from Weapon'].includes(t));
+    if (!hasInteresting && !hpTypes.some(t => ['Max HP', 'Max HP Change', 'Max HP Mod', 'Max HP Increase', 'HP Limit'].includes(t))) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    hpSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      hpTypes: [...new Set(hpTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial: isBeneficial,
+      hasLifetap: hasLifetapSPA || (hasNegHP && hasPosHP),
+    });
+  }
+
+  const lines = [`# ${classFullName} Lifetap & HP Profile`, ''];
+  lines.push('*Analyzes HP-related spells: lifetap, HP drain, max HP buffs, HP change, HP percent effects.*', '');
+
+  if (hpSpells.length === 0) {
+    lines.push('No HP-related spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const lifetaps = hpSpells.filter(s => s.hasLifetap);
+  const maxHPBuffs = hpSpells.filter(s => s.beneficial && s.hpTypes.some(t => t.includes('Max HP')));
+  const hpDrains = hpSpells.filter(s => !s.beneficial && s.values['HP'] !== undefined && s.values['HP'] < 0);
+  const heals = hpSpells.filter(s => s.beneficial && s.values['HP'] !== undefined && s.values['HP'] > 0);
+
+  lines.push(`**Total HP spells:** ${hpSpells.length}`);
+  lines.push(`- Lifetap spells: ${lifetaps.length}`);
+  lines.push(`- HP drains (detrimental): ${hpDrains.length}`);
+  lines.push(`- Direct heals (beneficial HP): ${heals.length}`);
+  lines.push(`- Max HP buffs: ${maxHPBuffs.length}`);
+
+  // HP type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of hpSpells) {
+    for (const t of s.hpTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('', '## HP Effect Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Lifetap spells
+  if (lifetaps.length > 0) {
+    lines.push('', '## Lifetap Spells (Top 15)', '');
+    lines.push('| Spell | Level | HP Values | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|:----------|:---------|-----:|:-------|');
+    for (const s of lifetaps.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // Max HP buffs
+  if (maxHPBuffs.length > 0) {
+    const sorted = maxHPBuffs.sort((a, b) => {
+      const aVal = a.values['Max HP'] || a.values['Max HP Change'] || a.values['Max HP Increase'] || a.values['Max HP Mod'] || 0;
+      const bVal = b.values['Max HP'] || b.values['Max HP Change'] || b.values['Max HP Increase'] || b.values['Max HP Mod'] || 0;
+      return bVal - aVal;
+    });
+    lines.push('', '## Max HP Buffs (Top 15)', '');
+    lines.push('| Spell | Level | HP Boost | Duration | Target |');
+    lines.push('|:------|------:|---------:|:---------|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const hpVal = s.values['Max HP'] || s.values['Max HP Change'] || s.values['Max HP Increase'] || s.values['Max HP Mod'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | +${hpVal.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // HP drains
+  if (hpDrains.length > 0) {
+    const sorted = hpDrains.sort((a, b) => (a.values['HP'] || 0) - (b.values['HP'] || 0));
+    lines.push('', '## HP Drain Spells (Top 15)', '');
+    lines.push('| Spell | Level | HP Drain | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|---------:|:---------|-----:|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.values['HP']?.toLocaleString()} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  lines.push('', `*${hpSpells.length} HP spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

@@ -313,6 +313,9 @@ import {
   getClassAESpellProfile,
   getClassInstantCastProfile,
   getClassBuffDurationAnalysis,
+  getClassMeleeCombatProfile,
+  getClassStatBuffProfile,
+  getClassLifetapProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -3864,6 +3867,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_melee_combat_profile',
+    description: 'Melee combat enhancement profile — crit, double/triple attack, flurry, riposte, parry, dodge, backstab, headshot, strikethrough.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Rogue")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_stat_buff_profile',
+    description: 'Stat buff/debuff profile for a class — STR, DEX, AGI, STA, INT, WIS, CHA modifiers, strongest buffs/debuffs, multi-stat spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_lifetap_profile',
+    description: 'Lifetap and HP profile for a class — lifetap spells, HP drain, max HP buffs, HP change effects, HP percent reduction.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Necromancer", "Shadow Knight")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6135,6 +6171,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassBuffDurationAnalysis(className);
+      }
+
+      case 'get_class_melee_combat_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassMeleeCombatProfile(className);
+      }
+
+      case 'get_class_stat_buff_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassStatBuffProfile(className);
+      }
+
+      case 'get_class_lifetap_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassLifetapProfile(className);
       }
 
       case 'search_help_topics': {
