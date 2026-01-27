@@ -373,6 +373,9 @@ import {
   getClassSpellDurationBreakdown,
   getClassBeneficialTargetAnalysis,
   getClassDetrimentalAnalysis,
+  getClassTeleportProfile,
+  getClassResistProfile,
+  getClassManaDrainProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4585,6 +4588,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_teleport_profile',
+    description: 'Teleport and gate spell profile — destination zones, targeting, and transport capabilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Wizard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_resist_profile',
+    description: 'Resist modification profile — fire, cold, poison, disease, and magic resist buffs and debuffs with top values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_mana_drain_profile',
+    description: 'Mana drain and mana regen profile — offensive mana drain and beneficial mana regeneration spells via SPA 15.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7217,6 +7253,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassDetrimentalAnalysis(className);
+      }
+
+      case 'get_class_teleport_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassTeleportProfile(className);
+      }
+
+      case 'get_class_resist_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassResistProfile(className);
+      }
+
+      case 'get_class_mana_drain_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassManaDrainProfile(className);
       }
 
       case 'search_help_topics': {

@@ -37378,3 +37378,242 @@ export async function getClassDetrimentalAnalysis(className: string): Promise<st
   lines.push('', `*${totalDetrimental} detrimental spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 366: Class teleport profile
+export async function getClassTeleportProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const teleSpells: { name: string; level: number; zone: string; target: string }[] = [];
+  let totalSpellsTele = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsTele++;
+
+    const teleZone = spell.fields[SF.TELEPORT_ZONE]?.trim();
+    if (!teleZone) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    teleSpells.push({ name: spell.fields[SF.NAME], level, zone: teleZone, target: targetName });
+  }
+
+  teleSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const zoneCounts: Record<string, number> = {};
+  for (const s of teleSpells) {
+    zoneCounts[s.zone] = (zoneCounts[s.zone] || 0) + 1;
+  }
+
+  const lines = [`# ${classFullName} Teleport Profile`, ''];
+  lines.push('*Analyzes gate, teleport, and translocate spells — destination zones and targeting.*', '');
+  lines.push(`**Total spells:** ${totalSpellsTele}`);
+  lines.push(`**Teleport spells:** ${teleSpells.length} (${totalSpellsTele > 0 ? ((teleSpells.length / totalSpellsTele) * 100).toFixed(1) : '0'}%)`, '');
+
+  if (Object.keys(zoneCounts).length > 0) {
+    lines.push('## Destination Zones', '');
+    lines.push('| Zone | Count |');
+    lines.push('|:-----|------:|');
+    for (const [zone, count] of Object.entries(zoneCounts).sort((a, b) => b[1] - a[1]).slice(0, 30)) {
+      lines.push(`| ${zone} | ${count} |`);
+    }
+    if (Object.keys(zoneCounts).length > 30) lines.push(`| ...and ${Object.keys(zoneCounts).length - 30} more | |`);
+  }
+
+  if (teleSpells.length > 0) {
+    lines.push('', '## Teleport Spells', '');
+    lines.push('| Spell | Level | Destination | Target |');
+    lines.push('|:------|------:|:------------|:-------|');
+    for (const s of teleSpells.slice(-40)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.zone} | ${s.target} |`);
+    }
+    if (teleSpells.length > 40) lines.push(`| ...and ${teleSpells.length - 40} more | | | |`);
+  }
+
+  lines.push('', `*${teleSpells.length} teleport spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 367: Class resist profile
+export async function getClassResistProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const RESIST_SPAS: Record<number, string> = {
+    46: 'Fire Resist', 47: 'Cold Resist', 48: 'Poison Resist',
+    49: 'Disease Resist', 50: 'Magic Resist',
+  };
+
+  const buffs: { name: string; level: number; type: string; value: number }[] = [];
+  const debuffs: { name: string; level: number; type: string; value: number }[] = [];
+  let totalSpellsRes = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsRes++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      if (!RESIST_SPAS[spaId]) continue;
+      const base = parseInt(parts[2]) || 0;
+      if (base === 0) continue;
+      const entry = { name: spell.fields[SF.NAME], level, type: RESIST_SPAS[spaId], value: base };
+      if (base > 0) buffs.push(entry);
+      else debuffs.push(entry);
+    }
+  }
+
+  buffs.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+  debuffs.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const buffTypeCounts: Record<string, number> = {};
+  for (const b of buffs) buffTypeCounts[b.type] = (buffTypeCounts[b.type] || 0) + 1;
+  const debuffTypeCounts: Record<string, number> = {};
+  for (const d of debuffs) debuffTypeCounts[d.type] = (debuffTypeCounts[d.type] || 0) + 1;
+
+  const lines = [`# ${classFullName} Resist Modification Profile`, ''];
+  lines.push('*Analyzes resistance buff and debuff spells — fire, cold, poison, disease, and magic resist.*', '');
+  lines.push(`**Total spells:** ${totalSpellsRes}`);
+  lines.push(`**Resist buffs:** ${buffs.length} | **Resist debuffs:** ${debuffs.length}`, '');
+
+  if (Object.keys(buffTypeCounts).length > 0) {
+    lines.push('## Resist Buff Distribution', '');
+    lines.push('| Resist Type | Buff Count |');
+    lines.push('|:------------|----------:|');
+    for (const [type, count] of Object.entries(buffTypeCounts).sort((a, b) => b[1] - a[1])) {
+      lines.push(`| ${type} | ${count} |`);
+    }
+  }
+
+  if (Object.keys(debuffTypeCounts).length > 0) {
+    lines.push('', '## Resist Debuff Distribution', '');
+    lines.push('| Resist Type | Debuff Count |');
+    lines.push('|:------------|------------:|');
+    for (const [type, count] of Object.entries(debuffTypeCounts).sort((a, b) => b[1] - a[1])) {
+      lines.push(`| ${type} | ${count} |`);
+    }
+  }
+
+  if (buffs.length > 0) {
+    lines.push('', '## Top Resist Buffs (by value)', '');
+    lines.push('| Spell | Level | Type | Value |');
+    lines.push('|:------|------:|:-----|------:|');
+    const topBuffs = [...buffs].sort((a, b) => b.value - a.value).slice(0, 25);
+    for (const b of topBuffs) {
+      lines.push(`| ${b.name} | ${b.level} | ${b.type} | +${b.value} |`);
+    }
+  }
+
+  if (debuffs.length > 0) {
+    lines.push('', '## Top Resist Debuffs (by value)', '');
+    lines.push('| Spell | Level | Type | Value |');
+    lines.push('|:------|------:|:-----|------:|');
+    const topDebuffs = [...debuffs].sort((a, b) => a.value - b.value).slice(0, 25);
+    for (const d of topDebuffs) {
+      lines.push(`| ${d.name} | ${d.level} | ${d.type} | ${d.value} |`);
+    }
+  }
+
+  lines.push('', `*${buffs.length + debuffs.length} resist modification effects for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 368: Class mana drain profile
+export async function getClassManaDrainProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // SPA 15 = Mana (negative base in detrimental = mana drain)
+  const drainSpells: { name: string; level: number; value: number; target: string; resist: string }[] = [];
+  const regenSpells: { name: string; level: number; value: number; target: string }[] = [];
+  let totalSpellsMD = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsMD++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      if (spaId !== 15) continue;
+      const base = parseInt(parts[2]) || 0;
+      if (base === 0) continue;
+      const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+      const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+      const beneficial = parseInt(spell.fields[SF.BENEFICIAL]) || 0;
+      if (base < 0 && beneficial !== 1) {
+        const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+        const resistName = RESIST_TYPES[resistId] || `Resist ${resistId}`;
+        drainSpells.push({ name: spell.fields[SF.NAME], level, value: base, target: targetName, resist: resistName });
+      } else if (base > 0) {
+        regenSpells.push({ name: spell.fields[SF.NAME], level, value: base, target: targetName });
+      }
+      break; // one per spell
+    }
+  }
+
+  drainSpells.sort((a, b) => a.value - b.value || a.level - b.level);
+  regenSpells.sort((a, b) => b.value - a.value || a.level - b.level);
+
+  const lines = [`# ${classFullName} Mana Drain & Mana Regen Profile`, ''];
+  lines.push('*Analyzes mana drain (offensive) and mana regeneration (beneficial) via SPA 15.*', '');
+  lines.push(`**Total spells:** ${totalSpellsMD}`);
+  lines.push(`**Mana drain spells:** ${drainSpells.length} | **Mana regen spells:** ${regenSpells.length}`, '');
+
+  if (drainSpells.length > 0) {
+    lines.push('## Mana Drain Spells (strongest first)', '');
+    lines.push('| Spell | Level | Drain | Resist | Target |');
+    lines.push('|:------|------:|------:|:-------|:-------|');
+    for (const s of drainSpells.slice(0, 30)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.value} | ${s.resist} | ${s.target} |`);
+    }
+    if (drainSpells.length > 30) lines.push(`| ...and ${drainSpells.length - 30} more | | | | |`);
+  }
+
+  if (regenSpells.length > 0) {
+    lines.push('', '## Mana Regen Spells (strongest first)', '');
+    lines.push('| Spell | Level | Regen | Target |');
+    lines.push('|:------|------:|------:|:-------|');
+    for (const s of regenSpells.slice(0, 30)) {
+      lines.push(`| ${s.name} | ${s.level} | +${s.value} | ${s.target} |`);
+    }
+    if (regenSpells.length > 30) lines.push(`| ...and ${regenSpells.length - 30} more | | | |`);
+  }
+
+  lines.push('', `*${drainSpells.length + regenSpells.length} mana manipulation spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
