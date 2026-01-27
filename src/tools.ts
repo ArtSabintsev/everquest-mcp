@@ -271,6 +271,9 @@ import {
   getMercenaryAbilitySpellAnalysis,
   getOverseerTraitSynergyAnalysis,
   getClassSpellLevelGapAnalysis,
+  getDrakkinHeritageClassAnalysis,
+  getSpellSubcategoryDepthAnalysis,
+  getSkillCapCrossClassComparison,
 } from './sources/index.js';
 
 export const tools = [
@@ -3432,6 +3435,27 @@ export const tools = [
     }
   },
   {
+    name: 'get_drakkin_heritage_class_analysis',
+    description: 'Drakkin heritage class analysis — available classes per heritage, heritage availability per class, missing classes, exclusivity analysis, and heritage overlap matrix.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_spell_subcategory_depth_analysis',
+    description: 'Spell subcategory depth analysis — subcategory distribution, class-exclusive subcategories, category-subcategory hierarchies, and per-class specialization.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_skill_cap_cross_class_comparison',
+    description: 'Skill cap cross-class comparison — compares a specific skill (e.g. "Defense", "Dodge", "Backstab") across all 16 classes with progression, growth analysis, and proficiency tiers.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        skill_name: { type: 'string', description: 'Skill name (e.g. "Defense", "Dodge", "1H Slashing")' }
+      },
+      required: ['skill_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5475,6 +5499,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellLevelGapAnalysis(className);
+      }
+
+      case 'get_drakkin_heritage_class_analysis': {
+        return getDrakkinHeritageClassAnalysis();
+      }
+
+      case 'get_spell_subcategory_depth_analysis': {
+        return getSpellSubcategoryDepthAnalysis();
+      }
+
+      case 'get_skill_cap_cross_class_comparison': {
+        const skillName = typeof args.skill_name === 'string' ? args.skill_name.trim() : '';
+        if (!skillName) return 'Error: "skill_name" parameter is required.';
+        return getSkillCapCrossClassComparison(skillName);
       }
 
       case 'search_help_topics': {

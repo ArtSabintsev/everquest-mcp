@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 263 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 266 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **263 tools** for querying EverQuest data
+- **266 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -243,6 +243,9 @@ Then restart Claude Desktop.
 | `get_mercenary_ability_spell_analysis` | Cross-references mercenary abilities with the spell database — matched abilities by category, beneficial/detrimental breakdown |
 | `get_overseer_trait_synergy_analysis` | Overseer trait synergy — trait co-occurrence in quest slots, most requested traits, best agents by trait coverage, difficulty diversity |
 | `get_class_spell_level_gap_analysis` | Class spell level gap analysis — level ranges with no new spells, spell density by decade, busiest levels, category distribution |
+| `get_drakkin_heritage_class_analysis` | Drakkin heritage class analysis — available classes per heritage, class heritage availability, exclusivity analysis, heritage overlap matrix |
+| `get_spell_subcategory_depth_analysis` | Spell subcategory depth analysis — subcategory distribution, class-exclusive subcategories, category-subcategory hierarchies, class specialization |
+| `get_skill_cap_cross_class_comparison` | Skill cap cross-class comparison — compares a specific skill across all 16 classes with progression, growth analysis, and proficiency tiers |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -421,7 +424,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (263 tools)
+├── tools.ts          # Tool definitions and handlers (266 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

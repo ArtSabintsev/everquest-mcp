@@ -25421,3 +25421,305 @@ export async function getClassSpellLevelGapAnalysis(className: string): Promise<
   lines.push('', `*${totalSpells} spells across ${levels.length} levels analyzed for ${CLASS_IDS[cid]}.*`);
   return lines.join('\n');
 }
+
+// Tool 264: Drakkin heritage class analysis
+export async function getDrakkinHeritageClassAnalysis(): Promise<string> {
+  await loadDrakkinHeritages();
+  if (!drakkinHeritages || drakkinHeritages.length === 0) return 'Drakkin heritage data not available.';
+
+  const lines = ['# Drakkin Heritage Class Analysis', ''];
+  lines.push('*Analyzes which classes are available for each Drakkin heritage and identifies optimal heritage-class combinations.*', '');
+
+  lines.push(`- **Total heritages:** ${drakkinHeritages.length}`);
+
+  // Heritage to classes table
+  lines.push('', '## Heritage Class Availability', '');
+  lines.push('| Heritage | Available Classes | Count |');
+  lines.push('|:---------|:------------------|------:|');
+  for (const h of drakkinHeritages) {
+    const classNames = h.classes.map(c => CLASS_IDS[c] || `Class ${c}`).sort();
+    lines.push(`| ${h.name} | ${classNames.join(', ')} | ${classNames.length} |`);
+  }
+
+  // Class to heritages (inverse)
+  lines.push('', '## Class Heritage Availability', '');
+  lines.push('| Class | Available Heritages | Count |');
+  lines.push('|:------|:---------------------|------:|');
+  const classHeritages: Record<number, string[]> = {};
+  for (const h of drakkinHeritages) {
+    for (const c of h.classes) {
+      if (!classHeritages[c]) classHeritages[c] = [];
+      classHeritages[c].push(h.name);
+    }
+  }
+  for (const [cid, heritages] of Object.entries(classHeritages).sort((a, b) => b[1].length - a[1].length)) {
+    lines.push(`| ${CLASS_IDS[parseInt(cid)]} | ${heritages.join(', ')} | ${heritages.length} |`);
+  }
+
+  // Classes NOT available to Drakkin
+  const allDrakkinClasses = new Set<number>();
+  for (const h of drakkinHeritages) for (const c of h.classes) allDrakkinClasses.add(c);
+  const missingClasses = Object.keys(CLASS_IDS).map(Number).filter(c => !allDrakkinClasses.has(c));
+  if (missingClasses.length > 0) {
+    lines.push('', '## Classes NOT Available to Drakkin', '');
+    for (const c of missingClasses) lines.push(`- ${CLASS_IDS[c]}`);
+  }
+
+  // Heritage exclusivity analysis
+  lines.push('', '## Heritage Exclusivity', '');
+  const exclusiveClasses: Record<string, number[]> = {};
+  const heritageList = drakkinHeritages;
+  for (const h of heritageList) {
+    const exclusive = h.classes.filter(c => {
+      return heritageList.filter(h2 => h2.classes.includes(c)).length === 1;
+    });
+    if (exclusive.length > 0) exclusiveClasses[h.name] = exclusive;
+  }
+  if (Object.keys(exclusiveClasses).length > 0) {
+    for (const [heritage, classes] of Object.entries(exclusiveClasses)) {
+      lines.push(`- **${heritage}:** exclusive access to ${classes.map(c => CLASS_IDS[c]).join(', ')}`);
+    }
+  } else {
+    lines.push('*No heritage has exclusive class access — all classes available to Drakkin are shared across multiple heritages.*');
+  }
+
+  // Class overlap matrix
+  lines.push('', '## Heritage Overlap (Shared Classes)', '');
+  lines.push('| Heritage Pair | Shared Classes | Shared Count |');
+  lines.push('|:--------------|:---------------|-------------:|');
+  for (let i = 0; i < heritageList.length; i++) {
+    for (let j = i + 1; j < heritageList.length; j++) {
+      const shared = heritageList[i].classes.filter(c => heritageList[j].classes.includes(c));
+      if (shared.length > 0) {
+        lines.push(`| ${heritageList[i].name} + ${heritageList[j].name} | ${shared.map(c => CLASS_IDS[c]).join(', ')} | ${shared.length} |`);
+      }
+    }
+  }
+
+  lines.push('', `*${drakkinHeritages.length} Drakkin heritages analyzed.*`);
+  return lines.join('\n');
+}
+
+// Tool 265: Spell subcategory depth analysis
+export async function getSpellSubcategoryDepthAnalysis(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells) return 'Spell data not available.';
+
+  const lines = ['# Spell Subcategory Depth Analysis', ''];
+  lines.push('*Analyzes spell subcategory distribution, class specialization by subcategory, and category-subcategory hierarchies.*', '');
+
+  // Gather category+subcategory data
+  const catSubCounts: Map<string, number> = new Map(); // "catName|subName" -> count
+  const subClassCounts: Map<string, Set<number>> = new Map(); // subName -> set of classIds
+  const subSpellCounts: Map<string, number> = new Map(); // subName -> spell count
+  const catSpellCounts: Map<string, number> = new Map(); // catName -> spell count
+  const classSubCounts: Map<number, Map<string, number>> = new Map(); // classId -> subName -> count
+
+  for (const [, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const subId = parseInt(spell.fields[SF.SUBCATEGORY]) || 0;
+    const catName = spellCategories?.get(catId) || `Cat ${catId}`;
+    const subName = spellCategories?.get(subId) || `Sub ${subId}`;
+
+    const key = `${catName}|${subName}`;
+    catSubCounts.set(key, (catSubCounts.get(key) || 0) + 1);
+    subSpellCounts.set(subName, (subSpellCounts.get(subName) || 0) + 1);
+    catSpellCounts.set(catName, (catSpellCounts.get(catName) || 0) + 1);
+
+    if (!subClassCounts.has(subName)) subClassCounts.set(subName, new Set());
+
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level > 0 && level < 255) {
+        subClassCounts.get(subName)!.add(i);
+        if (!classSubCounts.has(i)) classSubCounts.set(i, new Map());
+        const m = classSubCounts.get(i)!;
+        m.set(subName, (m.get(subName) || 0) + 1);
+      }
+    }
+  }
+
+  lines.push(`- **Unique categories:** ${catSpellCounts.size}`);
+  lines.push(`- **Unique subcategories:** ${subSpellCounts.size}`);
+  lines.push(`- **Category-subcategory combinations:** ${catSubCounts.size}`);
+
+  // Top subcategories
+  lines.push('', '## Top 25 Subcategories by Spell Count', '');
+  lines.push('| Subcategory | Spells | Classes |');
+  lines.push('|:------------|-------:|--------:|');
+  const sortedSubs = [...subSpellCounts.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [name, count] of sortedSubs.slice(0, 25)) {
+    const classCount = subClassCounts.get(name)?.size || 0;
+    lines.push(`| ${name} | ${count} | ${classCount} |`);
+  }
+
+  // Class-exclusive subcategories
+  lines.push('', '## Class-Exclusive Subcategories', '');
+  lines.push('*Subcategories where only one class has spells.*', '');
+  const exclusive: { subName: string; classId: number; count: number }[] = [];
+  for (const [subName, classes] of subClassCounts) {
+    if (classes.size === 1) {
+      const classId = [...classes][0];
+      const count = subSpellCounts.get(subName) || 0;
+      if (count >= 3) exclusive.push({ subName, classId, count });
+    }
+  }
+  exclusive.sort((a, b) => b.count - a.count);
+  if (exclusive.length > 0) {
+    lines.push('| Subcategory | Class | Spells |');
+    lines.push('|:------------|:------|-------:|');
+    for (const e of exclusive.slice(0, 20)) {
+      lines.push(`| ${e.subName} | ${CLASS_IDS[e.classId]} | ${e.count} |`);
+    }
+  } else {
+    lines.push('*No class-exclusive subcategories found with 3+ spells.*');
+  }
+
+  // Category-subcategory hierarchy (top categories)
+  lines.push('', '## Category → Subcategory Hierarchy (Top 10 Categories)', '');
+  const sortedCats = [...catSpellCounts.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [catName] of sortedCats.slice(0, 10)) {
+    const subs: { name: string; count: number }[] = [];
+    for (const [key, count] of catSubCounts) {
+      const [cat, sub] = key.split('|');
+      if (cat === catName) subs.push({ name: sub, count });
+    }
+    subs.sort((a, b) => b.count - a.count);
+    lines.push(``, `### ${catName} (${catSpellCounts.get(catName)} spells)`);
+    for (const s of subs.slice(0, 8)) {
+      lines.push(`- ${s.name}: ${s.count} spells`);
+    }
+  }
+
+  // Per-class specialization (top subcategory per class)
+  lines.push('', '## Class Specialization (Top Subcategory per Class)', '');
+  lines.push('| Class | Top Subcategory | Spells in Sub | % of Class |');
+  lines.push('|:------|:----------------|-------------:|----------:|');
+  for (let i = 1; i <= 16; i++) {
+    const m = classSubCounts.get(i);
+    if (!m) continue;
+    const total = [...m.values()].reduce((s, v) => s + v, 0);
+    const [topSub, topCount] = [...m.entries()].sort((a, b) => b[1] - a[1])[0];
+    const pct = ((topCount / total) * 100).toFixed(1);
+    lines.push(`| ${CLASS_IDS[i]} | ${topSub} | ${topCount} | ${pct}% |`);
+  }
+
+  lines.push('', `*${catSubCounts.size} category-subcategory combinations analyzed.*`);
+  return lines.join('\n');
+}
+
+// Tool 266: Skill cap cross-class comparison for a specific skill
+export async function getSkillCapCrossClassComparison(skillName: string): Promise<string> {
+  await loadSkillCaps();
+  if (!skillCaps || skillCaps.length === 0) return 'Skill cap data not available.';
+
+  // Resolve skill ID
+  let targetSkillId: number | undefined;
+  for (const [id, name] of Object.entries(SKILL_NAMES)) {
+    if (name.toLowerCase() === skillName.toLowerCase()) {
+      targetSkillId = parseInt(id);
+      break;
+    }
+  }
+  if (targetSkillId === undefined) {
+    // Fuzzy match
+    for (const [id, name] of Object.entries(SKILL_NAMES)) {
+      if (name.toLowerCase().includes(skillName.toLowerCase())) {
+        targetSkillId = parseInt(id);
+        break;
+      }
+    }
+  }
+  if (targetSkillId === undefined) {
+    return `Unknown skill: "${skillName}". Available skills: ${Object.values(SKILL_NAMES).join(', ')}`;
+  }
+
+  const sName = SKILL_NAMES[targetSkillId];
+  const lines = [`# Skill Cap Cross-Class Comparison — ${sName}`, ''];
+  lines.push(`*Compares ${sName} skill cap progression across all 16 classes.*`, '');
+
+  // Gather data per class for this skill
+  const classData: Record<number, { maxCap: number; levels: { level: number; cap: number }[] }> = {};
+  for (const entry of skillCaps) {
+    if (entry.skillId !== targetSkillId) continue;
+    if (!classData[entry.classId]) classData[entry.classId] = { maxCap: 0, levels: [] };
+    classData[entry.classId].levels.push({ level: entry.level, cap: entry.cap });
+    if (entry.cap > classData[entry.classId].maxCap) classData[entry.classId].maxCap = entry.cap;
+  }
+
+  if (Object.keys(classData).length === 0) {
+    return `No skill cap data found for ${sName}. This skill may not have cap data.`;
+  }
+
+  // Classes that have this skill vs don't
+  const hasSkill = Object.keys(classData).map(Number).sort((a, b) => a - b);
+  const noSkill = Object.keys(CLASS_IDS).map(Number).filter(c => !classData[c]);
+
+  lines.push(`- **Classes with ${sName}:** ${hasSkill.length}`);
+  lines.push(`- **Classes without ${sName}:** ${noSkill.length}`);
+  if (noSkill.length > 0) {
+    lines.push(`- **Cannot learn:** ${noSkill.map(c => CLASS_IDS[c]).join(', ')}`);
+  }
+
+  // Max cap comparison
+  lines.push('', '## Max Skill Cap by Class', '');
+  lines.push('| Rank | Class | Max Cap |');
+  lines.push('|-----:|:------|--------:|');
+  const sortedClasses = hasSkill.sort((a, b) => (classData[b]?.maxCap || 0) - (classData[a]?.maxCap || 0));
+  for (let i = 0; i < sortedClasses.length; i++) {
+    const cid = sortedClasses[i];
+    lines.push(`| ${i + 1} | ${CLASS_IDS[cid]} | ${classData[cid].maxCap} |`);
+  }
+
+  // Progression at milestone levels
+  const milestones = [1, 10, 20, 30, 40, 50, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130];
+  lines.push('', '## Progression at Milestone Levels', '');
+  const header = ['| Level |', ...sortedClasses.map(c => ` ${CLASS_IDS[c]} |`)].join('');
+  const divider = ['|------:|', ...sortedClasses.map(() => '-------:|')].join('');
+  lines.push(header);
+  lines.push(divider);
+
+  for (const lvl of milestones) {
+    const row = [`| ${lvl} |`];
+    for (const cid of sortedClasses) {
+      const entry = classData[cid]?.levels.find(e => e.level === lvl);
+      row.push(entry ? ` ${entry.cap} |` : ' — |');
+    }
+    lines.push(row.join(''));
+  }
+
+  // Growth analysis: which class gains the most between level 1 and max
+  lines.push('', '## Growth Analysis', '');
+  lines.push('| Class | Level 1 Cap | Max Cap | Growth | Growth % |');
+  lines.push('|:------|------------:|--------:|-------:|---------:|');
+  for (const cid of sortedClasses) {
+    const data = classData[cid];
+    const sortedLvls = data.levels.sort((a, b) => a.level - b.level);
+    const first = sortedLvls[0];
+    const last = sortedLvls[sortedLvls.length - 1];
+    const growth = last.cap - first.cap;
+    const growthPct = first.cap > 0 ? ((growth / first.cap) * 100).toFixed(0) : '∞';
+    lines.push(`| ${CLASS_IDS[cid]} | ${first.cap} | ${last.cap} | +${growth} | ${growthPct}% |`);
+  }
+
+  // Tier grouping at max level
+  const maxCaps = sortedClasses.map(c => classData[c].maxCap);
+  const topCap = Math.max(...maxCaps);
+  lines.push('', '## Proficiency Tiers', '');
+  const tiers: Record<string, string[]> = { 'Master (90-100%)': [], 'Expert (70-89%)': [], 'Journeyman (50-69%)': [], 'Novice (<50%)': [] };
+  for (const cid of sortedClasses) {
+    const pct = (classData[cid].maxCap / topCap) * 100;
+    if (pct >= 90) tiers['Master (90-100%)'].push(CLASS_IDS[cid]);
+    else if (pct >= 70) tiers['Expert (70-89%)'].push(CLASS_IDS[cid]);
+    else if (pct >= 50) tiers['Journeyman (50-69%)'].push(CLASS_IDS[cid]);
+    else tiers['Novice (<50%)'].push(CLASS_IDS[cid]);
+  }
+  for (const [tier, classes] of Object.entries(tiers)) {
+    if (classes.length > 0) lines.push(`- **${tier}:** ${classes.join(', ')}`);
+  }
+
+  lines.push('', `*${sName} skill cap compared across ${hasSkill.length} classes.*`);
+  return lines.join('\n');
+}
