@@ -361,6 +361,9 @@ import {
   getClassSignatureSpells,
   getClassSPABreadth,
   getClassSpellScalingAnalysis,
+  getClassDamagePerMana,
+  getClassEnduranceVsManaProfile,
+  getClassSpellNamePatterns,
 } from './sources/index.js';
 
 export const tools = [
@@ -4441,6 +4444,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_damage_per_mana',
+    description: 'Damage per mana analysis — ranks damage spells by mana efficiency (DPM), showing best DPM by level bracket and most efficient nukes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_endurance_vs_mana_profile',
+    description: 'Endurance vs mana resource profile — split between mana-cost, endurance-cost, both, and free abilities with level bracket breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Berserker")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_name_patterns',
+    description: 'Spell naming pattern analysis — most common words, prefixes, and naming themes in spell names for a class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Paladin", "Shadow Knight")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7001,6 +7037,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellScalingAnalysis(className);
+      }
+
+      case 'get_class_damage_per_mana': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDamagePerMana(className);
+      }
+
+      case 'get_class_endurance_vs_mana_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassEnduranceVsManaProfile(className);
+      }
+
+      case 'get_class_spell_name_patterns': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellNamePatterns(className);
       }
 
       case 'search_help_topics': {

@@ -36467,3 +36467,209 @@ export async function getClassSpellScalingAnalysis(className: string): Promise<s
   lines.push(`*Scaling analysis for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassDamagePerMana(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const dpmSpells: { name: string; level: number; damage: number; mana: number; dpm: number; castSec: number; target: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    if (mana <= 0) continue;
+
+    // Find HP change effect (SPA 0) with negative value = damage
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    let totalDamage = 0;
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (spaId === 0 && base < 0) totalDamage += Math.abs(base);
+    }
+    if (totalDamage === 0) continue;
+
+    const castMs = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+
+    dpmSpells.push({
+      name: spell.fields[SF.NAME], level, damage: totalDamage, mana,
+      dpm: totalDamage / mana, castSec: castMs / 1000, target: targetName
+    });
+  }
+
+  dpmSpells.sort((a, b) => b.dpm - a.dpm);
+
+  const lines = [`# ${classFullName} Damage Per Mana Analysis`, ''];
+  lines.push('*Analyzes mana efficiency of damage spells — damage per mana point (DPM) rankings.*', '');
+  lines.push(`**Damage spells with mana cost:** ${dpmSpells.length}`, '');
+
+  lines.push('## Most Mana-Efficient Damage Spells — Top 25', '');
+  lines.push('| Spell | Level | Damage | Mana | DPM | Cast (s) | Target |');
+  lines.push('|:------|------:|-------:|-----:|----:|---------:|:-------|');
+  for (const s of dpmSpells.slice(0, 25)) {
+    lines.push(`| ${s.name} | ${s.level} | ${s.damage.toLocaleString()} | ${s.mana.toLocaleString()} | ${s.dpm.toFixed(2)} | ${s.castSec.toFixed(1)} | ${s.target} |`);
+  }
+
+  // DPM by level bracket
+  const bracketDPM: Record<string, { totalDPM: number; count: number; best: string; bestDPM: number }> = {};
+  const bracketOrder = ['1-10','11-20','21-30','31-40','41-50','51-60','61-70','71-80','81-90','91-100','101-110','111-120','121+'];
+  for (const s of dpmSpells) {
+    const bl = s.level <= 10 ? '1-10' : s.level <= 20 ? '11-20' : s.level <= 30 ? '21-30' :
+      s.level <= 40 ? '31-40' : s.level <= 50 ? '41-50' : s.level <= 60 ? '51-60' :
+      s.level <= 70 ? '61-70' : s.level <= 80 ? '71-80' : s.level <= 90 ? '81-90' :
+      s.level <= 100 ? '91-100' : s.level <= 110 ? '101-110' : s.level <= 120 ? '111-120' : '121+';
+    if (!bracketDPM[bl]) bracketDPM[bl] = { totalDPM: 0, count: 0, best: '', bestDPM: 0 };
+    bracketDPM[bl].totalDPM += s.dpm;
+    bracketDPM[bl].count++;
+    if (s.dpm > bracketDPM[bl].bestDPM) { bracketDPM[bl].bestDPM = s.dpm; bracketDPM[bl].best = s.name; }
+  }
+
+  lines.push('', '## DPM by Level Bracket', '');
+  lines.push('| Bracket | Avg DPM | Best DPM | Best Spell |');
+  lines.push('|:--------|--------:|---------:|:-----------|');
+  for (const bl of bracketOrder) {
+    const data = bracketDPM[bl];
+    if (!data) continue;
+    lines.push(`| ${bl} | ${(data.totalDPM / data.count).toFixed(2)} | ${data.bestDPM.toFixed(2)} | ${data.best} |`);
+  }
+
+  lines.push('', `*${dpmSpells.length} damage spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassEnduranceVsManaProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  let totalSpellsEV = 0, manaOnly = 0, endOnly = 0, both = 0, neither = 0;
+  const manaByLevel: Record<string, number> = {};
+  const endByLevel: Record<string, number> = {};
+  const bracketOrder2 = ['1-50','51-70','71-90','91-110','111-120','121+'];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsEV++;
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const end = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+
+    const bl = level <= 50 ? '1-50' : level <= 70 ? '51-70' : level <= 90 ? '71-90' :
+      level <= 110 ? '91-110' : level <= 120 ? '111-120' : '121+';
+
+    if (mana > 0 && end > 0) { both++; manaByLevel[bl] = (manaByLevel[bl] || 0) + 1; endByLevel[bl] = (endByLevel[bl] || 0) + 1; }
+    else if (mana > 0) { manaOnly++; manaByLevel[bl] = (manaByLevel[bl] || 0) + 1; }
+    else if (end > 0) { endOnly++; endByLevel[bl] = (endByLevel[bl] || 0) + 1; }
+    else { neither++; }
+  }
+
+  const lines = [`# ${classFullName} Endurance vs Mana Profile`, ''];
+  lines.push('*Analyzes the split between mana-cost and endurance-cost abilities.*', '');
+  lines.push(`**Total spells:** ${totalSpellsEV}`);
+  lines.push(`- Mana only: ${manaOnly} (${((manaOnly / totalSpellsEV) * 100).toFixed(1)}%)`);
+  lines.push(`- Endurance only: ${endOnly} (${((endOnly / totalSpellsEV) * 100).toFixed(1)}%)`);
+  lines.push(`- Both: ${both} (${((both / totalSpellsEV) * 100).toFixed(1)}%)`);
+  lines.push(`- Free (neither): ${neither} (${((neither / totalSpellsEV) * 100).toFixed(1)}%)`, '');
+
+  lines.push('## Resource Type by Level Bracket', '');
+  lines.push('| Bracket | Mana | Endurance |');
+  lines.push('|:--------|-----:|----------:|');
+  for (const bl of bracketOrder2) {
+    lines.push(`| ${bl} | ${manaByLevel[bl] || 0} | ${endByLevel[bl] || 0} |`);
+  }
+
+  // Ratio analysis
+  const manaTotal = manaOnly + both;
+  const endTotal = endOnly + both;
+  const ratio = manaTotal > 0 && endTotal > 0 ? (manaTotal / endTotal).toFixed(2) : manaTotal > 0 ? 'Mana only' : endTotal > 0 ? 'Endurance only' : 'N/A';
+
+  lines.push('', '## Resource Balance', '');
+  lines.push(`- Mana-using spells: ${manaTotal}`);
+  lines.push(`- Endurance-using spells: ${endTotal}`);
+  lines.push(`- Mana:Endurance ratio: ${ratio}`);
+
+  lines.push('', `*${totalSpellsEV} spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellNamePatterns(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const wordCounts: Record<string, number> = {};
+  const prefixCounts: Record<string, number> = {};
+  let totalSpellsNP = 0;
+
+  // Common words to skip
+  const stopWords = new Set(['the', 'of', 'a', 'an', 'and', 'or', 'to', 'in', 'for', 'on', 'at', 'by', 'rk', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx', 'xxi', 'i']);
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsNP++;
+
+    const name = spell.fields[SF.NAME];
+    const words = name.split(/[\s']+/).filter(w => w.length >= 3 && !stopWords.has(w.toLowerCase()));
+
+    for (const word of words) {
+      const lower = word.toLowerCase().replace(/[^a-z]/g, '');
+      if (lower.length >= 3) wordCounts[lower] = (wordCounts[lower] || 0) + 1;
+    }
+
+    // First word as prefix
+    const firstWord = name.split(/\s+/)[0];
+    if (firstWord && firstWord.length >= 3) {
+      prefixCounts[firstWord] = (prefixCounts[firstWord] || 0) + 1;
+    }
+  }
+
+  const sortedWords = Object.entries(wordCounts).sort((a, b) => b[1] - a[1]);
+  const sortedPrefixes = Object.entries(prefixCounts).sort((a, b) => b[1] - a[1]);
+
+  const lines = [`# ${classFullName} Spell Name Patterns`, ''];
+  lines.push('*Analyzes common words, naming themes, and prefixes in spell names.*', '');
+  lines.push(`**Total spells:** ${totalSpellsNP}`);
+  lines.push(`**Unique words:** ${sortedWords.length}`, '');
+
+  lines.push('## Most Common Words — Top 30', '');
+  lines.push('| Word | Occurrences |');
+  lines.push('|:-----|----------:|');
+  for (const [word, count] of sortedWords.slice(0, 30)) {
+    lines.push(`| ${word} | ${count} |`);
+  }
+
+  lines.push('', '## Most Common Prefixes (First Word) — Top 20', '');
+  lines.push('| Prefix | Spells |');
+  lines.push('|:-------|------:|');
+  for (const [prefix, count] of sortedPrefixes.slice(0, 20)) {
+    if (count >= 3) lines.push(`| ${prefix} | ${count} |`);
+  }
+
+  lines.push('', `*${totalSpellsNP} spell names analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

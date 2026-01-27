@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 353 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 356 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **353 tools** for querying EverQuest data
+- **356 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -333,6 +333,9 @@ Then restart Claude Desktop.
 | `get_class_signature_spells` | Signature spells — exclusive spells not available to any other class |
 | `get_class_spa_breadth` | SPA breadth — unique effect types, most common and rarest SPAs |
 | `get_class_spell_scaling_analysis` | Spell scaling — how HP/AC/mana values scale across level brackets |
+| `get_class_damage_per_mana` | Damage per mana efficiency — DPM rankings, most efficient nukes by level |
+| `get_class_endurance_vs_mana_profile` | Endurance vs mana resource split — cost types by level bracket |
+| `get_class_spell_name_patterns` | Spell name patterns — common words, prefixes, naming themes |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -511,7 +514,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (353 tools)
+├── tools.ts          # Tool definitions and handlers (356 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
