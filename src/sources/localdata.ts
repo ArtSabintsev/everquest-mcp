@@ -24798,3 +24798,626 @@ export async function getCombatAbilityClassAnalysis(): Promise<string> {
   lines.push('', `*${combatAbilities.size} combat abilities analyzed.*`);
   return lines.join('\n');
 }
+
+// Tool 258: Spell requirement class breakdown
+export async function getSpellRequirementClassBreakdown(): Promise<string> {
+  await loadSpellRequirements();
+  await loadSpells();
+  if (!spellRequirements || spellRequirements.size === 0) return 'Spell requirement data not available.';
+
+  const lines = ['# Spell Requirement Class Breakdown', ''];
+  lines.push('*Analyzes which classes have spells with the most requirements.*', '');
+
+  // Map requirement associations to classes
+  const classReqCounts: Record<number, number> = {}; // classId -> count of spells with requirements
+  const classReqEntries: Record<number, number> = {}; // classId -> total requirement entries
+  const reqIdByClass: Record<number, Set<number>> = {}; // classId -> unique req IDs
+  const multiClassReqs: { spellId: number; name: string; classes: number[]; reqCount: number }[] = [];
+
+  for (const [assocId, reqs] of spellRequirements) {
+    const spell = spells?.get(assocId);
+    if (!spell) continue;
+
+    const spellClasses: number[] = [];
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level > 0 && level < 255) spellClasses.push(i);
+    }
+
+    for (const classId of spellClasses) {
+      classReqCounts[classId] = (classReqCounts[classId] || 0) + 1;
+      classReqEntries[classId] = (classReqEntries[classId] || 0) + reqs.length;
+      if (!reqIdByClass[classId]) reqIdByClass[classId] = new Set();
+      for (const r of reqs) reqIdByClass[classId].add(r.reqId);
+    }
+
+    if (spellClasses.length > 1 && reqs.length >= 3) {
+      multiClassReqs.push({ spellId: assocId, name: spell.name, classes: spellClasses, reqCount: reqs.length });
+    }
+  }
+
+  // Per-class summary
+  lines.push('## Requirements by Class', '');
+  lines.push('| Class | Spells w/ Reqs | Total Req Entries | Unique Req IDs | Avg Reqs/Spell |');
+  lines.push('|:------|---------------:|------------------:|---------------:|---------------:|');
+  const sorted = Object.entries(classReqCounts).sort((a, b) => b[1] - a[1]);
+  for (const [cid, count] of sorted) {
+    const classId = parseInt(cid);
+    const entries = classReqEntries[classId] || 0;
+    const uniqueReqs = reqIdByClass[classId]?.size || 0;
+    const avg = (entries / count).toFixed(1);
+    lines.push(`| ${CLASS_IDS[classId]} | ${count} | ${entries} | ${uniqueReqs} | ${avg} |`);
+  }
+
+  // Class-exclusive requirement IDs
+  lines.push('', '## Class-Exclusive Requirement Patterns', '');
+  const allReqIds = new Set<number>();
+  for (const s of Object.values(reqIdByClass)) for (const id of s) allReqIds.add(id);
+  const exclusiveByClass: Record<number, number[]> = {};
+  for (const [cid, ids] of Object.entries(reqIdByClass)) {
+    const classId = parseInt(cid);
+    const exclusive = [...ids].filter(id => {
+      let count = 0;
+      for (const s of Object.values(reqIdByClass)) if (s.has(id)) count++;
+      return count === 1;
+    });
+    if (exclusive.length > 0) exclusiveByClass[classId] = exclusive;
+  }
+  if (Object.keys(exclusiveByClass).length > 0) {
+    for (const [cid, ids] of Object.entries(exclusiveByClass).sort((a, b) => b[1].length - a[1].length)) {
+      lines.push(`- **${CLASS_IDS[parseInt(cid)]}:** ${ids.length} exclusive req IDs (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? '...' : ''})`);
+    }
+  } else {
+    lines.push('*No class-exclusive requirement IDs found.*');
+  }
+
+  // Multi-class spells with many requirements
+  if (multiClassReqs.length > 0) {
+    multiClassReqs.sort((a, b) => b.reqCount - a.reqCount);
+    lines.push('', '## Multi-Class Spells with Most Requirements', '');
+    lines.push('| Spell | # Classes | # Requirements |');
+    lines.push('|:------|----------:|---------------:|');
+    for (const s of multiClassReqs.slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.classes.length} | ${s.reqCount} |`);
+    }
+  }
+
+  // Requirement density by level range
+  lines.push('', '## Requirement Density by Min Level', '');
+  const levelBuckets: Record<string, number> = {};
+  for (const [assocId, reqs] of spellRequirements) {
+    const spell = spells?.get(assocId);
+    if (!spell) continue;
+    let minLevel = 255;
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level > 0 && level < minLevel) minLevel = level;
+    }
+    if (minLevel >= 255) continue;
+    const bucket = minLevel <= 10 ? '1-10' : minLevel <= 30 ? '11-30' : minLevel <= 60 ? '31-60' : minLevel <= 85 ? '61-85' : minLevel <= 100 ? '86-100' : minLevel <= 115 ? '101-115' : '116+';
+    levelBuckets[bucket] = (levelBuckets[bucket] || 0) + 1;
+  }
+  const bucketOrder = ['1-10', '11-30', '31-60', '61-85', '86-100', '101-115', '116+'];
+  for (const bucket of bucketOrder) {
+    if (levelBuckets[bucket]) lines.push(`- **Level ${bucket}:** ${levelBuckets[bucket]} spells with requirements`);
+  }
+
+  lines.push('', `*${spellRequirements.size} spell-requirement associations analyzed.*`);
+  return lines.join('\n');
+}
+
+// Tool 259: AC mitigation progression analysis
+export async function getACMitigationProgressionAnalysis(className: string): Promise<string> {
+  await loadACMitigation();
+  if (!acMitigation || acMitigation.length === 0) return 'AC mitigation data not available.';
+
+  const classId = Object.entries(CLASS_IDS).find(([, name]) => name.toLowerCase() === className.toLowerCase())?.[0];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+
+  const cid = parseInt(classId);
+  const entries = acMitigation.filter(e => e.classId === cid).sort((a, b) => a.level - b.level);
+  if (entries.length === 0) return `No AC mitigation data found for ${CLASS_IDS[cid]}.`;
+
+  const lines = [`# AC Mitigation Progression — ${CLASS_IDS[cid]}`, ''];
+  lines.push(`*How AC soft cap and multiplier evolve from level ${entries[0].level} to ${entries[entries.length - 1].level}.*`, '');
+
+  // Full progression table (sample every 5 levels to keep manageable)
+  lines.push('## Progression by Level', '');
+  lines.push('| Level | AC Soft Cap | Soft Cap Mult | Cap Change | Mult Change |');
+  lines.push('|------:|-------------|---------------|------------|-------------|');
+  let prevCap = 0;
+  let prevMult = 0;
+  for (const e of entries) {
+    if (e.level % 5 === 0 || e.level === 1 || e.level === entries[entries.length - 1].level) {
+      const capDelta = prevCap > 0 ? `+${(e.acCap - prevCap).toLocaleString()}` : '—';
+      const multDelta = prevMult > 0 ? `${((e.softCapMultiplier - prevMult) * 100).toFixed(1)}%` : '—';
+      lines.push(`| ${e.level} | ${e.acCap.toLocaleString()} | ${(e.softCapMultiplier * 100).toFixed(0)}% | ${capDelta} | ${multDelta} |`);
+      prevCap = e.acCap;
+      prevMult = e.softCapMultiplier;
+    }
+  }
+
+  // Biggest jumps (breakpoints)
+  lines.push('', '## Key Breakpoints (Biggest AC Cap Increases)', '');
+  lines.push('| Level | AC Cap Before | AC Cap After | Increase | % Jump |');
+  lines.push('|------:|--------------:|-------------:|---------:|-------:|');
+  const jumps: { level: number; before: number; after: number; delta: number; pct: number }[] = [];
+  for (let i = 1; i < entries.length; i++) {
+    const delta = entries[i].acCap - entries[i - 1].acCap;
+    if (delta > 0 && entries[i - 1].acCap > 0) {
+      const pct = (delta / entries[i - 1].acCap) * 100;
+      jumps.push({ level: entries[i].level, before: entries[i - 1].acCap, after: entries[i].acCap, delta, pct });
+    }
+  }
+  jumps.sort((a, b) => b.delta - a.delta);
+  for (const j of jumps.slice(0, 10)) {
+    lines.push(`| ${j.level} | ${j.before.toLocaleString()} | ${j.after.toLocaleString()} | +${j.delta.toLocaleString()} | +${j.pct.toFixed(1)}% |`);
+  }
+
+  // Multiplier changes
+  const multChanges: { level: number; before: number; after: number }[] = [];
+  for (let i = 1; i < entries.length; i++) {
+    if (entries[i].softCapMultiplier !== entries[i - 1].softCapMultiplier) {
+      multChanges.push({ level: entries[i].level, before: entries[i - 1].softCapMultiplier, after: entries[i].softCapMultiplier });
+    }
+  }
+  if (multChanges.length > 0) {
+    lines.push('', '## Soft Cap Multiplier Changes', '');
+    lines.push('| Level | Before | After | Direction |');
+    lines.push('|------:|-------:|------:|-----------|');
+    for (const mc of multChanges) {
+      const dir = mc.after > mc.before ? 'Improved' : 'Reduced';
+      lines.push(`| ${mc.level} | ${(mc.before * 100).toFixed(1)}% | ${(mc.after * 100).toFixed(1)}% | ${dir} |`);
+    }
+  }
+
+  // Compare to class average at max level
+  const maxLevel = entries[entries.length - 1].level;
+  const allClassesAtMax = acMitigation.filter(e => e.level === maxLevel);
+  if (allClassesAtMax.length > 1) {
+    const avgCap = allClassesAtMax.reduce((s, e) => s + e.acCap, 0) / allClassesAtMax.length;
+    const myEntry = entries[entries.length - 1];
+    const rank = allClassesAtMax.filter(e => e.acCap > myEntry.acCap).length + 1;
+    lines.push('', `## Level ${maxLevel} Comparison`, '');
+    lines.push(`- **${CLASS_IDS[cid]} AC cap:** ${myEntry.acCap.toLocaleString()}`);
+    lines.push(`- **All-class average:** ${Math.round(avgCap).toLocaleString()}`);
+    lines.push(`- **Rank:** ${rank} of ${allClassesAtMax.length}`);
+    lines.push(`- **vs Average:** ${myEntry.acCap > avgCap ? '+' : ''}${(((myEntry.acCap / avgCap) - 1) * 100).toFixed(1)}%`);
+  }
+
+  // Summary stats
+  lines.push('', '## Summary', '');
+  lines.push(`- **Level range:** ${entries[0].level}–${entries[entries.length - 1].level}`);
+  lines.push(`- **AC cap range:** ${entries[0].acCap.toLocaleString()} → ${entries[entries.length - 1].acCap.toLocaleString()}`);
+  lines.push(`- **Total AC cap growth:** +${(entries[entries.length - 1].acCap - entries[0].acCap).toLocaleString()}`);
+  lines.push(`- **Multiplier range:** ${(entries[0].softCapMultiplier * 100).toFixed(0)}% → ${(entries[entries.length - 1].softCapMultiplier * 100).toFixed(0)}%`);
+  lines.push(`- **Data points:** ${entries.length}`);
+
+  lines.push('', `*AC mitigation progression for ${CLASS_IDS[cid]} analyzed.*`);
+  return lines.join('\n');
+}
+
+// Tool 260: Spell stacking conflict analysis
+export async function getSpellStackingConflictAnalysis(): Promise<string> {
+  await loadSpellStacking();
+  await loadSpells();
+  if (!spellStacking || !spellGroupNames || spellGroupNames.size === 0) {
+    return 'Spell stacking data not available.';
+  }
+
+  const lines = ['# Spell Stacking Conflict Analysis', ''];
+  lines.push('*Identifies stacking groups where multiple classes contribute spells, indicating potential buff conflicts.*', '');
+
+  // Build class → groups and group → classes maps
+  const groupClasses: Map<number, Set<number>> = new Map();
+  const groupSpells: Map<number, { spellId: number; name: string; classId: number }[]> = new Map();
+
+  for (const [spellId, entries] of spellStacking) {
+    const spell = spells?.get(spellId);
+    if (!spell) continue;
+
+    // Find which classes can cast this spell
+    const spellClasses: number[] = [];
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level > 0 && level < 255) spellClasses.push(i);
+    }
+    if (spellClasses.length === 0) continue;
+
+    for (const entry of entries) {
+      const gid = entry.stackingGroup;
+      if (!groupClasses.has(gid)) groupClasses.set(gid, new Set());
+      if (!groupSpells.has(gid)) groupSpells.set(gid, []);
+
+      for (const classId of spellClasses) {
+        groupClasses.get(gid)!.add(classId);
+        groupSpells.get(gid)!.push({ spellId, name: spell.name, classId });
+      }
+    }
+  }
+
+  // Find multi-class stacking groups (conflict potential)
+  const conflictGroups: { groupId: number; name: string; classCount: number; spellCount: number; classes: number[] }[] = [];
+  for (const [gid, classes] of groupClasses) {
+    if (classes.size >= 2) {
+      const spells = groupSpells.get(gid) || [];
+      const uniqueSpells = new Set(spells.map(s => s.spellId));
+      conflictGroups.push({
+        groupId: gid,
+        name: spellGroupNames.get(gid) || `Group ${gid}`,
+        classCount: classes.size,
+        spellCount: uniqueSpells.size,
+        classes: [...classes].sort((a, b) => a - b),
+      });
+    }
+  }
+  conflictGroups.sort((a, b) => b.classCount - a.classCount || b.spellCount - a.spellCount);
+
+  lines.push(`- **Total stacking groups:** ${spellGroupNames.size}`);
+  lines.push(`- **Multi-class groups (conflict potential):** ${conflictGroups.length}`);
+  lines.push(`- **Single-class groups:** ${spellGroupNames.size - conflictGroups.length}`);
+
+  // Top conflict groups by class count
+  lines.push('', '## Most Contested Stacking Groups (Most Classes)', '');
+  lines.push('| Group | Classes | Spells | Class List |');
+  lines.push('|:------|--------:|-------:|:-----------|');
+  for (const g of conflictGroups.slice(0, 20)) {
+    const classList = g.classes.map(c => CLASS_IDS[c]).join(', ');
+    lines.push(`| ${g.name} | ${g.classCount} | ${g.spellCount} | ${classList} |`);
+  }
+
+  // Class pair conflict frequency
+  lines.push('', '## Class Pair Conflict Frequency', '');
+  lines.push('*How many stacking groups each pair of classes shares.*', '');
+  const pairConflicts: Record<string, number> = {};
+  for (const g of conflictGroups) {
+    for (let i = 0; i < g.classes.length; i++) {
+      for (let j = i + 1; j < g.classes.length; j++) {
+        const key = `${g.classes[i]}-${g.classes[j]}`;
+        pairConflicts[key] = (pairConflicts[key] || 0) + 1;
+      }
+    }
+  }
+  const sortedPairs = Object.entries(pairConflicts).sort((a, b) => b[1] - a[1]);
+  lines.push('| Class Pair | Shared Groups |');
+  lines.push('|:-----------|-------------:|');
+  for (const [key, count] of sortedPairs.slice(0, 20)) {
+    const [c1, c2] = key.split('-').map(Number);
+    lines.push(`| ${CLASS_IDS[c1]} + ${CLASS_IDS[c2]} | ${count} |`);
+  }
+
+  // Per-class conflict exposure
+  lines.push('', '## Per-Class Conflict Exposure', '');
+  lines.push('| Class | Conflict Groups | Avg Classes/Group |');
+  lines.push('|:------|----------------:|------------------:|');
+  const classConflictGroups: Record<number, number[]> = {};
+  for (const g of conflictGroups) {
+    for (const c of g.classes) {
+      if (!classConflictGroups[c]) classConflictGroups[c] = [];
+      classConflictGroups[c].push(g.classCount);
+    }
+  }
+  const sortedExposure = Object.entries(classConflictGroups).sort((a, b) => b[1].length - a[1].length);
+  for (const [cid, groupCounts] of sortedExposure) {
+    const avg = (groupCounts.reduce((s, v) => s + v, 0) / groupCounts.length).toFixed(1);
+    lines.push(`| ${CLASS_IDS[parseInt(cid)]} | ${groupCounts.length} | ${avg} |`);
+  }
+
+  // Stacking type breakdown in conflict groups
+  const conflictGroupIds = new Set(conflictGroups.map(g => g.groupId));
+  const conflictTypeCount: Record<number, number> = {};
+  for (const [, entries] of spellStacking) {
+    for (const entry of entries) {
+      if (conflictGroupIds.has(entry.stackingGroup)) {
+        conflictTypeCount[entry.stackingType] = (conflictTypeCount[entry.stackingType] || 0) + 1;
+      }
+    }
+  }
+  lines.push('', '## Stacking Types in Conflict Groups', '');
+  for (const [type, count] of Object.entries(conflictTypeCount).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **Type ${type}:** ${count} entries`);
+  }
+
+  lines.push('', `*${conflictGroups.length} multi-class stacking groups analyzed for conflict potential.*`);
+  return lines.join('\n');
+}
+
+// Tool 261: Mercenary ability spell analysis
+export async function getMercenaryAbilitySpellAnalysis(): Promise<string> {
+  await loadMercenaryStances();
+  await loadSpells();
+  if (!mercenaryAbilities || mercenaryAbilities.size === 0) return 'Mercenary ability data not available.';
+
+  const lines = ['# Mercenary Ability Spell Analysis', ''];
+  lines.push('*Cross-references mercenary abilities with the spell database to identify what spells mercenaries can cast.*', '');
+
+  // Try to match merc abilities to spells by name
+  const matched: { abilityId: number; abilityName: string; spellId: number; spellName: string; beneficial: boolean; category: string }[] = [];
+  const unmatched: { id: number; name: string; desc: string }[] = [];
+
+  for (const [id, ability] of mercenaryAbilities) {
+    let found = false;
+    if (spells && spellNameIndex) {
+      // Try exact match first
+      const lowerName = ability.name.toLowerCase();
+      const matches = spellNameIndex.get(lowerName);
+      if (matches && matches.length > 0) {
+        const spell = spells.get(matches[0])!;
+        const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+        const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+        const cat = spellCategories?.get(catId) || 'Unknown';
+        matched.push({ abilityId: id, abilityName: ability.name, spellId: matches[0], spellName: spell.name, beneficial, category: cat });
+        found = true;
+      }
+    }
+    if (!found) {
+      unmatched.push({ id, name: ability.name, desc: ability.description.slice(0, 80) });
+    }
+  }
+
+  lines.push(`- **Total mercenary abilities:** ${mercenaryAbilities.size}`);
+  lines.push(`- **Matched to spells:** ${matched.length} (${((matched.length / mercenaryAbilities.size) * 100).toFixed(1)}%)`);
+  lines.push(`- **Unmatched:** ${unmatched.length}`);
+
+  // Matched abilities by category
+  if (matched.length > 0) {
+    const byCat: Record<string, typeof matched> = {};
+    for (const m of matched) {
+      const cat = m.category;
+      if (!byCat[cat]) byCat[cat] = [];
+      byCat[cat].push(m);
+    }
+    lines.push('', '## Matched Abilities by Spell Category', '');
+    lines.push('| Category | Count | Beneficial | Detrimental |');
+    lines.push('|:---------|------:|-----------:|------------:|');
+    for (const [cat, entries] of Object.entries(byCat).sort((a, b) => b[1].length - a[1].length)) {
+      const ben = entries.filter(e => e.beneficial).length;
+      const det = entries.length - ben;
+      lines.push(`| ${cat} | ${entries.length} | ${ben} | ${det} |`);
+    }
+
+    // Sample matched abilities
+    lines.push('', '## Sample Matched Abilities', '');
+    lines.push('| Merc Ability | Spell Match | Type | Category |');
+    lines.push('|:-------------|:------------|:-----|:---------|');
+    for (const m of matched.slice(0, 25)) {
+      const type = m.beneficial ? 'Beneficial' : 'Detrimental';
+      lines.push(`| ${m.abilityName} | ${m.spellName} | ${type} | ${m.category} |`);
+    }
+  }
+
+  // Unmatched abilities analysis
+  if (unmatched.length > 0) {
+    lines.push('', '## Unmatched Abilities (No Spell Name Match)', '');
+    lines.push('| Ability | Description |');
+    lines.push('|:--------|:------------|');
+    for (const u of unmatched.slice(0, 25)) {
+      lines.push(`| ${u.name} | ${u.desc} |`);
+    }
+  }
+
+  // Ability name word frequency
+  const wordFreq: Record<string, number> = {};
+  const stopWords = new Set(['the', 'of', 'and', 'a', 'to', 'in', 'for', 'is', 'on', 'rk', 'ii', 'iii']);
+  for (const [, ability] of mercenaryAbilities) {
+    const words = ability.name.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2 && !stopWords.has(w));
+    for (const word of words) wordFreq[word] = (wordFreq[word] || 0) + 1;
+  }
+  lines.push('', '## Most Common Words in Ability Names', '');
+  lines.push('| Word | Count |');
+  lines.push('|:-----|------:|');
+  const sortedWords = Object.entries(wordFreq).sort((a, b) => b[1] - a[1]);
+  for (const [word, count] of sortedWords.slice(0, 15)) {
+    lines.push(`| ${word} | ${count} |`);
+  }
+
+  lines.push('', `*${mercenaryAbilities.size} mercenary abilities analyzed.*`);
+  return lines.join('\n');
+}
+
+// Tool 262: Overseer trait synergy analysis
+export async function getOverseerTraitSynergyAnalysis(): Promise<string> {
+  await loadOverseerQuests();
+  await loadOverseerMinions();
+  await loadOverseerEnhancements();
+  if (!overseerQuests || !overseerMinions) return 'Overseer data not available.';
+
+  const lines = ['# Overseer Trait Synergy Analysis', ''];
+  lines.push('*Analyzes which traits co-occur as bonus traits in quest slots, identifying the most synergistic trait combinations.*', '');
+
+  // Build trait pair co-occurrence from quest slot bonus traits
+  const traitPairCount: Map<string, number> = new Map();
+  const traitSlotCount: Map<number, number> = new Map(); // traitId -> how many slots require it as bonus
+  const traitQuestCount: Map<number, number> = new Map(); // traitId -> how many quests it appears in
+
+  for (const [, quest] of overseerQuests) {
+    const questTraits = new Set<number>();
+    for (const slot of quest.slotDetails) {
+      for (const traitId of slot.bonusTraitIds) {
+        traitSlotCount.set(traitId, (traitSlotCount.get(traitId) || 0) + 1);
+        questTraits.add(traitId);
+      }
+      // Co-occurrence within same slot
+      const sorted = [...slot.bonusTraitIds].sort((a, b) => a - b);
+      for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+          const key = `${sorted[i]}-${sorted[j]}`;
+          traitPairCount.set(key, (traitPairCount.get(key) || 0) + 1);
+        }
+      }
+    }
+    for (const tid of questTraits) {
+      traitQuestCount.set(tid, (traitQuestCount.get(tid) || 0) + 1);
+    }
+  }
+
+  // Trait name resolution
+  const traitName = (id: number): string => overseerTraitDescs?.get(id) || `Trait ${id}`;
+
+  lines.push(`- **Total quests analyzed:** ${overseerQuests.size}`);
+  lines.push(`- **Unique bonus traits:** ${traitSlotCount.size}`);
+  lines.push(`- **Trait pair combinations:** ${traitPairCount.size}`);
+
+  // Most requested traits
+  lines.push('', '## Most Requested Bonus Traits', '');
+  lines.push('| Trait | Slot Appearances | Quest Count |');
+  lines.push('|:------|----------------:|------------:|');
+  const sortedTraits = [...traitSlotCount.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [tid, count] of sortedTraits.slice(0, 20)) {
+    const qCount = traitQuestCount.get(tid) || 0;
+    lines.push(`| ${traitName(tid)} | ${count} | ${qCount} |`);
+  }
+
+  // Most synergistic trait pairs (co-occur most in same slot)
+  lines.push('', '## Most Synergistic Trait Pairs (Same Slot Co-occurrence)', '');
+  lines.push('| Trait 1 | Trait 2 | Co-occurrences |');
+  lines.push('|:--------|:--------|---------------:|');
+  const sortedPairs = [...traitPairCount.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [key, count] of sortedPairs.slice(0, 20)) {
+    const [t1, t2] = key.split('-').map(Number);
+    lines.push(`| ${traitName(t1)} | ${traitName(t2)} | ${count} |`);
+  }
+
+  // Agents that cover the most requested traits
+  lines.push('', '## Best Agents by Trait Coverage', '');
+  lines.push('*Agents whose traits match the most-requested bonus traits.*', '');
+  const topTraitIds = new Set(sortedTraits.slice(0, 30).map(([tid]) => tid));
+  const agentScores: { name: string; matchCount: number; traits: string[] }[] = [];
+  for (const [, minion] of overseerMinions) {
+    const matchCount = minion.traitIds.filter(tid => topTraitIds.has(tid)).length;
+    if (matchCount > 0) {
+      agentScores.push({ name: minion.shortName || minion.fullName, matchCount, traits: minion.traits });
+    }
+  }
+  agentScores.sort((a, b) => b.matchCount - a.matchCount);
+  lines.push('| Agent | Top Trait Matches | Traits |');
+  lines.push('|:------|------------------:|:-------|');
+  for (const a of agentScores.slice(0, 15)) {
+    lines.push(`| ${a.name} | ${a.matchCount} | ${a.traits.join(', ')} |`);
+  }
+
+  // Trait diversity per difficulty level
+  const diffTraits: Record<number, Set<number>> = {};
+  for (const [, quest] of overseerQuests) {
+    if (!diffTraits[quest.difficulty]) diffTraits[quest.difficulty] = new Set();
+    for (const slot of quest.slotDetails) {
+      for (const tid of slot.bonusTraitIds) diffTraits[quest.difficulty].add(tid);
+    }
+  }
+  lines.push('', '## Bonus Trait Diversity by Difficulty', '');
+  for (const [diff, traits] of Object.entries(diffTraits).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    lines.push(`- **Difficulty ${diff}:** ${traits.size} unique bonus traits`);
+  }
+
+  lines.push('', `*${traitPairCount.size} trait pair combinations analyzed across ${overseerQuests.size} quests.*`);
+  return lines.join('\n');
+}
+
+// Tool 263: Class spell level gap analysis
+export async function getClassSpellLevelGapAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells) return 'Spell data not available.';
+
+  const classId = Object.entries(CLASS_IDS).find(([, name]) => name.toLowerCase() === className.toLowerCase())?.[0];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+
+  const cid = parseInt(classId);
+  const lines = [`# Spell Level Gap Analysis — ${CLASS_IDS[cid]}`, ''];
+  lines.push(`*Identifies level ranges where ${CLASS_IDS[cid]} receives few or no new spells.*`, '');
+
+  // Collect all spells for this class by level
+  const spellsByLevel: Record<number, { id: number; name: string; category: string }[]> = {};
+  for (const [spellId, spell] of spells) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (!spellsByLevel[level]) spellsByLevel[level] = [];
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const cat = spellCategories?.get(catId) || 'Unknown';
+    spellsByLevel[level].push({ id: spellId, name: spell.name, category: cat });
+  }
+
+  const levels = Object.keys(spellsByLevel).map(Number).sort((a, b) => a - b);
+  if (levels.length === 0) return `No spells found for ${CLASS_IDS[cid]}.`;
+
+  const totalSpells = Object.values(spellsByLevel).reduce((s, v) => s + v.length, 0);
+  lines.push(`- **Total spells:** ${totalSpells}`);
+  lines.push(`- **Level range:** ${levels[0]}–${levels[levels.length - 1]}`);
+  lines.push(`- **Levels with spells:** ${levels.length}`);
+  lines.push(`- **Average spells per level:** ${(totalSpells / levels.length).toFixed(1)}`);
+
+  // Find gaps (consecutive levels with no spells)
+  const maxLevel = levels[levels.length - 1];
+  const gaps: { start: number; end: number; length: number }[] = [];
+  let gapStart: number | null = null;
+  for (let lvl = levels[0]; lvl <= maxLevel; lvl++) {
+    if (!spellsByLevel[lvl]) {
+      if (gapStart === null) gapStart = lvl;
+    } else {
+      if (gapStart !== null) {
+        gaps.push({ start: gapStart, end: lvl - 1, length: lvl - gapStart });
+        gapStart = null;
+      }
+    }
+  }
+  if (gapStart !== null) gaps.push({ start: gapStart, end: maxLevel, length: maxLevel - gapStart + 1 });
+  gaps.sort((a, b) => b.length - a.length);
+
+  lines.push('', '## Largest Level Gaps (No New Spells)', '');
+  lines.push('| Gap Range | Length | Spells Before | Spells After |');
+  lines.push('|:----------|-------:|--------------:|-------------:|');
+  for (const g of gaps.slice(0, 15)) {
+    const before = spellsByLevel[g.start - 1]?.length || 0;
+    const after = spellsByLevel[g.end + 1]?.length || 0;
+    lines.push(`| ${g.start}–${g.end} | ${g.length} levels | ${before} | ${after} |`);
+  }
+
+  // Spell density by level range
+  lines.push('', '## Spell Density by Level Range', '');
+  const ranges: [string, number, number][] = [
+    ['1-10', 1, 10], ['11-20', 11, 20], ['21-30', 21, 30], ['31-40', 31, 40],
+    ['41-50', 41, 50], ['51-60', 51, 60], ['61-70', 61, 70], ['71-80', 71, 80],
+    ['81-90', 81, 90], ['91-100', 91, 100], ['101-110', 101, 110], ['111-120', 111, 120], ['121-130', 121, 130],
+  ];
+  lines.push('| Level Range | Spells | Bar |');
+  lines.push('|:------------|-------:|:----|');
+  let maxCount = 0;
+  for (const [, lo, hi] of ranges) {
+    let count = 0;
+    for (let lvl = lo; lvl <= hi; lvl++) count += spellsByLevel[lvl]?.length || 0;
+    if (count > maxCount) maxCount = count;
+  }
+  for (const [label, lo, hi] of ranges) {
+    let count = 0;
+    for (let lvl = lo; lvl <= hi; lvl++) count += spellsByLevel[lvl]?.length || 0;
+    if (count === 0 && lo > maxLevel) continue;
+    const barLen = maxCount > 0 ? Math.round((count / maxCount) * 30) : 0;
+    lines.push(`| ${label} | ${count} | ${'█'.repeat(barLen)} |`);
+  }
+
+  // Busiest levels
+  lines.push('', '## Busiest Levels (Most New Spells)', '');
+  lines.push('| Level | New Spells | Categories |');
+  lines.push('|------:|-----------:|:-----------|');
+  const sortedLevels = levels.map(lvl => ({ lvl, count: spellsByLevel[lvl].length })).sort((a, b) => b.count - a.count);
+  for (const { lvl, count } of sortedLevels.slice(0, 10)) {
+    const cats = new Set(spellsByLevel[lvl].map(s => s.category));
+    lines.push(`| ${lvl} | ${count} | ${[...cats].slice(0, 4).join(', ')} |`);
+  }
+
+  // Category distribution
+  lines.push('', '## Spells by Category', '');
+  const catCounts: Record<string, number> = {};
+  for (const entries of Object.values(spellsByLevel)) {
+    for (const e of entries) catCounts[e.category] = (catCounts[e.category] || 0) + 1;
+  }
+  lines.push('| Category | Count | % |');
+  lines.push('|:---------|------:|--:|');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    const pct = ((count / totalSpells) * 100).toFixed(1);
+    lines.push(`| ${cat} | ${count} | ${pct}% |`);
+  }
+
+  lines.push('', `*${totalSpells} spells across ${levels.length} levels analyzed for ${CLASS_IDS[cid]}.*`);
+  return lines.join('\n');
+}

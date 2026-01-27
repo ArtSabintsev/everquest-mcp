@@ -265,6 +265,12 @@ import {
   getPlayerCustomizationOverview,
   getRaceAppearanceOptions,
   getCombatAbilityClassAnalysis,
+  getSpellRequirementClassBreakdown,
+  getACMitigationProgressionAnalysis,
+  getSpellStackingConflictAnalysis,
+  getMercenaryAbilitySpellAnalysis,
+  getOverseerTraitSynergyAnalysis,
+  getClassSpellLevelGapAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -3384,6 +3390,48 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'get_spell_requirement_class_breakdown',
+    description: 'Spell requirement class breakdown — shows which classes have the most spells with requirements, exclusive requirement IDs per class, multi-class requirement density, and level distribution.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_ac_mitigation_progression_analysis',
+    description: 'AC mitigation progression analysis for a specific class — shows AC soft cap and multiplier changes across all levels, key breakpoints with biggest jumps, and comparison to all-class average at max level.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_spell_stacking_conflict_analysis',
+    description: 'Spell stacking conflict analysis — identifies stacking groups shared by multiple classes (potential buff conflicts), class pair conflict frequency, per-class conflict exposure, and stacking type breakdown.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_mercenary_ability_spell_analysis',
+    description: 'Cross-references mercenary abilities with the spell database — shows which abilities match known spells, spell categories, beneficial/detrimental breakdown, and common ability name patterns.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_overseer_trait_synergy_analysis',
+    description: 'Overseer trait synergy analysis — identifies which traits co-occur as bonus traits in quest slots, most requested traits, best agents by trait coverage, and trait diversity by difficulty.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_class_spell_level_gap_analysis',
+    description: 'Class spell level gap analysis — finds level ranges where a class receives few or no new spells ("dry spells"), spell density by decade, busiest levels, and category distribution.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5399,6 +5447,34 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_combat_ability_class_analysis': {
         return getCombatAbilityClassAnalysis();
+      }
+
+      case 'get_spell_requirement_class_breakdown': {
+        return getSpellRequirementClassBreakdown();
+      }
+
+      case 'get_ac_mitigation_progression_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getACMitigationProgressionAnalysis(className);
+      }
+
+      case 'get_spell_stacking_conflict_analysis': {
+        return getSpellStackingConflictAnalysis();
+      }
+
+      case 'get_mercenary_ability_spell_analysis': {
+        return getMercenaryAbilitySpellAnalysis();
+      }
+
+      case 'get_overseer_trait_synergy_analysis': {
+        return getOverseerTraitSynergyAnalysis();
+      }
+
+      case 'get_class_spell_level_gap_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellLevelGapAnalysis(className);
       }
 
       case 'search_help_topics': {
