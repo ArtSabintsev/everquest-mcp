@@ -310,6 +310,9 @@ import {
   getClassResistDebuffProfile,
   getClassManaRecoveryProfile,
   getClassSpellFocusProfile,
+  getClassAESpellProfile,
+  getClassInstantCastProfile,
+  getClassBuffDurationAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -3828,6 +3831,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_ae_spell_profile',
+    description: 'AE spell profile for a class — PB AE, Targeted AE, Directional, Beam, Ring AE; radius distribution, resist types, beneficial vs detrimental.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Magician")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_instant_cast_profile',
+    description: 'Instant-cast spell profile for a class — zero cast time spells, categories, effects, endurance vs mana, emergency tools.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Warrior")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_buff_duration_analysis',
+    description: 'Buff duration tier analysis for a class — instant/short/medium/long/permanent tiers, average by category, longest buffs, target type duration profile.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Bard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6081,6 +6117,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellFocusProfile(className);
+      }
+
+      case 'get_class_ae_spell_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassAESpellProfile(className);
+      }
+
+      case 'get_class_instant_cast_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassInstantCastProfile(className);
+      }
+
+      case 'get_class_buff_duration_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassBuffDurationAnalysis(className);
       }
 
       case 'search_help_topics': {

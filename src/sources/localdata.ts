@@ -30412,3 +30412,448 @@ export async function getClassSpellFocusProfile(className: string): Promise<stri
   lines.push('', `*${focusSpells.length} focus spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 303: AE spell profile per class
+export async function getClassAESpellProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // AE target types: 4=PB AE, 8=Targeted AE, 42=Directional AE, 44=Beam, 46=Target Ring AE
+  const AE_TYPES: Record<number, string> = {
+    4: 'PB AE',
+    8: 'Targeted AE',
+    42: 'Directional AE',
+    44: 'Beam',
+    46: 'Target Ring AE',
+  };
+
+  interface AESpell {
+    name: string;
+    level: number;
+    aeType: string;
+    aeRange: number;
+    range: number;
+    mana: number;
+    endurance: number;
+    castTime: number;
+    beneficial: boolean;
+    effects: string[];
+    resistType: string;
+  }
+
+  const aeSpells: AESpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    if (!AE_TYPES[targetTypeId]) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+
+    const effectNames: string[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (spaId > 0 && SPA_NAMES[spaId]) effectNames.push(SPA_NAMES[spaId]);
+        }
+      }
+    }
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const aeRange = parseInt(spell.fields[SF.AE_RANGE]) || 0;
+    const range = parseInt(spell.fields[SF.RANGE]) || 0;
+    const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const resistTypeId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+
+    aeSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      aeType: AE_TYPES[targetTypeId],
+      aeRange,
+      range,
+      mana,
+      endurance,
+      castTime,
+      beneficial: isBeneficial,
+      effects: [...new Set(effectNames)],
+      resistType: RESIST_TYPES[resistTypeId] || 'Unknown',
+    });
+  }
+
+  const lines = [`# ${classFullName} AE Spell Profile`, ''];
+  lines.push('*Analyzes area-effect spells: PB AE, Targeted AE, Directional, Beam, Ring AE.*', '');
+
+  if (aeSpells.length === 0) {
+    lines.push('No AE spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total AE spells:** ${aeSpells.length}`);
+  const beneficialAE = aeSpells.filter(s => s.beneficial);
+  const detrimentalAE = aeSpells.filter(s => !s.beneficial);
+  lines.push(`- Beneficial AE: ${beneficialAE.length}`);
+  lines.push(`- Detrimental AE: ${detrimentalAE.length}`);
+
+  // AE type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of aeSpells) typeCounts[s.aeType] = (typeCounts[s.aeType] || 0) + 1;
+  lines.push('', '## AE Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Resist type breakdown for detrimental AEs
+  if (detrimentalAE.length > 0) {
+    const resistCounts: Record<string, number> = {};
+    for (const s of detrimentalAE) resistCounts[s.resistType] = (resistCounts[s.resistType] || 0) + 1;
+    lines.push('', '## Detrimental AE Resist Types', '');
+    for (const [type, count] of Object.entries(resistCounts).sort((a, b) => b[1] - a[1])) {
+      lines.push(`- **${type}:** ${count} spells`);
+    }
+  }
+
+  // Largest radius AE spells
+  const withRadius = aeSpells.filter(s => s.aeRange > 0);
+  if (withRadius.length > 0) {
+    lines.push('', '## Largest AE Radius (Top 15)', '');
+    lines.push('| Spell | Level | AE Type | Radius | Range | B/D |');
+    lines.push('|:------|------:|:--------|-------:|------:|:----|');
+    for (const s of withRadius.sort((a, b) => b.aeRange - a.aeRange).slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.aeType} | ${s.aeRange} | ${s.range || '—'} | ${s.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+  }
+
+  // Highest level detrimental AEs
+  if (detrimentalAE.length > 0) {
+    lines.push('', '## Highest Level Detrimental AEs (Top 15)', '');
+    lines.push('| Spell | Level | AE Type | Radius | Cast (s) | Resist |');
+    lines.push('|:------|------:|:--------|-------:|---------:|:-------|');
+    for (const s of detrimentalAE.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.aeType} | ${s.aeRange || '—'} | ${castSec} | ${s.resistType} |`);
+    }
+  }
+
+  // Beneficial AEs
+  if (beneficialAE.length > 0) {
+    lines.push('', `## Beneficial AE Spells (Top 15)`, '');
+    lines.push('| Spell | Level | AE Type | Key Effects |');
+    lines.push('|:------|------:|:--------|:------------|');
+    for (const s of beneficialAE.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.aeType} | ${s.effects.slice(0, 4).join(', ')} |`);
+    }
+  }
+
+  lines.push('', `*${aeSpells.length} AE spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 304: Instant cast spell profile per class
+export async function getClassInstantCastProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  interface InstantSpell {
+    name: string;
+    level: number;
+    mana: number;
+    endurance: number;
+    targetType: string;
+    beneficial: boolean;
+    effects: string[];
+    category: string;
+  }
+
+  const instantSpells: InstantSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    if (castTime !== 0) continue; // Only instant casts
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+
+    const effectNames: string[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (spaId > 0 && SPA_NAMES[spaId]) effectNames.push(SPA_NAMES[spaId]);
+        }
+      }
+    }
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    instantSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      mana,
+      endurance,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      beneficial: isBeneficial,
+      effects: [...new Set(effectNames)],
+      category,
+    });
+  }
+
+  const lines = [`# ${classFullName} Instant Cast Profile`, ''];
+  lines.push('*Analyzes all instant-cast spells (0ms cast time): emergency tools, utility, combat instants.*', '');
+
+  if (instantSpells.length === 0) {
+    lines.push('No instant-cast spells found for this class.');
+    return lines.join('\n');
+  }
+
+  // Total spells for this class (for %)
+  let totalClassSpells = 0;
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level > 0 && level < 255) totalClassSpells++;
+  }
+
+  lines.push(`**Total instant-cast spells:** ${instantSpells.length} of ${totalClassSpells} (${((instantSpells.length / totalClassSpells) * 100).toFixed(1)}%)`);
+  const beneficial = instantSpells.filter(s => s.beneficial);
+  const detrimental = instantSpells.filter(s => !s.beneficial);
+  lines.push(`- Beneficial: ${beneficial.length}`);
+  lines.push(`- Detrimental: ${detrimental.length}`);
+
+  // Category distribution
+  const catCounts: Record<string, number> = {};
+  for (const s of instantSpells) catCounts[s.category] = (catCounts[s.category] || 0) + 1;
+  lines.push('', '## Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    lines.push(`- **${cat}:** ${count} spells`);
+  }
+
+  // Target type distribution
+  const targetCounts: Record<string, number> = {};
+  for (const s of instantSpells) targetCounts[s.targetType] = (targetCounts[s.targetType] || 0) + 1;
+  lines.push('', '## Target Type Distribution', '');
+  for (const [target, count] of Object.entries(targetCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${target}:** ${count} spells`);
+  }
+
+  // Most common effects in instant spells
+  const effectCounts: Record<string, number> = {};
+  for (const s of instantSpells) {
+    for (const e of s.effects) effectCounts[e] = (effectCounts[e] || 0) + 1;
+  }
+  lines.push('', '## Most Common Instant-Cast Effects', '');
+  for (const [effect, count] of Object.entries(effectCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    lines.push(`- **${effect}:** ${count} spells`);
+  }
+
+  // Highest level instant casts
+  lines.push('', '## Highest Level Instant Casts (Top 20)', '');
+  lines.push('| Spell | Level | Category | Resource | Target | B/D |');
+  lines.push('|:------|------:|:---------|:---------|:-------|:----|');
+  for (const s of instantSpells.sort((a, b) => b.level - a.level).slice(0, 20)) {
+    const resource = s.endurance > 0 ? `End: ${s.endurance.toLocaleString()}` : s.mana > 0 ? `Mana: ${s.mana.toLocaleString()}` : 'Free';
+    lines.push(`| ${s.name} | ${s.level} | ${s.category} | ${resource} | ${s.targetType} | ${s.beneficial ? 'B' : 'D'} |`);
+  }
+
+  // Endurance-only instants (melee abilities)
+  const endInstants = instantSpells.filter(s => s.endurance > 0 && s.mana === 0);
+  if (endInstants.length > 0) {
+    lines.push('', `## Endurance Instant Abilities (${endInstants.length})`, '');
+    lines.push(`${endInstants.length} instant-cast abilities use endurance only (melee/hybrid disciplines).`);
+  }
+
+  // Free (no cost) instants
+  const freeInstants = instantSpells.filter(s => s.mana === 0 && s.endurance === 0);
+  if (freeInstants.length > 0) {
+    lines.push('', `## Free Instant Casts (${freeInstants.length})`, '');
+    lines.push(`${freeInstants.length} instant-cast spells cost no mana or endurance.`);
+  }
+
+  lines.push('', `*${instantSpells.length} instant-cast spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 305: Buff duration analysis per class
+export async function getClassBuffDurationAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  interface BuffSpell {
+    name: string;
+    level: number;
+    duration: number;
+    targetType: string;
+    mana: number;
+    castTime: number;
+    effects: string[];
+    category: string;
+  }
+
+  const buffs: BuffSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue;
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+
+    const effectNames: string[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (spaId > 0 && SPA_NAMES[spaId]) effectNames.push(SPA_NAMES[spaId]);
+        }
+      }
+    }
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    buffs.push({
+      name: spell.fields[SF.NAME],
+      level,
+      duration: durationVal,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      mana,
+      castTime,
+      effects: [...new Set(effectNames)],
+      category,
+    });
+  }
+
+  const lines = [`# ${classFullName} Buff Duration Analysis`, ''];
+  lines.push('*Analyzes beneficial spell durations: tier distribution, longest/shortest buffs, categories by duration.*', '');
+
+  if (buffs.length === 0) {
+    lines.push('No beneficial spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total beneficial spells:** ${buffs.length}`, '');
+
+  // Duration tier classification (ticks, ~6 sec each)
+  const tiers: Record<string, BuffSpell[]> = {
+    'Instant (0)': [],
+    'Very Short (1-10)': [],
+    'Short (11-50)': [],
+    'Medium (51-200)': [],
+    'Long (201-1000)': [],
+    'Very Long (1001+)': [],
+  };
+
+  for (const b of buffs) {
+    if (b.duration === 0) tiers['Instant (0)'].push(b);
+    else if (b.duration <= 10) tiers['Very Short (1-10)'].push(b);
+    else if (b.duration <= 50) tiers['Short (11-50)'].push(b);
+    else if (b.duration <= 200) tiers['Medium (51-200)'].push(b);
+    else if (b.duration <= 1000) tiers['Long (201-1000)'].push(b);
+    else tiers['Very Long (1001+)'].push(b);
+  }
+
+  lines.push('## Duration Tier Distribution', '');
+  lines.push('| Tier | Count | % | Bar |');
+  lines.push('|:-----|------:|--:|:----|');
+  for (const [tier, spellList] of Object.entries(tiers)) {
+    const pct = ((spellList.length / buffs.length) * 100).toFixed(1);
+    const bar = '█'.repeat(Math.round(spellList.length / buffs.length * 30));
+    lines.push(`| ${tier} | ${spellList.length} | ${pct}% | ${bar} |`);
+  }
+
+  // Longest duration buffs
+  const sorted = [...buffs].sort((a, b) => b.duration - a.duration);
+  lines.push('', '## Longest Duration Buffs (Top 15)', '');
+  lines.push('| Spell | Level | Duration | Category | Target |');
+  lines.push('|:------|------:|---------:|:---------|:-------|');
+  for (const b of sorted.slice(0, 15)) {
+    lines.push(`| ${b.name} | ${b.level} | ${b.duration} | ${b.category} | ${b.targetType} |`);
+  }
+
+  // Category by average duration
+  const catDurations: Record<string, { total: number; count: number }> = {};
+  for (const b of buffs) {
+    if (!catDurations[b.category]) catDurations[b.category] = { total: 0, count: 0 };
+    catDurations[b.category].total += b.duration;
+    catDurations[b.category].count++;
+  }
+  lines.push('', '## Average Duration by Category', '');
+  lines.push('| Category | Avg Duration | Count |');
+  lines.push('|:---------|-------------:|------:|');
+  for (const [cat, data] of Object.entries(catDurations).sort((a, b) => (b[1].total / b[1].count) - (a[1].total / a[1].count)).slice(0, 15)) {
+    const avg = (data.total / data.count).toFixed(0);
+    lines.push(`| ${cat} | ${avg} | ${data.count} |`);
+  }
+
+  // Target type by duration
+  const targetDurations: Record<string, { total: number; count: number }> = {};
+  for (const b of buffs) {
+    if (!targetDurations[b.targetType]) targetDurations[b.targetType] = { total: 0, count: 0 };
+    targetDurations[b.targetType].total += b.duration;
+    targetDurations[b.targetType].count++;
+  }
+  lines.push('', '## Target Type Duration Profile', '');
+  for (const [target, data] of Object.entries(targetDurations).sort((a, b) => b[1].count - a[1].count)) {
+    const avg = (data.total / data.count).toFixed(0);
+    lines.push(`- **${target}:** ${data.count} buffs, avg duration ${avg}`);
+  }
+
+  // Instant buffs (emergency/utility)
+  const instants = buffs.filter(b => b.duration === 0);
+  if (instants.length > 0) {
+    lines.push('', `## Instant-Duration Buffs (${instants.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Category | Key Effects |');
+    lines.push('|:------|------:|:---------|:------------|');
+    for (const b of instants.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      lines.push(`| ${b.name} | ${b.level} | ${b.category} | ${b.effects.slice(0, 3).join(', ')} |`);
+    }
+  }
+
+  lines.push('', `*${buffs.length} beneficial spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
