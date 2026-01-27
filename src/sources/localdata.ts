@@ -26041,3 +26041,295 @@ export async function getOverseerQuestSlotJobAnalysis(): Promise<string> {
   lines.push('', `*${totalSlots} slots across ${overseerQuests.size} quests analyzed.*`);
   return lines.join('\n');
 }
+
+// Tool 270: Class beneficial/detrimental ratio analysis
+export async function getClassBuffDebuffRatio(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells) return 'Spell data not available.';
+
+  const lines = ['# Class Beneficial/Detrimental Spell Ratio', ''];
+  lines.push('*Compares the balance of beneficial vs detrimental spells across all 16 classes.*', '');
+
+  const classStats: Record<number, { beneficial: number; detrimental: number; total: number; byTarget: Record<string, { ben: number; det: number }> }> = {};
+  for (let i = 1; i <= 16; i++) classStats[i] = { beneficial: 0, detrimental: 0, total: 0, byTarget: {} };
+
+  for (const [, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const targetType = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetType] || `Type ${targetType}`;
+
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+      classStats[i].total++;
+      if (beneficial) classStats[i].beneficial++;
+      else classStats[i].detrimental++;
+
+      if (!classStats[i].byTarget[targetName]) classStats[i].byTarget[targetName] = { ben: 0, det: 0 };
+      if (beneficial) classStats[i].byTarget[targetName].ben++;
+      else classStats[i].byTarget[targetName].det++;
+    }
+  }
+
+  // Main comparison table
+  lines.push('## Beneficial vs Detrimental by Class', '');
+  lines.push('| Class | Beneficial | Detrimental | Total | Ben % | Det % | Ratio |');
+  lines.push('|:------|----------:|-----------:|------:|------:|------:|------:|');
+  const sorted = Object.entries(classStats).sort((a, b) => {
+    const ra = b[1].beneficial / (b[1].detrimental || 1);
+    const rb = a[1].beneficial / (a[1].detrimental || 1);
+    return ra - rb;
+  });
+  for (const [cid, stats] of sorted) {
+    const benPct = ((stats.beneficial / stats.total) * 100).toFixed(1);
+    const detPct = ((stats.detrimental / stats.total) * 100).toFixed(1);
+    const ratio = stats.detrimental > 0 ? (stats.beneficial / stats.detrimental).toFixed(2) : '∞';
+    lines.push(`| ${CLASS_IDS[parseInt(cid)]} | ${stats.beneficial} | ${stats.detrimental} | ${stats.total} | ${benPct}% | ${detPct}% | ${ratio} |`);
+  }
+
+  // Most offensive classes (highest det%)
+  lines.push('', '## Class Role Tendency', '');
+  const byDetPct = Object.entries(classStats).sort((a, b) => {
+    return (b[1].detrimental / b[1].total) - (a[1].detrimental / a[1].total);
+  });
+  lines.push('**Most offensive (highest detrimental %):**');
+  for (const [cid, stats] of byDetPct.slice(0, 5)) {
+    const pct = ((stats.detrimental / stats.total) * 100).toFixed(1);
+    lines.push(`- ${CLASS_IDS[parseInt(cid)]}: ${pct}% detrimental`);
+  }
+  lines.push('', '**Most supportive (highest beneficial %):**');
+  for (const [cid, stats] of byDetPct.slice(-5).reverse()) {
+    const pct = ((stats.beneficial / stats.total) * 100).toFixed(1);
+    lines.push(`- ${CLASS_IDS[parseInt(cid)]}: ${pct}% beneficial`);
+  }
+
+  // Target type breakdown (aggregate across all classes)
+  lines.push('', '## Beneficial/Detrimental by Target Type (All Classes)', '');
+  lines.push('| Target Type | Beneficial | Detrimental | Total |');
+  lines.push('|:------------|----------:|-----------:|------:|');
+  const targetAgg: Record<string, { ben: number; det: number }> = {};
+  for (const stats of Object.values(classStats)) {
+    for (const [tgt, counts] of Object.entries(stats.byTarget)) {
+      if (!targetAgg[tgt]) targetAgg[tgt] = { ben: 0, det: 0 };
+      targetAgg[tgt].ben += counts.ben;
+      targetAgg[tgt].det += counts.det;
+    }
+  }
+  for (const [tgt, counts] of Object.entries(targetAgg).sort((a, b) => (b[1].ben + b[1].det) - (a[1].ben + a[1].det)).slice(0, 12)) {
+    lines.push(`| ${tgt} | ${counts.ben} | ${counts.det} | ${counts.ben + counts.det} |`);
+  }
+
+  lines.push('', '*Beneficial/detrimental ratio analyzed across all 16 classes.*');
+  return lines.join('\n');
+}
+
+// Tool 271: Spell recourse chain analysis
+export async function getSpellRecourseChainAnalysis(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells) return 'Spell data not available.';
+
+  const lines = ['# Spell Recourse Chain Analysis', ''];
+  lines.push('*Analyzes spells that trigger secondary "recourse" spells on the caster, and traces recourse chains.*', '');
+
+  // Find all spells with recourse IDs
+  const recourseSpells: { id: number; name: string; recourseId: number; recourseName: string; classes: number[] }[] = [];
+  const recourseTargets = new Set<number>(); // spell IDs that ARE recourse targets
+
+  for (const [spellId, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const recourseId = parseInt(spell.fields[SF.RECOURSE]) || 0;
+    if (recourseId <= 0) continue;
+
+    const recourseSpell = spells.get(recourseId);
+    if (!recourseSpell) continue;
+
+    const classes: number[] = [];
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level > 0 && level < 255) classes.push(i);
+    }
+
+    recourseSpells.push({ id: spellId, name: spell.name, recourseId, recourseName: recourseSpell.name, classes });
+    recourseTargets.add(recourseId);
+  }
+
+  lines.push(`- **Spells with recourse effects:** ${recourseSpells.length}`);
+  lines.push(`- **Unique recourse target spells:** ${recourseTargets.size}`);
+
+  // Recourse chains (A -> B -> C)
+  const chains: { chain: string[]; depth: number }[] = [];
+  for (const rs of recourseSpells) {
+    const chain = [rs.name];
+    let currentId = rs.recourseId;
+    const visited = new Set<number>([rs.id]);
+    while (currentId > 0 && !visited.has(currentId)) {
+      visited.add(currentId);
+      const spell = spells.get(currentId);
+      if (!spell) break;
+      chain.push(spell.name);
+      currentId = parseInt(spell.fields[SF.RECOURSE]) || 0;
+    }
+    if (chain.length >= 2) chains.push({ chain, depth: chain.length });
+  }
+
+  // Longest chains
+  chains.sort((a, b) => b.depth - a.depth);
+  lines.push('', '## Longest Recourse Chains', '');
+  lines.push('| Chain | Depth |');
+  lines.push('|:------|------:|');
+  const shown = new Set<string>();
+  for (const c of chains) {
+    const key = c.chain.join(' → ');
+    if (shown.has(key)) continue;
+    shown.add(key);
+    lines.push(`| ${key} | ${c.depth} |`);
+    if (shown.size >= 15) break;
+  }
+
+  // Chain depth distribution
+  const depthDist: Record<number, number> = {};
+  for (const c of chains) depthDist[c.depth] = (depthDist[c.depth] || 0) + 1;
+  lines.push('', '## Chain Depth Distribution', '');
+  for (const [depth, count] of Object.entries(depthDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    lines.push(`- **Depth ${depth}:** ${count} chains`);
+  }
+
+  // Recourse by class
+  lines.push('', '## Recourse Spells by Class', '');
+  lines.push('| Class | Spells with Recourse | % of Class |');
+  lines.push('|:------|--------------------:|----------:|');
+  const classCounts: Record<number, number> = {};
+  for (const rs of recourseSpells) {
+    for (const c of rs.classes) classCounts[c] = (classCounts[c] || 0) + 1;
+  }
+  for (const [cid, count] of Object.entries(classCounts).sort((a, b) => b[1] - a[1])) {
+    // Get total class spells
+    let classTotal = 0;
+    for (const [, spell] of spells) {
+      if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + parseInt(cid) - 1]) || 255;
+      if (level > 0 && level < 255) classTotal++;
+    }
+    const pct = classTotal > 0 ? ((count / classTotal) * 100).toFixed(1) : '0';
+    lines.push(`| ${CLASS_IDS[parseInt(cid)]} | ${count} | ${pct}% |`);
+  }
+
+  // Most common recourse target names (many spells might point to the same recourse)
+  const targetCounts: Record<string, number> = {};
+  for (const rs of recourseSpells) {
+    targetCounts[rs.recourseName] = (targetCounts[rs.recourseName] || 0) + 1;
+  }
+  lines.push('', '## Most Common Recourse Targets', '');
+  lines.push('| Recourse Spell | Sources |');
+  lines.push('|:---------------|--------:|');
+  for (const [name, count] of Object.entries(targetCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    lines.push(`| ${name} | ${count} |`);
+  }
+
+  lines.push('', `*${recourseSpells.length} spells with recourse effects analyzed.*`);
+  return lines.join('\n');
+}
+
+// Tool 272: Achievement completion complexity analysis
+export async function getAchievementCompletionComplexity(): Promise<string> {
+  await loadAchievements();
+  await loadAchievementComponents();
+  if (!achievements || !achievementComponents) return 'Achievement data not available.';
+
+  const lines = ['# Achievement Completion Complexity Analysis', ''];
+  lines.push('*Analyzes achievement complexity based on component requirements, identifying the easiest and hardest achievements.*', '');
+
+  // Gather component counts per achievement
+  const achComplexity: { id: number; name: string; components: number; maxReq: number; sumReq: number; types: Set<number> }[] = [];
+
+  for (const [achId, ach] of achievements) {
+    const comps = achievementComponents.get(achId) || [];
+    let maxReq = 0;
+    let sumReq = 0;
+    const types = new Set<number>();
+    for (const comp of comps) {
+      if (comp.requirement > maxReq) maxReq = comp.requirement;
+      sumReq += comp.requirement;
+      types.add(comp.type);
+    }
+    achComplexity.push({ id: achId, name: ach.name, components: comps.length, maxReq, sumReq, types });
+  }
+
+  lines.push(`- **Total achievements:** ${achievements.size}`);
+  lines.push(`- **Achievements with components:** ${achComplexity.filter(a => a.components > 0).length}`);
+  const totalComponents = achComplexity.reduce((s, a) => s + a.components, 0);
+  lines.push(`- **Total components:** ${totalComponents}`);
+  const avgComponents = (totalComponents / achComplexity.length).toFixed(1);
+  lines.push(`- **Average components per achievement:** ${avgComponents}`);
+
+  // Component count distribution
+  lines.push('', '## Component Count Distribution', '');
+  const compDist: Record<number, number> = {};
+  for (const a of achComplexity) {
+    const bucket = a.components;
+    compDist[bucket] = (compDist[bucket] || 0) + 1;
+  }
+  for (const [count, freq] of Object.entries(compDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).slice(0, 15)) {
+    const pct = ((freq / achComplexity.length) * 100).toFixed(1);
+    lines.push(`- **${count} components:** ${freq} achievements (${pct}%)`);
+  }
+
+  // Most complex achievements (most components)
+  const byComponents = [...achComplexity].sort((a, b) => b.components - a.components);
+  lines.push('', '## Most Complex Achievements (Most Components)', '');
+  lines.push('| Achievement | Components | Max Req | Sum Req | Types |');
+  lines.push('|:------------|----------:|--------:|--------:|------:|');
+  for (const a of byComponents.slice(0, 15)) {
+    lines.push(`| ${a.name} | ${a.components} | ${a.maxReq} | ${a.sumReq} | ${a.types.size} |`);
+  }
+
+  // Highest single requirement
+  const byMaxReq = [...achComplexity].filter(a => a.maxReq > 0).sort((a, b) => b.maxReq - a.maxReq);
+  lines.push('', '## Highest Single Requirement (Top 15)', '');
+  lines.push('| Achievement | Max Requirement | Components |');
+  lines.push('|:------------|---------------:|----------:|');
+  for (const a of byMaxReq.slice(0, 15)) {
+    lines.push(`| ${a.name} | ${a.maxReq.toLocaleString()} | ${a.components} |`);
+  }
+
+  // Simplest achievements (fewest components, non-zero)
+  const bySimplest = achComplexity.filter(a => a.components > 0).sort((a, b) => a.components - b.components || a.sumReq - b.sumReq);
+  lines.push('', '## Simplest Achievements (Fewest Components)', '');
+  lines.push('| Achievement | Components | Sum Req |');
+  lines.push('|:------------|----------:|--------:|');
+  for (const a of bySimplest.slice(0, 15)) {
+    lines.push(`| ${a.name} | ${a.components} | ${a.sumReq} |`);
+  }
+
+  // Component type distribution
+  const typeDist: Record<number, number> = {};
+  for (const comps of achievementComponents.values()) {
+    for (const comp of comps) typeDist[comp.type] = (typeDist[comp.type] || 0) + 1;
+  }
+  lines.push('', '## Component Type Distribution', '');
+  for (const [type, count] of Object.entries(typeDist).sort((a, b) => b[1] - a[1])) {
+    const pct = ((count / totalComponents) * 100).toFixed(1);
+    lines.push(`- **Type ${type}:** ${count} components (${pct}%)`);
+  }
+
+  // Requirement value distribution
+  lines.push('', '## Requirement Value Distribution', '');
+  const reqBuckets: Record<string, number> = {};
+  for (const comps of achievementComponents.values()) {
+    for (const comp of comps) {
+      const bucket = comp.requirement <= 1 ? '0-1' : comp.requirement <= 5 ? '2-5' : comp.requirement <= 10 ? '6-10' :
+        comp.requirement <= 50 ? '11-50' : comp.requirement <= 100 ? '51-100' : comp.requirement <= 1000 ? '101-1000' : '1000+';
+      reqBuckets[bucket] = (reqBuckets[bucket] || 0) + 1;
+    }
+  }
+  const reqOrder = ['0-1', '2-5', '6-10', '11-50', '51-100', '101-1000', '1000+'];
+  for (const b of reqOrder) {
+    if (reqBuckets[b]) lines.push(`- **${b}:** ${reqBuckets[b]} components`);
+  }
+
+  lines.push('', `*${achievements.size} achievements analyzed for complexity.*`);
+  return lines.join('\n');
+}

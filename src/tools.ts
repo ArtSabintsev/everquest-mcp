@@ -277,6 +277,9 @@ import {
   getSpellManaEfficiencyAnalysis,
   getFactionCategoryAnalysis,
   getOverseerQuestSlotJobAnalysis,
+  getClassBuffDebuffRatio,
+  getSpellRecourseChainAnalysis,
+  getAchievementCompletionComplexity,
 } from './sources/index.js';
 
 export const tools = [
@@ -3480,6 +3483,21 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'get_class_buff_debuff_ratio',
+    description: 'Cross-class beneficial vs detrimental spell ratio — compares buff/debuff balance, identifies most offensive and supportive classes, and breaks down by target type.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_spell_recourse_chain_analysis',
+    description: 'Spell recourse chain analysis — traces spells that trigger secondary recourse spells, chain depths, class distribution, and most common recourse targets.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_achievement_completion_complexity',
+    description: 'Achievement completion complexity analysis — component counts, highest requirements, simplest vs hardest achievements, component type distribution, and requirement value ranges.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5551,6 +5569,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_overseer_quest_slot_job_analysis': {
         return getOverseerQuestSlotJobAnalysis();
+      }
+
+      case 'get_class_buff_debuff_ratio': {
+        return getClassBuffDebuffRatio();
+      }
+
+      case 'get_spell_recourse_chain_analysis': {
+        return getSpellRecourseChainAnalysis();
+      }
+
+      case 'get_achievement_completion_complexity': {
+        return getAchievementCompletionComplexity();
       }
 
       case 'search_help_topics': {
