@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 335 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 338 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **335 tools** for querying EverQuest data
+- **338 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -315,6 +315,9 @@ Then restart Claude Desktop.
 | `get_class_max_hp_mana_profile` | Max HP and mana modifiers — flat increases, percentage mods, HP/mana/endurance caps |
 | `get_class_spell_beneficial_ratio` | Beneficial vs detrimental ratio — buff/heal vs nuke/debuff proportions across level brackets |
 | `get_class_pet_enhancement_profile` | Pet enhancements — pet haste, crit, max HP, avoidance, flurry, power, mend companion, focus |
+| `get_class_timer_group_profile` | Timer group analysis — shared recast timers, timer distribution, most contested groups |
+| `get_class_mana_efficiency_by_level` | Mana efficiency by level — cost distribution, scaling trends, most expensive spells, free spells |
+| `get_class_spell_category_profile` | Spell category distribution — categories, subcategories, breadth, dominant themes |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -493,7 +496,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (335 tools)
+├── tools.ts          # Tool definitions and handlers (338 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

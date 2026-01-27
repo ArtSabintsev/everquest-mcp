@@ -343,6 +343,9 @@ import {
   getClassMaxHPManaProfile,
   getClassSpellBeneficialRatio,
   getClassPetEnhancementProfile,
+  getClassTimerGroupProfile,
+  getClassManaEfficiencyByLevel,
+  getClassSpellCategoryProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4224,6 +4227,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_timer_group_profile',
+    description: 'Timer group profile for a class — analyzes spell timer groups (recast timers), showing which spells share lockout timers, timer distribution, and most contested timer groups.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_mana_efficiency_by_level',
+    description: 'Mana efficiency profile for a class — analyzes mana cost distribution by level bracket, average mana cost trends, most expensive spells, zero-mana spells, and mana cost percentiles.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_category_profile',
+    description: 'Spell category profile for a class — analyzes spell distribution across official game categories and subcategories, showing category breadth, dominant themes, and category-level breakdowns.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Beastlord")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6675,6 +6711,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassPetEnhancementProfile(className);
+      }
+
+      case 'get_class_timer_group_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassTimerGroupProfile(className);
+      }
+
+      case 'get_class_mana_efficiency_by_level': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassManaEfficiencyByLevel(className);
+      }
+
+      case 'get_class_spell_category_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellCategoryProfile(className);
       }
 
       case 'search_help_topics': {

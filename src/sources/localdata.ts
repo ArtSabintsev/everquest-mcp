@@ -35014,3 +35014,267 @@ export async function getClassPetEnhancementProfile(className: string): Promise<
   lines.push('', `*${petEnhSpells.length} pet enhancement spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 336: Timer group profile per class
+export async function getClassTimerGroupProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const timerGroups: Record<number, { count: number; spells: { name: string; level: number; recast: number }[] }> = {};
+  let totalWithTimer = 0;
+  let totalWithout = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const timerId = parseInt(spell.fields[SF.TIMER_ID]) || 0;
+    if (timerId > 0) {
+      totalWithTimer++;
+      if (!timerGroups[timerId]) timerGroups[timerId] = { count: 0, spells: [] };
+      timerGroups[timerId].count++;
+      const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+      if (timerGroups[timerId].spells.length < 5) {
+        timerGroups[timerId].spells.push({ name: spell.fields[SF.NAME], level, recast });
+      }
+    } else {
+      totalWithout++;
+    }
+  }
+
+  const lines = [`# ${classFullName} Timer Group Profile`, ''];
+  lines.push('*Analyzes spell timer groups showing which spells share recast timers and compete for the same cooldown slot.*', '');
+
+  const total = totalWithTimer + totalWithout;
+  lines.push(`**Total spells:** ${total}`);
+  lines.push(`- With timer group: ${totalWithTimer}`);
+  lines.push(`- Without timer group: ${totalWithout}`, '');
+
+  if (Object.keys(timerGroups).length === 0) {
+    lines.push('No timer-grouped spells found.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Unique timer groups:** ${Object.keys(timerGroups).length}`, '');
+
+  // Largest timer groups
+  const sorted = Object.entries(timerGroups).sort((a, b) => b[1].count - a[1].count);
+  lines.push('## Largest Timer Groups — Top 20', '');
+  lines.push('| Timer ID | Spells | Recast (s) | Example Spells |');
+  lines.push('|:---------|------:|-----------:|:---------------|');
+  for (const [id, data] of sorted.slice(0, 20)) {
+    const recastSec = data.spells[0] ? (data.spells[0].recast / 1000).toFixed(0) : '—';
+    const examples = data.spells.slice(0, 3).map(s => s.name).join(', ');
+    lines.push(`| ${id} | ${data.count} | ${recastSec} | ${examples} |`);
+  }
+
+  // Timer group size distribution
+  const sizeDist: Record<string, number> = {};
+  for (const data of Object.values(timerGroups)) {
+    const bucket = data.count <= 1 ? '1' : data.count <= 3 ? '2-3' : data.count <= 5 ? '4-5' : data.count <= 10 ? '6-10' : '11+';
+    sizeDist[bucket] = (sizeDist[bucket] || 0) + 1;
+  }
+  lines.push('', '## Timer Group Size Distribution', '');
+  lines.push('| Size | Groups |');
+  lines.push('|:-----|------:|');
+  for (const bucket of ['1', '2-3', '4-5', '6-10', '11+']) {
+    if (sizeDist[bucket]) lines.push(`| ${bucket} spells | ${sizeDist[bucket]} |`);
+  }
+
+  lines.push('', `*${totalWithTimer} timer-grouped spells across ${Object.keys(timerGroups).length} groups for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 337: Mana efficiency by level bracket per class
+export async function getClassManaEfficiencyByLevel(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const bracketData: Record<string, { totalMana: number; count: number; maxMana: number; minMana: number; free: number }> = {};
+  const bracketOrder = ['1-10', '11-20', '21-30', '31-40', '41-50', '51-60', '61-70', '71-80', '81-90', '91-100', '101-110', '111-120', '121+'];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    let bk: string;
+    if (level <= 10) bk = '1-10';
+    else if (level <= 20) bk = '11-20';
+    else if (level <= 30) bk = '21-30';
+    else if (level <= 40) bk = '31-40';
+    else if (level <= 50) bk = '41-50';
+    else if (level <= 60) bk = '51-60';
+    else if (level <= 70) bk = '61-70';
+    else if (level <= 80) bk = '71-80';
+    else if (level <= 90) bk = '81-90';
+    else if (level <= 100) bk = '91-100';
+    else if (level <= 110) bk = '101-110';
+    else if (level <= 120) bk = '111-120';
+    else bk = '121+';
+
+    if (!bracketData[bk]) bracketData[bk] = { totalMana: 0, count: 0, maxMana: 0, minMana: Infinity, free: 0 };
+    bracketData[bk].count++;
+    if (mana === 0) {
+      bracketData[bk].free++;
+    } else {
+      bracketData[bk].totalMana += mana;
+      if (mana > bracketData[bk].maxMana) bracketData[bk].maxMana = mana;
+      if (mana < bracketData[bk].minMana) bracketData[bk].minMana = mana;
+    }
+  }
+
+  const lines = [`# ${classFullName} Mana Efficiency by Level`, ''];
+  lines.push('*Analyzes mana cost distribution across level brackets: average cost, max cost, free spells, and cost scaling.*', '');
+
+  let totalSpells = 0;
+  let totalMana = 0;
+  let totalFree = 0;
+  for (const data of Object.values(bracketData)) {
+    totalSpells += data.count;
+    totalMana += data.totalMana;
+    totalFree += data.free;
+  }
+
+  if (totalSpells === 0) {
+    lines.push('No spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total spells:** ${totalSpells}`);
+  lines.push(`- Free (0 mana): ${totalFree}`);
+  lines.push(`- Mana-cost spells: ${totalSpells - totalFree}`, '');
+
+  lines.push('## Mana Cost by Level Bracket', '');
+  lines.push('| Bracket | Spells | Avg Mana | Max Mana | Free | Bar |');
+  lines.push('|:--------|------:|---------:|---------:|-----:|:----|');
+  let maxAvg = 0;
+  for (const bk of bracketOrder) {
+    const data = bracketData[bk];
+    if (!data) continue;
+    const paid = data.count - data.free;
+    const avg = paid > 0 ? Math.round(data.totalMana / paid) : 0;
+    if (avg > maxAvg) maxAvg = avg;
+  }
+  for (const bk of bracketOrder) {
+    const data = bracketData[bk];
+    if (!data) continue;
+    const paid = data.count - data.free;
+    const avg = paid > 0 ? Math.round(data.totalMana / paid) : 0;
+    const barLen = maxAvg > 0 ? Math.round((avg / maxAvg) * 15) : 0;
+    const bar = '\u2588'.repeat(barLen);
+    lines.push(`| ${bk} | ${data.count} | ${avg} | ${data.maxMana || '—'} | ${data.free} | ${bar} |`);
+  }
+
+  // Most expensive spells
+  lines.push('', '## Most Expensive Spells — Top 15', '');
+  lines.push('| Spell | Level | Mana | Cast (s) | Target |');
+  lines.push('|:------|------:|-----:|:---------|:-------|');
+  const expensiveSpells: { name: string; level: number; mana: number; castTime: number; targetType: string }[] = [];
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    if (mana > 0) {
+      const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+      const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+      expensiveSpells.push({
+        name: spell.fields[SF.NAME],
+        level,
+        mana,
+        castTime,
+        targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      });
+    }
+  }
+  for (const s of expensiveSpells.sort((a, b) => b.mana - a.mana).slice(0, 15)) {
+    const castSec = (s.castTime / 1000).toFixed(1);
+    lines.push(`| ${s.name} | ${s.level} | ${s.mana} | ${castSec} | ${s.targetType} |`);
+  }
+
+  lines.push('', `*${totalSpells} spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 338: Spell category profile per class
+export async function getClassSpellCategoryProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const catCounts: Record<string, number> = {};
+  const subCatCounts: Record<string, Record<string, number>> = {};
+  let totalSpells = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpells++;
+
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const subCatId = parseInt(spell.fields[SF.SUBCATEGORY]) || 0;
+
+    // Resolve category names from spellCategories (flat map of id → name)
+    const catName = (catId > 0 && spellCategories?.get(catId)) || `Category ${catId}`;
+    const subCatName = (subCatId > 0 && subCatId !== catId && spellCategories?.get(subCatId)) || `Subcategory ${subCatId}`;
+
+    catCounts[catName] = (catCounts[catName] || 0) + 1;
+    if (!subCatCounts[catName]) subCatCounts[catName] = {};
+    subCatCounts[catName][subCatName] = (subCatCounts[catName][subCatName] || 0) + 1;
+  }
+
+  const lines = [`# ${classFullName} Spell Category Profile`, ''];
+  lines.push('*Analyzes the distribution of spells across categories and subcategories.*', '');
+
+  if (totalSpells === 0) {
+    lines.push('No spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total spells:** ${totalSpells}`);
+  lines.push(`**Unique categories:** ${Object.keys(catCounts).length}`, '');
+
+  // Category distribution
+  lines.push('## Category Distribution', '');
+  lines.push('| Category | Count | % | Bar |');
+  lines.push('|:---------|------:|--:|:----|');
+  const maxCat = Math.max(...Object.values(catCounts));
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 20)) {
+    const pct = ((count / totalSpells) * 100).toFixed(1);
+    const barLen = Math.round((count / maxCat) * 15);
+    const bar = '\u2588'.repeat(barLen);
+    lines.push(`| ${cat} | ${count} | ${pct}% | ${bar} |`);
+  }
+
+  // Top subcategories per top categories
+  for (const [cat] of Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 5)) {
+    const subs = subCatCounts[cat];
+    if (!subs || Object.keys(subs).length <= 1) continue;
+    lines.push('', `## ${cat} — Subcategories`, '');
+    lines.push('| Subcategory | Count |');
+    lines.push('|:------------|------:|');
+    for (const [sub, count] of Object.entries(subs).sort((a, b) => b[1] - a[1]).slice(0, 10)) {
+      lines.push(`| ${sub} | ${count} |`);
+    }
+  }
+
+  lines.push('', `*${totalSpells} spells across ${Object.keys(catCounts).length} categories for ${classFullName}.*`);
+  return lines.join('\n');
+}
