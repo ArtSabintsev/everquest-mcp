@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 245 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 248 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **245 tools** for querying EverQuest data
+- **248 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -183,6 +183,8 @@ Then restart Claude Desktop.
 | `get_spell_category_cooccurrence` | Spell category co-occurrence — which categories appear together in class spell books, universal vs specialized pairs, class-exclusive categories |
 | `get_spell_target_effect_matrix` | Spell target type × effect matrix — how spell effects distribute across target types (Self, Single, Group, AE), AE-specific effects |
 | `get_spell_level_milestone_guide` | Spell level milestone guide — key spell milestones per class (first heal, nuke, mez, port, pet, rez, etc.) by level |
+| `get_spell_duration_analysis` | Spell duration analysis — duration formula distribution, average durations by category, instant vs timed vs permanent, longest spells |
+| `get_spell_recast_timer_analysis` | Spell recast timer analysis — recast distributions, shared timer groups, cooldown patterns by category, longest recasts |
 
 ### Local Data - Character
 | Tool | Description |
@@ -295,6 +297,7 @@ Then restart Claude Desktop.
 | `search_aa_by_description` | Search 2700+ AA abilities by description text (e.g., "haste", "critical hit", "mana regeneration", "pet") |
 | `get_aa_spell_correlation` | AA-spell category correlation — cross-reference AA descriptions with spell effect keywords and category names, multi-effect AAs, coverage statistics |
 | `get_achievement_expansion_timeline` | Achievement expansion timeline — achievement growth, point density, complexity analysis, and cumulative trends across all expansion categories |
+| `get_aa_ability_rank_analysis` | AA ability rank analysis — rank progression patterns (I-XXX), deepest progressions, name word frequency, description theme classification |
 
 ### Local Data - Overseer System
 | Tool | Description |
@@ -402,7 +405,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (245 tools)
+├── tools.ts          # Tool definitions and handlers (248 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

@@ -253,6 +253,9 @@ import {
   getHelpTopicContentAnalysis,
   getSpellLevelMilestoneGuide,
   getCrossSystemNameOverlap,
+  getSpellDurationAnalysis,
+  getAAAbilityRankAnalysis,
+  getSpellRecastTimerAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -3276,6 +3279,21 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'get_spell_duration_analysis',
+    description: 'Spell duration analysis — duration formula distribution, average durations by category, instant vs timed vs permanent, longest spells.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_aa_ability_rank_analysis',
+    description: 'AA ability rank analysis — rank progression patterns (I, II, III...), deepest progressions, name word frequency, description theme classification.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_spell_recast_timer_analysis',
+    description: 'Spell recast timer analysis — recast distributions, shared timer groups, cooldown patterns by category, longest recasts.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5235,6 +5253,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_cross_system_name_overlap': {
         return getCrossSystemNameOverlap();
+      }
+
+      case 'get_spell_duration_analysis': {
+        return getSpellDurationAnalysis();
+      }
+
+      case 'get_aa_ability_rank_analysis': {
+        return getAAAbilityRankAnalysis();
+      }
+
+      case 'get_spell_recast_timer_analysis': {
+        return getSpellRecastTimerAnalysis();
       }
 
       case 'search_help_topics': {

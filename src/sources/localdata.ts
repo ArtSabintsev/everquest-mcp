@@ -23409,3 +23409,397 @@ export async function getCrossSystemNameOverlap(): Promise<string> {
   lines.push('', `*${systems.length} game systems cross-referenced.*`);
   return lines.join('\n');
 }
+
+// Tool 246: Spell duration analysis
+export async function getSpellDurationAnalysis(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines: string[] = ['# Spell Duration Analysis', '', '*Analyze duration formulas, distributions, and patterns across all spells.*'];
+
+  // Count by duration formula
+  const formulaCounts = new Map<number, number>();
+  const categoryDurations = new Map<string, number[]>();
+  const durationBuckets = new Map<string, number>();
+  let instantCount = 0;
+  let permanentCount = 0;
+  let timedCount = 0;
+  const longestSpells: { name: string; category: string; ticks: number; formula: number; value: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const formula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const value = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    formulaCounts.set(formula, (formulaCounts.get(formula) || 0) + 1);
+
+    const ticks = calculateDurationTicks(formula, value);
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(catId) || 'Unknown';
+
+    if (ticks <= 0) {
+      instantCount++;
+    } else if (formula === 50 || ticks >= 36000) {
+      permanentCount++;
+    } else {
+      timedCount++;
+      const secs = ticks * 6;
+      if (!categoryDurations.has(category)) categoryDurations.set(category, []);
+      categoryDurations.get(category)!.push(secs);
+
+      // Bucket
+      let bucket: string;
+      if (secs <= 6) bucket = '≤6s (1 tick)';
+      else if (secs <= 18) bucket = '7-18s';
+      else if (secs <= 60) bucket = '19-60s';
+      else if (secs <= 300) bucket = '1-5min';
+      else if (secs <= 900) bucket = '5-15min';
+      else if (secs <= 1800) bucket = '15-30min';
+      else if (secs <= 3600) bucket = '30-60min';
+      else bucket = '60min+';
+      durationBuckets.set(bucket, (durationBuckets.get(bucket) || 0) + 1);
+
+      longestSpells.push({ name: spell.fields[SF.NAME], category, ticks, formula, value });
+    }
+  }
+
+  // Duration type breakdown
+  const total = instantCount + permanentCount + timedCount;
+  lines.push('', '## Duration Type Breakdown', '');
+  lines.push('| Type | Count | % |');
+  lines.push('|------|------:|---:|');
+  lines.push(`| Instant/No Duration | ${instantCount.toLocaleString()} | ${((instantCount / total) * 100).toFixed(1)}% |`);
+  lines.push(`| Timed | ${timedCount.toLocaleString()} | ${((timedCount / total) * 100).toFixed(1)}% |`);
+  lines.push(`| Permanent | ${permanentCount.toLocaleString()} | ${((permanentCount / total) * 100).toFixed(1)}% |`);
+
+  // Duration formulas
+  lines.push('', '## Duration Formulas Used', '');
+  lines.push('| Formula | Count | Description |');
+  lines.push('|--------:|------:|:-----------|');
+  const formulaDescs: Record<number, string> = {
+    0: 'Instant/None', 1: 'value ticks (linear)', 2: '(value/2)+5 ticks',
+    3: 'value*30 ticks', 4: 'value*4.5 ticks', 5: 'value ticks',
+    6: '(value+1)/2 ticks', 7: 'value ticks', 8: 'value+10 ticks',
+    9: 'value*2+10 ticks', 10: 'value*3+10 ticks', 11: '(value+3)*30 ticks',
+    12: 'value/2 ticks', 15: 'value ticks', 50: 'Permanent', 3600: 'Permanent'
+  };
+  const sortedFormulas = [...formulaCounts.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [f, count] of sortedFormulas.slice(0, 20)) {
+    lines.push(`| ${f} | ${count.toLocaleString()} | ${formulaDescs[f] || 'Other'} |`);
+  }
+
+  // Duration distribution buckets
+  const bucketOrder = ['≤6s (1 tick)', '7-18s', '19-60s', '1-5min', '5-15min', '15-30min', '30-60min', '60min+'];
+  lines.push('', '## Duration Distribution (Timed Spells)', '');
+  lines.push('| Duration Range | Count | % |');
+  lines.push('|:---------------|------:|---:|');
+  for (const bucket of bucketOrder) {
+    const count = durationBuckets.get(bucket) || 0;
+    if (count > 0) {
+      lines.push(`| ${bucket} | ${count.toLocaleString()} | ${((count / timedCount) * 100).toFixed(1)}% |`);
+    }
+  }
+
+  // Average duration by category (top 20)
+  lines.push('', '## Average Duration by Spell Category (Top 20)', '');
+  lines.push('| Category | Avg Duration | Spells | Min | Max |');
+  lines.push('|:---------|:-------------|------:|:----|:----|');
+  const catAvgs = [...categoryDurations.entries()]
+    .filter(([, durations]) => durations.length >= 5)
+    .map(([cat, durations]) => {
+      durations.sort((a, b) => a - b);
+      const avg = durations.reduce((s, d) => s + d, 0) / durations.length;
+      return { cat, avg, count: durations.length, min: durations[0], max: durations[durations.length - 1] };
+    })
+    .sort((a, b) => b.avg - a.avg);
+  for (const { cat, avg, count, min, max } of catAvgs.slice(0, 20)) {
+    const fmtTime = (s: number) => s >= 3600 ? `${(s / 3600).toFixed(1)}h` : s >= 60 ? `${(s / 60).toFixed(1)}m` : `${s}s`;
+    lines.push(`| ${cat} | ${fmtTime(avg)} | ${count} | ${fmtTime(min)} | ${fmtTime(max)} |`);
+  }
+
+  // Longest spells
+  longestSpells.sort((a, b) => b.ticks - a.ticks);
+  lines.push('', '## Longest Timed Spells', '');
+  lines.push('| Spell | Category | Duration | Formula |');
+  lines.push('|:------|:---------|:---------|--------:|');
+  for (const s of longestSpells.slice(0, 20)) {
+    const secs = s.ticks * 6;
+    const fmtTime = secs >= 3600 ? `${(secs / 3600).toFixed(1)}h` : secs >= 60 ? `${(secs / 60).toFixed(1)}m` : `${secs}s`;
+    lines.push(`| ${s.name} | ${s.category} | ${fmtTime} | ${s.formula} |`);
+  }
+
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total spells:** ${total.toLocaleString()}`);
+  lines.push(`- **Instant/None:** ${instantCount.toLocaleString()}`);
+  lines.push(`- **Timed:** ${timedCount.toLocaleString()}`);
+  lines.push(`- **Permanent:** ${permanentCount.toLocaleString()}`);
+  lines.push(`- **Duration formulas used:** ${formulaCounts.size}`);
+  lines.push(`- **Categories with timed spells:** ${categoryDurations.size}`);
+
+  lines.push('', `*${total.toLocaleString()} spells analyzed for duration patterns.*`);
+  return lines.join('\n');
+}
+
+// Tool 247: AA ability rank analysis
+export async function getAAAbilityRankAnalysis(): Promise<string> {
+  await loadAAAbilities();
+  if (!aaAbilities || aaAbilities.size === 0) return 'AA ability data not available.';
+
+  const lines: string[] = ['# AA Ability Rank Analysis', '', '*Analyze AA naming patterns, rank progressions, and keyword themes.*'];
+
+  // Parse rank suffixes
+  const rankPattern = /^(.*?)\s+((?:Rk\.\s*)?(?:I{1,3}V?|IV|VI{0,3}|IX|X{0,3}|[0-9]+))$/;
+  const baseCounts = new Map<string, number>();
+  const maxRanks = new Map<string, number>();
+  let rankedCount = 0;
+  let unrankedCount = 0;
+  const rankDistribution = new Map<string, number>();
+  const wordFreq = new Map<string, number>();
+  const descKeywords = new Map<string, number>();
+
+  // Roman numeral converter
+  const romanToInt = (s: string): number => {
+    const rk = s.replace(/^Rk\.?\s*/, '');
+    const romanMap: Record<string, number> = { I: 1, V: 5, X: 10 };
+    let val = 0;
+    for (let i = 0; i < rk.length; i++) {
+      const curr = romanMap[rk[i]] || 0;
+      const next = romanMap[rk[i + 1]] || 0;
+      val += curr < next ? -curr : curr;
+    }
+    return val || parseInt(rk) || 1;
+  };
+
+  for (const aa of aaAbilities.values()) {
+    const match = aa.name.match(rankPattern);
+    if (match) {
+      rankedCount++;
+      const base = match[1].trim();
+      const rankStr = match[2];
+      const rankNum = romanToInt(rankStr);
+      baseCounts.set(base, (baseCounts.get(base) || 0) + 1);
+      const prev = maxRanks.get(base) || 0;
+      if (rankNum > prev) maxRanks.set(base, rankNum);
+      rankDistribution.set(rankStr, (rankDistribution.get(rankStr) || 0) + 1);
+    } else {
+      unrankedCount++;
+      baseCounts.set(aa.name, (baseCounts.get(aa.name) || 0) + 1);
+    }
+
+    // Word frequency in names
+    const words = aa.name.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter((w: string) => w.length >= 3);
+    for (const w of words) {
+      wordFreq.set(w, (wordFreq.get(w) || 0) + 1);
+    }
+
+    // Description keyword analysis
+    if (aa.description) {
+      const descWords = aa.description.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter((w: string) => w.length >= 5);
+      for (const w of descWords) {
+        descKeywords.set(w, (descKeywords.get(w) || 0) + 1);
+      }
+    }
+  }
+
+  // Ranked vs unranked
+  lines.push('', '## Rank Distribution', '');
+  lines.push(`- **Ranked AAs:** ${rankedCount.toLocaleString()} (${((rankedCount / aaAbilities.size) * 100).toFixed(1)}%)`);
+  lines.push(`- **Unranked AAs:** ${unrankedCount.toLocaleString()} (${((unrankedCount / aaAbilities.size) * 100).toFixed(1)}%)`);
+  lines.push(`- **Unique base abilities:** ${maxRanks.size}`);
+
+  // Rank suffix distribution
+  lines.push('', '## Rank Suffix Distribution', '');
+  lines.push('| Rank | Count |');
+  lines.push('|:-----|------:|');
+  const sortedRanks = [...rankDistribution.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [rank, count] of sortedRanks.slice(0, 20)) {
+    lines.push(`| ${rank} | ${count.toLocaleString()} |`);
+  }
+
+  // Deepest rank progressions
+  lines.push('', '## Deepest Rank Progressions', '');
+  lines.push('| Ability | Max Rank | Versions |');
+  lines.push('|:--------|:---------|--------:|');
+  const deepest = [...maxRanks.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [base, maxRank] of deepest.slice(0, 25)) {
+    const versions = baseCounts.get(base) || 0;
+    lines.push(`| ${base} | ${maxRank} | ${versions} |`);
+  }
+
+  // Most common name words
+  const stopWords = new Set(['the', 'of', 'and', 'to', 'in', 'for', 'rk', 'ii', 'iii', 'iv', 'vi', 'vii', 'viii', 'ix']);
+  lines.push('', '## Most Common Words in AA Names', '');
+  lines.push('| Word | Count |');
+  lines.push('|:-----|------:|');
+  const sortedWords = [...wordFreq.entries()].filter(([w]) => !stopWords.has(w)).sort((a, b) => b[1] - a[1]);
+  for (const [word, count] of sortedWords.slice(0, 25)) {
+    lines.push(`| ${word} | ${count.toLocaleString()} |`);
+  }
+
+  // Description themes
+  const themeKeywords: Record<string, string[]> = {
+    'Offense': ['damage', 'attack', 'critical', 'strike', 'melee', 'nuke'],
+    'Defense': ['defense', 'resist', 'absorb', 'avoid', 'shield', 'block', 'parry', 'dodge'],
+    'Healing': ['heal', 'health', 'mend', 'cure', 'restoration'],
+    'Mana/Resources': ['mana', 'endurance', 'regenerate', 'conservation'],
+    'Duration/Recast': ['duration', 'recast', 'cooldown', 'timer', 'refresh'],
+    'Chance/Probability': ['chance', 'probability', 'trigger', 'proc'],
+  };
+  lines.push('', '## AA Description Themes', '');
+  lines.push('| Theme | AAs Mentioning |');
+  lines.push('|:------|---------------:|');
+  const themeCounts: [string, number][] = [];
+  for (const [theme, keywords] of Object.entries(themeKeywords)) {
+    let count = 0;
+    for (const aa of aaAbilities.values()) {
+      if (!aa.description) continue;
+      const desc = aa.description.toLowerCase();
+      if (keywords.some(k => desc.includes(k))) count++;
+    }
+    themeCounts.push([theme, count]);
+  }
+  themeCounts.sort((a, b) => b[1] - a[1]);
+  for (const [theme, count] of themeCounts) {
+    lines.push(`| ${theme} | ${count.toLocaleString()} |`);
+  }
+
+  // Summary
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total AAs:** ${aaAbilities.size.toLocaleString()}`);
+  lines.push(`- **Unique base abilities:** ${maxRanks.size}`);
+  lines.push(`- **Highest rank found:** ${Math.max(...maxRanks.values())}`);
+  lines.push(`- **Most common word:** ${sortedWords[0]?.[0] || '-'} (${sortedWords[0]?.[1] || 0})`);
+
+  lines.push('', `*${aaAbilities.size.toLocaleString()} AA abilities analyzed.*`);
+  return lines.join('\n');
+}
+
+// Tool 248: Spell recast timer analysis
+export async function getSpellRecastTimerAnalysis(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const lines: string[] = ['# Spell Recast Timer Analysis', '', '*Analyze recast timers, shared timer groups, and cooldown patterns.*'];
+
+  const timerGroups = new Map<number, { name: string; recast: number; category: string; level: number }[]>();
+  const recastBuckets = new Map<string, number>();
+  const categoryRecasts = new Map<string, number[]>();
+  let noRecastCount = 0;
+  let hasRecastCount = 0;
+  const longestRecasts: { name: string; recastMs: number; category: string; timerId: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const recastMs = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    const timerId = parseInt(spell.fields[SF.TIMER_ID]) || 0;
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(catId) || 'Unknown';
+    const name = spell.fields[SF.NAME];
+
+    // Find min class level
+    let minLevel = 255;
+    for (let c = 0; c < 16; c++) {
+      const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + c]) || 255;
+      if (lv > 0 && lv < minLevel) minLevel = lv;
+    }
+
+    if (recastMs <= 0) {
+      noRecastCount++;
+    } else {
+      hasRecastCount++;
+      const recastSec = recastMs / 1000;
+
+      // Timer group tracking
+      if (timerId > 0) {
+        if (!timerGroups.has(timerId)) timerGroups.set(timerId, []);
+        timerGroups.get(timerId)!.push({ name, recast: recastSec, category, level: minLevel });
+      }
+
+      // Bucket
+      let bucket: string;
+      if (recastSec <= 6) bucket = '≤6s';
+      else if (recastSec <= 15) bucket = '7-15s';
+      else if (recastSec <= 30) bucket = '16-30s';
+      else if (recastSec <= 60) bucket = '31-60s';
+      else if (recastSec <= 300) bucket = '1-5min';
+      else if (recastSec <= 900) bucket = '5-15min';
+      else if (recastSec <= 1800) bucket = '15-30min';
+      else bucket = '30min+';
+      recastBuckets.set(bucket, (recastBuckets.get(bucket) || 0) + 1);
+
+      // Category tracking
+      if (!categoryRecasts.has(category)) categoryRecasts.set(category, []);
+      categoryRecasts.get(category)!.push(recastSec);
+
+      longestRecasts.push({ name, recastMs, category, timerId });
+    }
+  }
+
+  // Recast vs no-recast
+  const total = noRecastCount + hasRecastCount;
+  lines.push('', '## Recast Overview', '');
+  lines.push(`- **Spells with recast timer:** ${hasRecastCount.toLocaleString()} (${((hasRecastCount / total) * 100).toFixed(1)}%)`);
+  lines.push(`- **Spells without recast:** ${noRecastCount.toLocaleString()} (${((noRecastCount / total) * 100).toFixed(1)}%)`);
+  lines.push(`- **Shared timer groups:** ${timerGroups.size}`);
+
+  // Recast distribution
+  const bucketOrder = ['≤6s', '7-15s', '16-30s', '31-60s', '1-5min', '5-15min', '15-30min', '30min+'];
+  lines.push('', '## Recast Timer Distribution', '');
+  lines.push('| Range | Count | % |');
+  lines.push('|:------|------:|---:|');
+  for (const bucket of bucketOrder) {
+    const count = recastBuckets.get(bucket) || 0;
+    if (count > 0) {
+      lines.push(`| ${bucket} | ${count.toLocaleString()} | ${((count / hasRecastCount) * 100).toFixed(1)}% |`);
+    }
+  }
+
+  // Largest shared timer groups
+  lines.push('', '## Largest Shared Timer Groups', '');
+  lines.push('| Timer ID | Spells | Avg Recast | Sample Spells |');
+  lines.push('|---------:|-------:|:-----------|:-------------|');
+  const sortedGroups = [...timerGroups.entries()].sort((a, b) => b[1].length - a[1].length);
+  for (const [timerId, group] of sortedGroups.slice(0, 25)) {
+    const avgRecast = group.reduce((s, g) => s + g.recast, 0) / group.length;
+    const fmtTime = avgRecast >= 60 ? `${(avgRecast / 60).toFixed(1)}m` : `${avgRecast.toFixed(1)}s`;
+    const samples = group.slice(0, 3).map(g => g.name).join(', ');
+    lines.push(`| ${timerId} | ${group.length} | ${fmtTime} | ${samples} |`);
+  }
+
+  // Average recast by category
+  lines.push('', '## Average Recast by Spell Category', '');
+  lines.push('| Category | Avg Recast | Spells | Max Recast |');
+  lines.push('|:---------|:-----------|------:|:-----------|');
+  const catAvgs = [...categoryRecasts.entries()]
+    .filter(([, durations]) => durations.length >= 3)
+    .map(([cat, durations]) => {
+      const avg = durations.reduce((s, d) => s + d, 0) / durations.length;
+      const max = Math.max(...durations);
+      return { cat, avg, count: durations.length, max };
+    })
+    .sort((a, b) => b.avg - a.avg);
+  for (const { cat, avg, count, max } of catAvgs.slice(0, 20)) {
+    const fmtTime = (s: number) => s >= 3600 ? `${(s / 3600).toFixed(1)}h` : s >= 60 ? `${(s / 60).toFixed(1)}m` : `${s.toFixed(1)}s`;
+    lines.push(`| ${cat} | ${fmtTime(avg)} | ${count} | ${fmtTime(max)} |`);
+  }
+
+  // Longest recasts
+  longestRecasts.sort((a, b) => b.recastMs - a.recastMs);
+  lines.push('', '## Longest Recast Timers', '');
+  lines.push('| Spell | Category | Recast | Timer ID |');
+  lines.push('|:------|:---------|:-------|--------:|');
+  for (const s of longestRecasts.slice(0, 20)) {
+    const secs = s.recastMs / 1000;
+    const fmtTime = secs >= 3600 ? `${(secs / 3600).toFixed(1)}h` : secs >= 60 ? `${(secs / 60).toFixed(1)}m` : `${secs.toFixed(1)}s`;
+    lines.push(`| ${s.name} | ${s.category} | ${fmtTime} | ${s.timerId || '-'} |`);
+  }
+
+  // Summary
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total spells:** ${total.toLocaleString()}`);
+  lines.push(`- **With recast:** ${hasRecastCount.toLocaleString()}`);
+  lines.push(`- **Shared timer groups:** ${timerGroups.size}`);
+  lines.push(`- **Largest timer group:** Timer ${sortedGroups[0]?.[0] || '-'} (${sortedGroups[0]?.[1].length || 0} spells)`);
+
+  lines.push('', `*${total.toLocaleString()} spells analyzed for recast patterns.*`);
+  return lines.join('\n');
+}
