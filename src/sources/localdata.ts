@@ -39400,3 +39400,219 @@ export async function getSPAClassMatrix(spaId: number): Promise<string> {
   lines.push('', `*SPA ${spaId} (${spaName}) used by ${sorted.length} classes.*`);
   return lines.join('\n');
 }
+
+export async function getSpellDetail(spellName: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const nameLower = spellName.toLowerCase();
+  let matched: { fields: string[] } | null = null;
+  let matchedId = 0;
+  const partialMatches: string[] = [];
+
+  for (const spell of spells.values()) {
+    const name = spell.fields[SF.NAME];
+    if (name.toLowerCase() === nameLower) {
+      matched = spell;
+      matchedId = parseInt(spell.fields[SF.ID]) || 0;
+      break;
+    }
+    if (name.toLowerCase().includes(nameLower) && partialMatches.length < 10) {
+      partialMatches.push(name);
+    }
+  }
+
+  if (!matched) {
+    if (partialMatches.length > 0) {
+      return `Spell "${spellName}" not found. Did you mean: ${partialMatches.join(', ')}?`;
+    }
+    return `Spell "${spellName}" not found.`;
+  }
+
+  const f = matched.fields;
+  const name = f[SF.NAME];
+  const mana = parseInt(f[SF.MANA]) || 0;
+  const endurance = parseInt(f[SF.ENDURANCE]) || 0;
+  const castTime = ((parseInt(f[SF.CAST_TIME]) || 0) / 1000).toFixed(1);
+  const recoveryTime = ((parseInt(f[SF.RECOVERY_TIME]) || 0) / 1000).toFixed(1);
+  const recastTime = ((parseInt(f[SF.RECAST_TIME]) || 0) / 1000).toFixed(1);
+  const range = parseInt(f[SF.RANGE]) || 0;
+  const aeRange = parseInt(f[SF.AE_RANGE]) || 0;
+  const pushBack = parseFloat(f[SF.PUSH_BACK]) || 0;
+  const pushUp = parseFloat(f[SF.PUSH_UP]) || 0;
+  const resistId = parseInt(f[SF.RESIST_TYPE]) || 0;
+  const resistName = RESIST_TYPES[resistId] || `Type ${resistId}`;
+  const targetId = parseInt(f[SF.TARGET_TYPE]) || 0;
+  const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+  const beneficial = (parseInt(f[SF.BENEFICIAL]) || 0) === 1;
+  const durFormula = parseInt(f[SF.DURATION_FORMULA]) || 0;
+  const durValue = parseInt(f[SF.DURATION_VALUE]) || 0;
+  const timerId = parseInt(f[SF.TIMER_ID]) || 0;
+  const recourseId = parseInt(f[SF.RECOURSE]) || 0;
+  const catId = parseInt(f[SF.CATEGORY]) || 0;
+  const subCatId = parseInt(f[SF.SUBCATEGORY]) || 0;
+  const catName = (spellCategories && catId > 0) ? (spellCategories.get(catId) || `ID ${catId}`) : 'None';
+  const subCatName = (spellCategories && subCatId > 0 && subCatId !== catId) ? (spellCategories.get(subCatId) || `ID ${subCatId}`) : '';
+  const teleZone = f[SF.TELEPORT_ZONE] || '';
+
+  const lines = [`# Spell: ${name}`, ''];
+  lines.push(`**ID:** ${matchedId} | **Type:** ${beneficial ? 'Beneficial' : 'Detrimental'}`, '');
+
+  lines.push('### Basic Properties');
+  lines.push('| Property | Value |');
+  lines.push('|:---------|:------|');
+  lines.push(`| Mana | ${mana} |`);
+  if (endurance > 0) lines.push(`| Endurance | ${endurance} |`);
+  lines.push(`| Cast Time | ${castTime}s |`);
+  lines.push(`| Recovery Time | ${recoveryTime}s |`);
+  lines.push(`| Recast Time | ${recastTime}s |`);
+  lines.push(`| Range | ${range} |`);
+  if (aeRange > 0) lines.push(`| AE Range | ${aeRange} |`);
+  lines.push(`| Resist Type | ${resistName} |`);
+  lines.push(`| Target Type | ${targetName} |`);
+  lines.push(`| Duration | Formula ${durFormula}, Value ${durValue} (~${durValue} ticks / ${((durValue * 6) / 60).toFixed(1)} min) |`);
+  if (timerId > 0) lines.push(`| Timer ID | ${timerId} |`);
+  if (recourseId > 0) lines.push(`| Recourse Spell ID | ${recourseId} |`);
+  if (pushBack !== 0) lines.push(`| Push Back | ${pushBack} |`);
+  if (pushUp !== 0) lines.push(`| Push Up | ${pushUp} |`);
+  lines.push(`| Category | ${catName}${subCatName ? ` / ${subCatName}` : ''} |`);
+  if (teleZone) lines.push(`| Teleport Zone | ${teleZone} |`);
+  lines.push('');
+
+  // Class levels
+  const classLevels: string[] = [];
+  for (let ci = 0; ci < 16; ci++) {
+    const level = parseInt(f[SF.CLASS_LEVEL_START + ci]) || 255;
+    if (level > 0 && level < 255) {
+      const className = CLASS_IDS[ci + 1] || `Class ${ci + 1}`;
+      classLevels.push(`${className}: ${level}`);
+    }
+  }
+  if (classLevels.length > 0) {
+    lines.push('### Class Availability');
+    lines.push(classLevels.join(' | '), '');
+  }
+
+  // Effects
+  for (let i = f.length - 1; i >= 0; i--) {
+    if (f[i] && f[i].includes('|')) {
+      const slots = f[i].split('$');
+      const effects: string[] = [];
+      let slotNum = 1;
+      for (const slot of slots) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaCode = parseInt(parts[1]) || 0;
+          const baseVal = parseInt(parts[2]) || 0;
+          if (spaCode > 0 || baseVal !== 0) {
+            const spaName = SPA_NAMES[spaCode] || `SPA ${spaCode}`;
+            effects.push(`| ${slotNum} | ${spaCode} | ${spaName} | ${baseVal} |`);
+          }
+        }
+        slotNum++;
+      }
+      if (effects.length > 0) {
+        lines.push('### Spell Effects');
+        lines.push('| Slot | SPA | Effect | Base Value |');
+        lines.push('|-----:|----:|:-------|------------|');
+        lines.push(...effects);
+      }
+      break;
+    }
+  }
+
+  // Description
+  const desc = spellDescriptions?.get(matchedId);
+  if (desc) {
+    lines.push('', '### Description');
+    lines.push(desc);
+  }
+
+  return lines.join('\n');
+}
+
+export async function getClassExclusiveSpells(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const exclusives: { name: string; level: number; target: string; beneficial: boolean }[] = [];
+  let totalSpellsEX = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsEX++;
+
+    // Check if any other class also has this spell
+    let otherClassHas = false;
+    for (let ci = 0; ci < 16; ci++) {
+      if (ci === classIndex) continue;
+      const otherLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + ci]) || 255;
+      if (otherLevel > 0 && otherLevel < 255) {
+        otherClassHas = true;
+        break;
+      }
+    }
+    if (otherClassHas) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    exclusives.push({ name: spell.fields[SF.NAME], level, target: targetName, beneficial });
+  }
+
+  exclusives.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} — Exclusive Spells`, ''];
+  lines.push(`*Spells that only ${classFullName} can use (no other class has access).*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsEX}`);
+  lines.push(`**Exclusive spells:** ${exclusives.length} (${((exclusives.length / totalSpellsEX) * 100).toFixed(1)}%)`, '');
+
+  if (exclusives.length > 0) {
+    lines.push('| Spell | Level | Target | Type |');
+    lines.push('|:------|------:|:-------|:-----|');
+    for (const m of exclusives.slice(0, 60)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.target} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (exclusives.length > 60) lines.push(`| ...and ${exclusives.length - 60} more | | | |`);
+  }
+
+  lines.push('', `*${exclusives.length} exclusive spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getGlobalResistTypeDistribution(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const resistCounts = new Map<number, number>();
+  let totalSpellsGR = 0;
+
+  for (const spell of spells.values()) {
+    totalSpellsGR++;
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    resistCounts.set(resistId, (resistCounts.get(resistId) || 0) + 1);
+  }
+
+  const sorted = [...resistCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  const lines = ['# Global Resist Type Distribution', ''];
+  lines.push(`*Resist type distribution across all ${totalSpellsGR.toLocaleString()} spells.*`, '');
+
+  lines.push('| Resist Type | ID | Count | Percentage |');
+  lines.push('|:------------|---:|------:|-----------:|');
+  for (const [id, count] of sorted) {
+    const name = RESIST_TYPES[id] || `Unknown ${id}`;
+    const pct = ((count / totalSpellsGR) * 100).toFixed(1);
+    lines.push(`| ${name} | ${id} | ${count.toLocaleString()} | ${pct}% |`);
+  }
+
+  lines.push('', `*${sorted.length} resist types across ${totalSpellsGR.toLocaleString()} spells.*`);
+  return lines.join('\n');
+}

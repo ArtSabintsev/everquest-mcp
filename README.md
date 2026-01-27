@@ -1,6 +1,6 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 395 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 398 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
@@ -375,6 +375,9 @@ Then restart Claude Desktop.
 | `get_class_spell_by_level_range` | Query spells in a level range with per-level breakdown |
 | `get_global_spa_distribution` | Top 50 most common SPAs across all 70K+ spells |
 | `get_spa_class_matrix` | Which classes use a specific SPA — counts and level ranges |
+| `get_spell_detail` | Detailed single-spell breakdown — properties, class levels, effects, description |
+| `get_class_exclusive_spells` | Spells exclusive to a single class (no other class has access) |
+| `get_global_resist_type_distribution` | Resist type distribution across the entire spell database |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -553,7 +556,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (395 tools)
+├── tools.ts          # Tool definitions and handlers (398 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

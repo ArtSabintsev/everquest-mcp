@@ -403,6 +403,9 @@ import {
   getClassSpellByLevelRange,
   getGlobalSPADistribution,
   getSPAClassMatrix,
+  getSpellDetail,
+  getClassExclusiveSpells,
+  getGlobalResistTypeDistribution,
 } from './sources/index.js';
 
 export const tools = [
@@ -4954,6 +4957,37 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_detail',
+    description: 'Detailed spell breakdown by name — shows all properties, class levels, effects, description for a single spell.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spell_name: { type: 'string', description: 'Exact spell name (e.g. "Complete Heal", "Mana Burn", "Healing Wave")' }
+      },
+      required: ['spell_name']
+    }
+  },
+  {
+    name: 'get_class_exclusive_spells',
+    description: 'Find spells exclusive to a single class — spells that no other class can use.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Bard", "Wizard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_global_resist_type_distribution',
+    description: 'Global resist type distribution — breakdown of all resist types across the entire spell database.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7790,6 +7824,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const spaId = typeof args.spa_id === 'number' ? args.spa_id : parseInt(String(args.spa_id));
         if (isNaN(spaId)) return 'Error: "spa_id" parameter is required (number).';
         return getSPAClassMatrix(spaId);
+      }
+
+      case 'get_spell_detail': {
+        const spellName = typeof args.spell_name === 'string' ? args.spell_name.trim() : '';
+        if (!spellName) return 'Error: "spell_name" parameter is required.';
+        return getSpellDetail(spellName);
+      }
+
+      case 'get_class_exclusive_spells': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassExclusiveSpells(className);
+      }
+
+      case 'get_global_resist_type_distribution': {
+        return getGlobalResistTypeDistribution();
       }
 
       case 'search_help_topics': {
