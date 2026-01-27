@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 338 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 341 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **338 tools** for querying EverQuest data
+- **341 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -318,6 +318,9 @@ Then restart Claude Desktop.
 | `get_class_timer_group_profile` | Timer group analysis — shared recast timers, timer distribution, most contested groups |
 | `get_class_mana_efficiency_by_level` | Mana efficiency by level — cost distribution, scaling trends, most expensive spells, free spells |
 | `get_class_spell_category_profile` | Spell category distribution — categories, subcategories, breadth, dominant themes |
+| `get_class_cast_time_distribution` | Cast time distribution — speed brackets, average by level, slowest spells |
+| `get_class_recast_time_profile` | Recast time profile — cooldown brackets, longest-cooldown abilities |
+| `get_class_target_type_profile` | Target type distribution — single/self/AE/group/beam with beneficial/detrimental splits |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -496,7 +499,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (338 tools)
+├── tools.ts          # Tool definitions and handlers (341 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

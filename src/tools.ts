@@ -346,6 +346,9 @@ import {
   getClassTimerGroupProfile,
   getClassManaEfficiencyByLevel,
   getClassSpellCategoryProfile,
+  getClassCastTimeDistribution,
+  getClassRecastTimeProfile,
+  getClassTargetTypeProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4260,6 +4263,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_cast_time_distribution',
+    description: 'Cast time distribution for a class — analyzes cast speed brackets (instant, <0.5s, 0.5-1s, 1-2s, etc.), average cast time by level bracket, and slowest-casting spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_recast_time_profile',
+    description: 'Recast time profile for a class — analyzes cooldown distribution by bracket (none, <6s, 6-12s, 30s-1m, 1-5m, etc.) and identifies longest-cooldown abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Paladin", "Ranger")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_target_type_profile',
+    description: 'Target type profile for a class — analyzes spell distribution across target types (single, self, AE, group, beam, etc.) with beneficial/detrimental breakdowns and examples.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6729,6 +6765,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellCategoryProfile(className);
+      }
+
+      case 'get_class_cast_time_distribution': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassCastTimeDistribution(className);
+      }
+
+      case 'get_class_recast_time_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassRecastTimeProfile(className);
+      }
+
+      case 'get_class_target_type_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassTargetTypeProfile(className);
       }
 
       case 'search_help_topics': {
