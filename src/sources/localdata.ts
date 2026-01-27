@@ -22338,3 +22338,322 @@ export async function getAchievementExpansionTimeline(): Promise<string> {
   lines.push('', `*${cumulativeAch} achievements across ${expansionData.length} expansions analyzed.*`);
   return lines.join('\n');
 }
+
+// ============ TOOL 237: Item Effect Category Breakdown ============
+export async function getItemEffectCategoryBreakdown(): Promise<string> {
+  await loadDbStrings([DBSTR_TYPES.ITEM_EFFECT_DESC]);
+  const descs = dbStrings?.get(DBSTR_TYPES.ITEM_EFFECT_DESC) || new Map();
+  if (descs.size === 0) return 'Item effect data not available.';
+
+  const lines = ['# Item Effect Category Breakdown', '', '*Classify item click/proc effects into functional categories.*', ''];
+
+  // Define categories by keyword
+  const categoryKeywords: Record<string, string[]> = {
+    'Offensive (Damage)': ['damage', 'nuke', 'strike', 'blast', 'bolt', 'fire', 'ice', 'frost', 'shock', 'burn', 'smite', 'wrath'],
+    'Healing': ['heal', 'cure', 'remedy', 'mend', 'restoration', 'rejuvenation', 'regeneration', 'resurrect'],
+    'Defensive (Buff)': ['shield', 'ward', 'protection', 'armor', 'fortif', 'resist', 'guard', 'absorb', 'rune', 'block'],
+    'Haste/Speed': ['haste', 'speed', 'quickness', 'celerity', 'alacrity', 'velocity'],
+    'Stat Boost': ['strength', 'stamina', 'agility', 'dexterity', 'intelligence', 'wisdom', 'charisma', 'attack'],
+    'Mana/Endurance': ['mana', 'endurance', 'clarity', 'focus'],
+    'Movement/Travel': ['teleport', 'gate', 'levitat', 'invis', 'shrink', 'grow', 'bind', 'evacuate', 'succor'],
+    'Crowd Control': ['stun', 'root', 'snare', 'slow', 'mez', 'charm', 'fear', 'calm', 'pacif'],
+    'Pet/Summon': ['pet', 'summon', 'companion', 'familiar', 'minion', 'swarm'],
+    'Illusion': ['illusion', 'form of', 'disguise', 'morph'],
+    'Utility': ['identify', 'sense', 'detect', 'see invis', 'ultravision', 'infravision', 'water breath', 'endure'],
+    'Food/Drink': ['food', 'drink', 'water', 'ration', 'sustenance', 'nourish'],
+  };
+
+  const categorized = new Map<string, { count: number; samples: string[] }>();
+  for (const cat of Object.keys(categoryKeywords)) {
+    categorized.set(cat, { count: 0, samples: [] });
+  }
+  categorized.set('Uncategorized', { count: 0, samples: [] });
+
+  for (const [, desc] of descs) {
+    const lower = desc.toLowerCase();
+    let matched = false;
+    for (const [cat, keywords] of Object.entries(categoryKeywords)) {
+      if (keywords.some(kw => lower.includes(kw))) {
+        const data = categorized.get(cat)!;
+        data.count++;
+        if (data.samples.length < 3) data.samples.push(desc.slice(0, 60));
+        matched = true;
+        break; // first match wins
+      }
+    }
+    if (!matched) {
+      const data = categorized.get('Uncategorized')!;
+      data.count++;
+      if (data.samples.length < 3) data.samples.push(desc.slice(0, 60));
+    }
+  }
+
+  // Category table
+  lines.push('## Effect Categories', '');
+  lines.push('| Category | Effects | % | Sample Descriptions |');
+  lines.push('|----------|-------:|---:|:-------------------|');
+  const sorted = [...categorized.entries()].sort((a, b) => b[1].count - a[1].count);
+  for (const [cat, data] of sorted) {
+    if (data.count === 0) continue;
+    const pct = Math.round(data.count / descs.size * 100);
+    lines.push(`| ${cat} | ${data.count} | ${pct}% | ${data.samples.join(' / ')} |`);
+  }
+
+  // Word frequency in descriptions
+  const wordCounts = new Map<string, number>();
+  for (const [, desc] of descs) {
+    const words = desc.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter((w: string) => w.length >= 4);
+    for (const word of words) {
+      wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+    }
+  }
+  const topWords = [...wordCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  lines.push('', '## Most Common Words in Item Effects', '');
+  lines.push('| Word | Occurrences |');
+  lines.push('|------|----------:|');
+  for (const [word, count] of topWords.slice(0, 25)) {
+    lines.push(`| ${word} | ${count} |`);
+  }
+
+  // Description length distribution
+  const lengths = [...descs.values()].map(d => d.length);
+  const avgLen = Math.round(lengths.reduce((s, l) => s + l, 0) / lengths.length);
+  const maxLen = Math.max(...lengths);
+  const minLen = Math.min(...lengths);
+
+  lines.push('', '## Statistics', '');
+  lines.push(`- **Total item effects:** ${descs.size}`);
+  lines.push(`- **Avg description length:** ${avgLen} chars`);
+  lines.push(`- **Shortest:** ${minLen} chars`);
+  lines.push(`- **Longest:** ${maxLen} chars`);
+  lines.push(`- **Categorized:** ${descs.size - (categorized.get('Uncategorized')?.count || 0)} (${Math.round((descs.size - (categorized.get('Uncategorized')?.count || 0)) / descs.size * 100)}%)`);
+
+  lines.push('', `*${descs.size} item effects classified into ${sorted.filter(([, d]) => d.count > 0).length} categories.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 238: Tribute Efficiency Analysis ============
+export async function getTributeEfficiencyAnalysis(): Promise<string> {
+  await loadTributes();
+  if (!tributes || tributes.size === 0) return 'Tribute data not available.';
+
+  const lines = ['# Tribute Efficiency Analysis', '', '*Compare tribute benefits by type, personal vs guild, and keyword optimization.*', ''];
+
+  // Split personal vs guild
+  const personal = [...tributes.values()].filter(t => !t.isGuild);
+  const guild = [...tributes.values()].filter(t => t.isGuild);
+
+  lines.push(`- **Total tributes:** ${tributes.size}`);
+  lines.push(`- **Personal tributes:** ${personal.length}`);
+  lines.push(`- **Guild tributes:** ${guild.length}`);
+  lines.push('');
+
+  // Keyword classification
+  const benefitKeywords: Record<string, string[]> = {
+    'HP/Health': ['hit point', 'hp', 'health'],
+    'Mana': ['mana'],
+    'AC/Armor': ['armor class', 'avoidance'],
+    'Attack/DPS': ['attack', 'damage', 'melee', 'crit', 'flurry', 'double attack'],
+    'Haste': ['haste', 'attack speed'],
+    'Resist': ['resist', 'fire resist', 'cold resist', 'magic resist', 'poison resist', 'disease resist'],
+    'Regeneration': ['regen', 'regenerat'],
+    'Endurance': ['endurance'],
+    'Spell': ['spell', 'casting', 'focus'],
+    'Experience': ['experience', 'xp'],
+    'Movement': ['movement', 'run speed'],
+  };
+
+  // Classify tributes
+  const personalByType = new Map<string, TributeEntry[]>();
+  const guildByType = new Map<string, TributeEntry[]>();
+
+  for (const t of tributes.values()) {
+    const lower = (t.name + ' ' + t.description).toLowerCase();
+    let classified = false;
+    for (const [type, keywords] of Object.entries(benefitKeywords)) {
+      if (keywords.some(kw => lower.includes(kw))) {
+        const map = t.isGuild ? guildByType : personalByType;
+        if (!map.has(type)) map.set(type, []);
+        map.get(type)!.push(t);
+        classified = true;
+        break;
+      }
+    }
+    if (!classified) {
+      const map = t.isGuild ? guildByType : personalByType;
+      if (!map.has('Other')) map.set('Other', []);
+      map.get('Other')!.push(t);
+    }
+  }
+
+  // Personal tribute breakdown
+  lines.push('## Personal Tribute by Benefit Type', '');
+  lines.push('| Benefit Type | Count | Sample Tributes |');
+  lines.push('|-------------|------:|:---------------|');
+  const personalSorted = [...personalByType.entries()].sort((a, b) => b[1].length - a[1].length);
+  for (const [type, tribList] of personalSorted) {
+    const samples = tribList.slice(0, 2).map(t => t.name).join(', ');
+    lines.push(`| ${type} | ${tribList.length} | ${samples} |`);
+  }
+
+  // Guild tribute breakdown
+  if (guild.length > 0) {
+    lines.push('', '## Guild Tribute by Benefit Type', '');
+    lines.push('| Benefit Type | Count | Sample Tributes |');
+    lines.push('|-------------|------:|:---------------|');
+    const guildSorted = [...guildByType.entries()].sort((a, b) => b[1].length - a[1].length);
+    for (const [type, tribList] of guildSorted) {
+      const samples = tribList.slice(0, 2).map(t => t.name).join(', ');
+      lines.push(`| ${type} | ${tribList.length} | ${samples} |`);
+    }
+  }
+
+  // Coverage comparison
+  lines.push('', '## Personal vs Guild Coverage', '');
+  lines.push('| Benefit Type | Personal | Guild |');
+  lines.push('|-------------|--------:|------:|');
+  const allTypes = new Set([...personalByType.keys(), ...guildByType.keys()]);
+  for (const type of [...allTypes].sort()) {
+    const pCount = personalByType.get(type)?.length || 0;
+    const gCount = guildByType.get(type)?.length || 0;
+    lines.push(`| ${type} | ${pCount} | ${gCount} |`);
+  }
+
+  // Name pattern analysis
+  const nameWords = new Map<string, number>();
+  for (const t of tributes.values()) {
+    const words = t.name.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
+    for (const word of words) {
+      nameWords.set(word, (nameWords.get(word) || 0) + 1);
+    }
+  }
+  const topNameWords = [...nameWords.entries()].sort((a, b) => b[1] - a[1]);
+
+  lines.push('', '## Most Common Tribute Name Words', '');
+  lines.push('| Word | Count |');
+  lines.push('|------|------:|');
+  for (const [word, count] of topNameWords.slice(0, 15)) {
+    lines.push(`| ${word} | ${count} |`);
+  }
+
+  lines.push('', `*${tributes.size} tributes analyzed across ${allTypes.size} benefit types.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 239: Game String Category Analysis ============
+export async function getGameStringCategoryAnalysis(): Promise<string> {
+  await loadGameStrings();
+  if (!gameStrings || gameStrings.size === 0) return 'Game string data not available.';
+
+  const lines = ['# Game String Category Analysis', '', '*Analyze 7000+ game UI strings by topic and content type.*', ''];
+
+  // Topic categories by keyword
+  const topicKeywords: Record<string, string[]> = {
+    'Combat': ['attack', 'damage', 'hit', 'miss', 'dodge', 'parry', 'riposte', 'block', 'slay', 'kill'],
+    'Spells/Magic': ['spell', 'cast', 'mana', 'resist', 'fizzle', 'component', 'reagent', 'scribe'],
+    'Items/Loot': ['item', 'loot', 'equip', 'inventory', 'bag', 'slot', 'augment', 'tribute'],
+    'Trading/Economy': ['buy', 'sell', 'trade', 'merchant', 'bazaar', 'price', 'coin', 'platinum', 'gold', 'silver'],
+    'Group/Raid': ['group', 'raid', 'invite', 'disband', 'leader', 'loot', 'split'],
+    'Guild': ['guild', 'banner', 'rank', 'officer', 'member', 'recruit'],
+    'Chat/Social': ['tell', 'say', 'shout', 'auction', 'ooc', 'emote', 'channel', 'chat', 'message'],
+    'Navigation': ['zone', 'teleport', 'gate', 'bind', 'location', 'compass', 'map', 'waypoint'],
+    'Character': ['level', 'experience', 'skill', 'ability', 'class', 'race', 'stat', 'train'],
+    'UI/System': ['window', 'button', 'click', 'display', 'option', 'setting', 'default', 'enable', 'disable'],
+    'Pet': ['pet', 'familiar', 'companion', 'minion'],
+    'Housing': ['house', 'plot', 'yard', 'real estate', 'trophy', 'placeable'],
+    'Achievement': ['achievement', 'reward', 'accomplish', 'complete'],
+    'Error/Warning': ['error', 'cannot', 'invalid', 'failed', 'unable', 'must', 'require'],
+  };
+
+  const categorized = new Map<string, { count: number; samples: string[] }>();
+  for (const cat of Object.keys(topicKeywords)) {
+    categorized.set(cat, { count: 0, samples: [] });
+  }
+  categorized.set('Other', { count: 0, samples: [] });
+
+  let totalLength = 0;
+  let longestStr = '';
+
+  for (const [, text] of gameStrings) {
+    totalLength += text.length;
+    if (text.length > longestStr.length) longestStr = text;
+
+    const lower = text.toLowerCase();
+    let matched = false;
+    for (const [cat, keywords] of Object.entries(topicKeywords)) {
+      if (keywords.some(kw => lower.includes(kw))) {
+        const data = categorized.get(cat)!;
+        data.count++;
+        if (data.samples.length < 2) data.samples.push(text.slice(0, 60));
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      const data = categorized.get('Other')!;
+      data.count++;
+      if (data.samples.length < 2) data.samples.push(text.slice(0, 60));
+    }
+  }
+
+  // Category table
+  lines.push('## String Topics', '');
+  lines.push('| Topic | Strings | % | Samples |');
+  lines.push('|-------|-------:|---:|:--------|');
+  const sorted = [...categorized.entries()].sort((a, b) => b[1].count - a[1].count);
+  for (const [cat, data] of sorted) {
+    if (data.count === 0) continue;
+    const pct = Math.round(data.count / gameStrings.size * 100);
+    lines.push(`| ${cat} | ${data.count} | ${pct}% | ${data.samples.join(' / ')} |`);
+  }
+
+  // ID range analysis
+  const ids = [...gameStrings.keys()].sort((a, b) => a - b);
+  const ranges: { start: number; end: number; count: number }[] = [];
+  const bucketSize = 1000;
+  for (let start = 0; start <= ids[ids.length - 1]; start += bucketSize) {
+    const end = start + bucketSize - 1;
+    const count = ids.filter(id => id >= start && id <= end).length;
+    if (count > 0) ranges.push({ start, end, count });
+  }
+
+  lines.push('', '## ID Range Distribution (Top Ranges)', '');
+  lines.push('| ID Range | Strings | Bar |');
+  lines.push('|----------|-------:|:----|');
+  const topRanges = ranges.sort((a, b) => b.count - a.count).slice(0, 15);
+  const maxCount = topRanges[0]?.count || 1;
+  for (const r of topRanges) {
+    const barLen = Math.ceil(r.count / maxCount * 20);
+    lines.push(`| ${r.start}-${r.end} | ${r.count} | ${'█'.repeat(barLen)} |`);
+  }
+
+  // Word frequency
+  const wordCounts = new Map<string, number>();
+  for (const [, text] of gameStrings) {
+    const words = text.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length >= 4);
+    for (const word of words) {
+      wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+    }
+  }
+  const topWords = [...wordCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  lines.push('', '## Most Common Words', '');
+  lines.push('| Word | Occurrences |');
+  lines.push('|------|----------:|');
+  for (const [word, count] of topWords.slice(0, 20)) {
+    lines.push(`| ${word} | ${count} |`);
+  }
+
+  // Statistics
+  const avgLen = Math.round(totalLength / gameStrings.size);
+  lines.push('', '## Statistics', '');
+  lines.push(`- **Total strings:** ${gameStrings.size}`);
+  lines.push(`- **Average length:** ${avgLen} chars`);
+  lines.push(`- **Longest string:** ${longestStr.length} chars`);
+  lines.push(`- **ID range:** ${ids[0]} to ${ids[ids.length - 1]}`);
+  lines.push(`- **Categorized:** ${gameStrings.size - (categorized.get('Other')?.count || 0)} (${Math.round((gameStrings.size - (categorized.get('Other')?.count || 0)) / gameStrings.size * 100)}%)`);
+
+  lines.push('', `*${gameStrings.size} game strings analyzed across ${sorted.filter(([, d]) => d.count > 0).length} topics.*`);
+  return lines.join('\n');
+}

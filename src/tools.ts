@@ -244,6 +244,9 @@ import {
   getClassOffensiveProfile,
   getSpellTargetEffectMatrix,
   getAchievementExpansionTimeline,
+  getItemEffectCategoryBreakdown,
+  getTributeEfficiencyAnalysis,
+  getGameStringCategoryAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -3184,6 +3187,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_item_effect_category_breakdown',
+    description: 'Item effect category breakdown — classify 1100+ item click/proc effects into functional categories (Offensive, Healing, Defensive, Travel, etc.) with keyword analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_tribute_efficiency_analysis',
+    description: 'Tribute efficiency analysis — personal vs guild tribute comparison, benefit type classification (HP, Mana, AC, Haste, Resist, etc.), coverage gaps.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_game_string_category_analysis',
+    description: 'Game string category analysis — classify 7000+ game UI strings by topic (Combat, Spells, Items, Trading, Group, Guild, Chat, Navigation, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5103,6 +5133,18 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_achievement_expansion_timeline': {
         return getAchievementExpansionTimeline();
+      }
+
+      case 'get_item_effect_category_breakdown': {
+        return getItemEffectCategoryBreakdown();
+      }
+
+      case 'get_tribute_efficiency_analysis': {
+        return getTributeEfficiencyAnalysis();
+      }
+
+      case 'get_game_string_category_analysis': {
+        return getGameStringCategoryAnalysis();
       }
 
       case 'search_help_topics': {

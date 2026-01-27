@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 236 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 239 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **236 tools** for querying EverQuest data
+- **239 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -261,6 +261,7 @@ Then restart Claude Desktop.
 | `get_tribute_overview` | Tribute system overview — personal vs guild tributes, full listing, and common themes |
 | `get_tribute_benefit_analysis` | Tribute benefit analysis — keyword frequency (HP, mana, haste, resist), personal vs guild split, name patterns |
 | `get_tribute_role_analysis` | Tribute role analysis — classify tributes by benefitting role (Tank, Healer, Melee DPS, Caster DPS, Utility) with keyword matching |
+| `get_tribute_efficiency_analysis` | Tribute efficiency analysis — personal vs guild comparison, benefit type classification, coverage gaps, name pattern analysis |
 | `get_faction_overview` | Faction system overview with counts by expansion, value ranges, starting modifier stats |
 | `compare_factions` | Compare two factions side by side (expansion, value ranges, starting values by race) |
 | `get_currency_overview` | Alternate currency overview — total count, description stats, keyword analysis, complete listing |
@@ -329,6 +330,7 @@ Then restart Claude Desktop.
 | `get_item_effect` | Get specific item effect description |
 | `get_item_effect_overview` | Item effect overview — keyword frequency, description stats, common words, sample effects by category |
 | `get_item_effect_spell_correlation` | Item effect-spell correlation — cross-reference item click/proc effects with spell names and keywords, effect category classification |
+| `get_item_effect_category_breakdown` | Item effect category breakdown — classify 1100+ item click/proc effects into functional categories (Offensive, Healing, Defensive, Travel, etc.) |
 | `search_augment_groups` | Search augmentation slot groups |
 | `list_augment_slot_types` | List all 31 augmentation slot types |
 | `search_item_lore_groups` | Search item lore groups (LORE duplicate definitions) |
@@ -360,6 +362,7 @@ Then restart Claude Desktop.
 | `get_game_data_summary_dashboard` | One-stop summary dashboard of ALL loaded EQ data — entry counts for all 19 data systems with key metrics |
 | `search_all_local_data` | Unified search across ALL local data systems (spells, zones, factions, achievements, AAs, tributes, creatures, overseer, events, lore, item effects) |
 | `get_db_string_type_overview` | Meta overview of all 68 string data types in dbstr_us.txt with entry counts, names, and samples |
+| `get_game_string_category_analysis` | Game string category analysis — classify 7000+ game UI strings by topic (Combat, Spells, Items, Trading, Group, Guild, etc.) |
 
 ## Example Queries
 
@@ -393,7 +396,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (236 tools)
+├── tools.ts          # Tool definitions and handlers (239 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
