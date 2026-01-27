@@ -349,6 +349,9 @@ import {
   getClassCastTimeDistribution,
   getClassRecastTimeProfile,
   getClassTargetTypeProfile,
+  getClassRecourseProfile,
+  getClassPushbackProfile,
+  getClassSpellRecoveryProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4296,6 +4299,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_recourse_profile',
+    description: 'Recourse spell profile for a class — analyzes spells that trigger secondary recourse effects, showing most common recourse targets and recourse chains.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_pushback_profile',
+    description: 'Pushback profile for a class — analyzes spells with pushback and knockup effects, displacement forces, and strongest knockback abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Magician")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_recovery_profile',
+    description: 'Spell recovery profile for a class — analyzes spell recovery times (global cooldown between casts), recovery time brackets, and slowest-recovery spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Necromancer", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6783,6 +6819,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassTargetTypeProfile(className);
+      }
+
+      case 'get_class_recourse_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassRecourseProfile(className);
+      }
+
+      case 'get_class_pushback_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassPushbackProfile(className);
+      }
+
+      case 'get_class_spell_recovery_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellRecoveryProfile(className);
       }
 
       case 'search_help_topics': {

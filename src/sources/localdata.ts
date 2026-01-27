@@ -35508,3 +35508,197 @@ export async function getClassTargetTypeProfile(className: string): Promise<stri
   lines3.push('', `*${totalSpells3} spells across ${sorted.length} target types for ${classFullName}.*`);
   return lines3.join('\n');
 }
+
+export async function getClassRecourseProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const recourseSpells: { name: string; level: number; recourseId: number; recourseName: string; target: string }[] = [];
+  let totalSpellsR = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsR++;
+
+    const recourseId = parseInt(spell.fields[SF.RECOURSE]) || 0;
+    if (recourseId <= 0) continue;
+
+    const recourseSpell = spells.get(recourseId);
+    const recourseName = recourseSpell ? recourseSpell.fields[SF.NAME] : `Spell #${recourseId}`;
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+
+    recourseSpells.push({ name: spell.fields[SF.NAME], level, recourseId, recourseName, target: targetName });
+  }
+
+  recourseSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} Recourse Spell Profile`, ''];
+  lines.push('*Analyzes spells that trigger secondary recourse effects — automatic companion spells cast on success.*', '');
+  lines.push(`**Total spells:** ${totalSpellsR}`);
+  lines.push(`- With recourse: ${recourseSpells.length} (${((recourseSpells.length / totalSpellsR) * 100).toFixed(1)}%)`);
+  lines.push(`- Without recourse: ${totalSpellsR - recourseSpells.length}`, '');
+
+  // Group by recourse target
+  const recourseTargets: Record<string, number> = {};
+  for (const s of recourseSpells) {
+    recourseTargets[s.recourseName] = (recourseTargets[s.recourseName] || 0) + 1;
+  }
+
+  lines.push('## Most Common Recourse Effects — Top 20', '');
+  lines.push('| Recourse Effect | Spells Using |');
+  lines.push('|:----------------|------------:|');
+  const sortedRecourse = Object.entries(recourseTargets).sort((a, b) => b[1] - a[1]);
+  for (const [name, count] of sortedRecourse.slice(0, 20)) {
+    lines.push(`| ${name} | ${count} |`);
+  }
+
+  lines.push('', '## Recourse Spells by Level — Top 30', '');
+  lines.push('| Spell | Level | Recourse Effect | Target |');
+  lines.push('|:------|------:|:----------------|:-------|');
+  for (const s of recourseSpells.slice(-30)) {
+    lines.push(`| ${s.name} | ${s.level} | ${s.recourseName} | ${s.target} |`);
+  }
+
+  lines.push('', `*${recourseSpells.length} recourse spells out of ${totalSpellsR} for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassPushbackProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const pushSpells: { name: string; level: number; pushBack: number; pushUp: number; target: string }[] = [];
+  let totalSpellsP = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsP++;
+
+    const pushBack = parseFloat(spell.fields[SF.PUSH_BACK]) || 0;
+    const pushUp = parseFloat(spell.fields[SF.PUSH_UP]) || 0;
+    if (pushBack === 0 && pushUp === 0) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    pushSpells.push({ name: spell.fields[SF.NAME], level, pushBack, pushUp, target: targetName });
+  }
+
+  pushSpells.sort((a, b) => (b.pushBack + b.pushUp) - (a.pushBack + a.pushUp));
+
+  const lines = [`# ${classFullName} Pushback Profile`, ''];
+  lines.push('*Analyzes spells with pushback and knockup effects — displacement forces applied to targets.*', '');
+  lines.push(`**Total spells:** ${totalSpellsP}`);
+  lines.push(`- With pushback/knockup: ${pushSpells.length} (${((pushSpells.length / totalSpellsP) * 100).toFixed(1)}%)`);
+  lines.push(`- Without pushback: ${totalSpellsP - pushSpells.length}`, '');
+
+  // Distribution
+  const pushDist: Record<string, number> = { 'Push only': 0, 'Knockup only': 0, 'Push + Knockup': 0 };
+  for (const s of pushSpells) {
+    if (s.pushBack > 0 && s.pushUp > 0) pushDist['Push + Knockup']++;
+    else if (s.pushBack > 0) pushDist['Push only']++;
+    else pushDist['Knockup only']++;
+  }
+
+  lines.push('## Effect Type Distribution', '');
+  lines.push('| Type | Count |');
+  lines.push('|:-----|------:|');
+  for (const [type, count] of Object.entries(pushDist)) {
+    if (count > 0) lines.push(`| ${type} | ${count} |`);
+  }
+
+  lines.push('', '## Strongest Pushback Spells — Top 20', '');
+  lines.push('| Spell | Level | Push | Knockup | Target |');
+  lines.push('|:------|------:|-----:|--------:|:-------|');
+  for (const s of pushSpells.slice(0, 20)) {
+    lines.push(`| ${s.name} | ${s.level} | ${s.pushBack} | ${s.pushUp} | ${s.target} |`);
+  }
+
+  lines.push('', `*${pushSpells.length} pushback spells out of ${totalSpellsP} for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellRecoveryProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const brackets: Record<string, number> = {
+    'None (0s)': 0, '< 0.5s': 0, '0.5-1s': 0, '1-1.5s': 0, '1.5-2s': 0, '2-3s': 0, '3+s': 0
+  };
+  const slowRecovery: { name: string; level: number; recoveryMs: number; castMs: number; target: string }[] = [];
+  let totalSpellsSR = 0;
+  let withRecovery = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsSR++;
+
+    const recoveryMs = parseInt(spell.fields[SF.RECOVERY_TIME]) || 0;
+    const castMs = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const recoverySec = recoveryMs / 1000;
+
+    if (recoveryMs === 0) brackets['None (0s)']++;
+    else {
+      withRecovery++;
+      if (recoverySec < 0.5) brackets['< 0.5s']++;
+      else if (recoverySec <= 1) brackets['0.5-1s']++;
+      else if (recoverySec <= 1.5) brackets['1-1.5s']++;
+      else if (recoverySec <= 2) brackets['1.5-2s']++;
+      else if (recoverySec <= 3) brackets['2-3s']++;
+      else brackets['3+s']++;
+    }
+
+    if (recoveryMs > 0) {
+      slowRecovery.push({ name: spell.fields[SF.NAME], level, recoveryMs, castMs, target: targetName });
+    }
+  }
+
+  slowRecovery.sort((a, b) => b.recoveryMs - a.recoveryMs);
+
+  const lines = [`# ${classFullName} Spell Recovery Profile`, ''];
+  lines.push('*Analyzes spell recovery times — the global cooldown between spell casts (separate from recast timers).*', '');
+  lines.push(`**Total spells:** ${totalSpellsSR}`);
+  lines.push(`- With recovery time: ${withRecovery} (${((withRecovery / totalSpellsSR) * 100).toFixed(1)}%)`);
+  lines.push(`- No recovery time: ${totalSpellsSR - withRecovery}`, '');
+
+  lines.push('## Recovery Time Brackets', '');
+  lines.push('| Bracket | Count | % | Bar |');
+  lines.push('|:--------|------:|--:|:----|');
+  const maxBracketSR = Math.max(...Object.values(brackets));
+  for (const [bracket, count] of Object.entries(brackets)) {
+    if (count === 0) continue;
+    const pct = ((count / totalSpellsSR) * 100).toFixed(1);
+    const bar = '█'.repeat(Math.round((count / maxBracketSR) * 15));
+    lines.push(`| ${bracket} | ${count} | ${pct}% | ${bar} |`);
+  }
+
+  lines.push('', '## Slowest Recovery Spells — Top 15', '');
+  lines.push('| Spell | Level | Recovery (s) | Cast (s) | Target |');
+  lines.push('|:------|------:|-------------:|---------:|:-------|');
+  for (const s of slowRecovery.slice(0, 15)) {
+    lines.push(`| ${s.name} | ${s.level} | ${(s.recoveryMs / 1000).toFixed(1)} | ${(s.castMs / 1000).toFixed(1)} | ${s.target} |`);
+  }
+
+  lines.push('', `*${totalSpellsSR} spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
