@@ -298,6 +298,9 @@ import {
   getSpellSummonAnalysis,
   getClassRegenProfile,
   getSpellDamageShieldProfile,
+  getClassResurrectionComparison,
+  getSpellRuneAbsorbProfile,
+  getClassSpellEffectDiversity,
 } from './sources/index.js';
 
 export const tools = [
@@ -3690,6 +3693,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_resurrection_comparison',
+    description: 'Cross-class resurrection spell comparison — rez spell counts, earliest level, cast times, unique rez spells, fastest resurrections.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_spell_rune_absorb_profile',
+    description: 'Rune and absorb spell profile for a class — stoneskin, damage absorb, magic absorb, rune values, self vs group targeting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_effect_diversity',
+    description: 'Spell effect diversity analysis for a class — unique SPAs used, most common and rarest effects, frequency distribution, effect category coverage.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Beastlord")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5873,6 +5903,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getSpellDamageShieldProfile(className);
+      }
+
+      case 'get_class_resurrection_comparison': {
+        return getClassResurrectionComparison();
+      }
+
+      case 'get_spell_rune_absorb_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellRuneAbsorbProfile(className);
+      }
+
+      case 'get_class_spell_effect_diversity': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellEffectDiversity(className);
       }
 
       case 'search_help_topics': {

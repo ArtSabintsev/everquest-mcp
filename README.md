@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 290 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 293 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **290 tools** for querying EverQuest data
+- **293 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -270,6 +270,9 @@ Then restart Claude Desktop.
 | `get_spell_summon_analysis` | Summoning spell analysis for a class — pets, items, players, corpses, familiars with cast times and first-available levels |
 | `get_class_regen_profile` | HP, mana, and endurance regen profile — strongest regens, multi-regen spells, self vs group targeting |
 | `get_spell_damage_shield_profile` | Damage shield analysis for a class — regular and reverse DS, strongest shields, DS value scaling by level |
+| `get_class_resurrection_comparison` | Cross-class resurrection spell comparison — rez counts, earliest level, cast times, fastest rezzes, unique spells |
+| `get_spell_rune_absorb_profile` | Rune and absorb profile for a class — stoneskin, damage absorb, magic absorb, rune values, self vs group targeting |
+| `get_class_spell_effect_diversity` | Spell effect diversity analysis — unique SPAs used, most common and rarest effects, frequency distribution, category coverage |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -448,7 +451,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (290 tools)
+├── tools.ts          # Tool definitions and handlers (293 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

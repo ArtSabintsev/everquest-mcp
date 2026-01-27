@@ -28646,3 +28646,352 @@ export async function getSpellDamageShieldProfile(className: string): Promise<st
   lines.push('', `*${dsSpells.length} damage shield spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// ============ CLASS RESURRECTION COMPARISON ============
+
+export async function getClassResurrectionComparison(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classIds = Object.keys(CLASS_IDS).map(Number).sort((a, b) => a - b);
+
+  const rezsByClass: Record<number, { name: string; level: number; castTime: number; mana: number; targetType: string }[]> = {};
+  for (const cid of classIds) rezsByClass[cid] = [];
+
+  for (const spell of spells.values()) {
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+    if (!effectField) continue;
+
+    // Rez spells target corpses (type 15) and use SPA 81 (Summon Player) as the rez mechanic
+    const targetType = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    if (targetType !== 15) continue; // must target corpse
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue; // must be beneficial
+
+    let hasRez = false;
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length >= 3 && parseInt(parts[1]) === 81) {
+        hasRez = true;
+        break;
+      }
+    }
+    if (!hasRez) continue;
+
+    for (const cid of classIds) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+      const mana = parseInt(spell.fields[SF.MANA]) || 0;
+      const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+      const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+      rezsByClass[cid].push({
+        name: spell.fields[SF.NAME],
+        level,
+        castTime,
+        mana,
+        targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      });
+    }
+  }
+
+  const lines = ['# Cross-Class Resurrection Spell Comparison', ''];
+  lines.push('*Compares all resurrection spells across all 16 classes.*', '');
+
+  // Summary
+  lines.push('## Resurrection Spell Counts by Class', '');
+  lines.push('| Class | Rez Spells | Earliest Level |');
+  lines.push('|:------|----------:|---------------:|');
+  for (const cid of classIds) {
+    const rezSpells = rezsByClass[cid];
+    if (rezSpells.length === 0) continue;
+    const earliest = Math.min(...rezSpells.map(r => r.level));
+    lines.push(`| ${CLASS_IDS[cid]} | ${rezSpells.length} | ${earliest} |`);
+  }
+
+  // Classes without rez
+  const noRez = classIds.filter(cid => rezsByClass[cid].length === 0);
+  if (noRez.length > 0) {
+    lines.push('', '## Classes Without Resurrection', '');
+    lines.push(noRez.map(cid => CLASS_IDS[cid]).join(', '));
+  }
+
+  // All rez spells across all classes (unique)
+  const allRezes = new Map<string, { name: string; classes: string[]; level: number; castTime: number; mana: number; targetType: string }>();
+  for (const cid of classIds) {
+    for (const r of rezsByClass[cid]) {
+      if (!allRezes.has(r.name)) {
+        allRezes.set(r.name, { ...r, classes: [CLASS_IDS[cid]] });
+      } else {
+        const existing = allRezes.get(r.name)!;
+        if (!existing.classes.includes(CLASS_IDS[cid])) existing.classes.push(CLASS_IDS[cid]);
+      }
+    }
+  }
+
+  lines.push('', `## All Resurrection Spells (${allRezes.size} unique)`, '');
+  lines.push('| Spell | Level | Cast (s) | Mana | Target | Classes |');
+  lines.push('|:------|------:|---------:|-----:|:-------|:--------|');
+  const sortedRezes = [...allRezes.values()].sort((a, b) => b.level - a.level);
+  for (const r of sortedRezes.slice(0, 30)) {
+    const castSec = (r.castTime / 1000).toFixed(1);
+    lines.push(`| ${r.name} | ${r.level} | ${castSec} | ${r.mana || '—'} | ${r.targetType} | ${r.classes.join(', ')} |`);
+  }
+  if (sortedRezes.length > 30) lines.push(`| ... +${sortedRezes.length - 30} more | | | | | |`);
+
+  // Fastest rez (lowest cast time)
+  const bySpeed = sortedRezes.filter(r => r.castTime > 0).sort((a, b) => a.castTime - b.castTime);
+  if (bySpeed.length > 0) {
+    lines.push('', '## Fastest Resurrections (Top 10)', '');
+    lines.push('| Spell | Cast (s) | Level | Classes |');
+    lines.push('|:------|---------:|------:|:--------|');
+    for (const r of bySpeed.slice(0, 10)) {
+      const castSec = (r.castTime / 1000).toFixed(1);
+      lines.push(`| ${r.name} | ${castSec} | ${r.level} | ${r.classes.join(', ')} |`);
+    }
+  }
+
+  lines.push('', `*${allRezes.size} unique resurrection spells compared across ${classIds.length - noRez.length} classes.*`);
+  return lines.join('\n');
+}
+
+// ============ SPELL RUNE/ABSORB PROFILE ============
+
+export async function getSpellRuneAbsorbProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // Rune/Absorb SPAs: 54=Stoneskin, 55=Damage Absorb, 170=Absorb Rune, 179=Absorb Damage, 63=Absorb Magic Damage
+  const RUNE_SPAS: Record<number, string> = {
+    54: 'Stoneskin', 55: 'Damage Absorb', 63: 'Absorb Magic Damage',
+    170: 'Absorb Rune', 179: 'Absorb Damage',
+  };
+
+  const runeSpells: { name: string; level: number; runeType: string; value: number; duration: number; mana: number; targetType: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue; // only beneficial
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    let bestRuneType = '';
+    let bestRuneValue = 0;
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          if (RUNE_SPAS[spaId] && Math.abs(base) > Math.abs(bestRuneValue)) {
+            bestRuneType = RUNE_SPAS[spaId];
+            bestRuneValue = base;
+          }
+        }
+      }
+    }
+    if (!bestRuneType) continue;
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+
+    runeSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      runeType: bestRuneType,
+      value: bestRuneValue,
+      duration: durationVal,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+    });
+  }
+
+  const lines = [`# ${classFullName} Rune & Absorb Profile`, ''];
+  lines.push(`*Analyzes stoneskin, damage absorb, rune, and magic absorb spells.*`, '');
+
+  if (runeSpells.length === 0) {
+    lines.push('No rune/absorb spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total rune/absorb spells:** ${runeSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of runeSpells) typeCounts[s.runeType] = (typeCounts[s.runeType] || 0) + 1;
+  lines.push('## Rune Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Strongest runes
+  const byValue = [...runeSpells].sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  lines.push('', '## Strongest Runes (Top 20)', '');
+  lines.push('| Spell | Level | Type | Absorb | Duration | Target | Mana |');
+  lines.push('|:------|------:|:-----|-------:|---------:|:-------|-----:|');
+  for (const s of byValue.slice(0, 20)) {
+    lines.push(`| ${s.name} | ${s.level} | ${s.runeType} | ${Math.abs(s.value).toLocaleString()} | ${s.duration} | ${s.targetType} | ${s.mana || '—'} |`);
+  }
+
+  // By rune type
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const typeSpells = runeSpells.filter(s => s.runeType === type).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+    lines.push('', `## ${type} Spells (${typeSpells.length})`, '');
+    lines.push('| Spell | Level | Absorb | Duration | Target |');
+    lines.push('|:------|------:|-------:|---------:|:-------|');
+    for (const s of typeSpells.slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${Math.abs(s.value).toLocaleString()} | ${s.duration} | ${s.targetType} |`);
+    }
+    if (typeSpells.length > 15) lines.push(`| ... +${typeSpells.length - 15} more | | | | |`);
+  }
+
+  // Self vs group runes
+  const selfRunes = runeSpells.filter(s => s.targetType === 'Self');
+  const singleRunes = runeSpells.filter(s => s.targetType === 'Single');
+  const groupRunes = runeSpells.filter(s => s.targetType.includes('Group'));
+  lines.push('', '## Rune Target Distribution', '');
+  lines.push(`- **Self-targeted:** ${selfRunes.length}`);
+  lines.push(`- **Single-targeted:** ${singleRunes.length}`);
+  lines.push(`- **Group-targeted:** ${groupRunes.length}`);
+  lines.push(`- **Other:** ${runeSpells.length - selfRunes.length - singleRunes.length - groupRunes.length}`);
+
+  lines.push('', `*${runeSpells.length} rune/absorb spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ CLASS SPELL EFFECT DIVERSITY ANALYSIS ============
+
+export async function getClassSpellEffectDiversity(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const spaUsage: Record<number, { count: number; spellNames: string[] }> = {};
+  let totalSpells = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpells++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const seenSPAs = new Set<number>();
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (!isNaN(spaId) && spaId > 0 && !seenSPAs.has(spaId)) {
+            seenSPAs.add(spaId);
+            if (!spaUsage[spaId]) spaUsage[spaId] = { count: 0, spellNames: [] };
+            spaUsage[spaId].count++;
+            if (spaUsage[spaId].spellNames.length < 3) spaUsage[spaId].spellNames.push(spell.fields[SF.NAME]);
+          }
+        }
+      }
+    }
+  }
+
+  const lines = [`# ${classFullName} Spell Effect Diversity Analysis`, ''];
+  lines.push(`*Analyzes unique spell effects (SPAs), their frequency, and how diverse the class's spell arsenal is.*`, '');
+
+  const uniqueSPAs = Object.keys(spaUsage).length;
+  lines.push(`**Total spells:** ${totalSpells}`);
+  lines.push(`**Unique effects (SPAs):** ${uniqueSPAs}`, '');
+
+  // Most common effects
+  const sorted = Object.entries(spaUsage).sort((a, b) => b[1].count - a[1].count);
+  lines.push('## Most Common Spell Effects (Top 30)', '');
+  lines.push('| SPA | Effect Name | Spells | % of Total | Examples |');
+  lines.push('|----:|:------------|-------:|-----------:|:---------|');
+  for (const [spaStr, info] of sorted.slice(0, 30)) {
+    const spa = parseInt(spaStr);
+    const name = SPA_NAMES[spa] || `SPA ${spa}`;
+    const pct = ((info.count / totalSpells) * 100).toFixed(1);
+    lines.push(`| ${spa} | ${name} | ${info.count} | ${pct}% | ${info.spellNames.join(', ')} |`);
+  }
+
+  // Rarest effects (used only once or twice)
+  const rare = sorted.filter(([, info]) => info.count <= 3);
+  if (rare.length > 0) {
+    lines.push('', `## Rarest Spell Effects (${rare.length} effects used ≤3 times)`, '');
+    lines.push('| SPA | Effect Name | Spells | Example |');
+    lines.push('|----:|:------------|-------:|:--------|');
+    for (const [spaStr, info] of rare.slice(0, 20)) {
+      const spa = parseInt(spaStr);
+      const name = SPA_NAMES[spa] || `SPA ${spa}`;
+      lines.push(`| ${spa} | ${name} | ${info.count} | ${info.spellNames[0]} |`);
+    }
+    if (rare.length > 20) lines.push(`| ... +${rare.length - 20} more | | | |`);
+  }
+
+  // Effect frequency buckets
+  const freqBuckets: Record<string, number> = { '1 spell': 0, '2-5 spells': 0, '6-20 spells': 0, '21-100 spells': 0, '100+ spells': 0 };
+  for (const [, info] of sorted) {
+    if (info.count === 1) freqBuckets['1 spell']++;
+    else if (info.count <= 5) freqBuckets['2-5 spells']++;
+    else if (info.count <= 20) freqBuckets['6-20 spells']++;
+    else if (info.count <= 100) freqBuckets['21-100 spells']++;
+    else freqBuckets['100+ spells']++;
+  }
+  lines.push('', '## Effect Frequency Distribution', '');
+  for (const [label, count] of Object.entries(freqBuckets)) {
+    if (count > 0) lines.push(`- **${label}:** ${count} effects`);
+  }
+
+  // Effect categories
+  const categories: Record<string, number[]> = {
+    'Damage/HP': [0, 79, 98, 101, 104],
+    'Stats (STR-CHA)': [4, 5, 6, 7, 8, 9, 10],
+    'Resists': [46, 47, 48, 49, 50, 146],
+    'Regen': [34, 35, 108, 137, 144],
+    'Crowd Control': [21, 22, 23, 31, 58, 74, 76, 94, 99],
+    'Defense': [1, 54, 55, 170, 179, 130, 132, 133, 134],
+    'Offense': [2, 11, 85, 119, 120, 130, 136, 184, 202],
+    'Utility': [12, 25, 26, 43, 57, 68, 80, 81, 82, 86, 91],
+  };
+  lines.push('', '## Effect Category Coverage', '');
+  for (const [cat, spas] of Object.entries(categories)) {
+    const found = spas.filter(spa => spaUsage[spa]);
+    lines.push(`- **${cat}:** ${found.length}/${spas.length} effects used`);
+  }
+
+  lines.push('', `*${uniqueSPAs} unique spell effects analyzed across ${totalSpells} spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
