@@ -331,6 +331,9 @@ import {
   getClassSpellAcquisitionCurve,
   getClassMovementProfile,
   getClassDamageShieldProfile,
+  getClassStunMezProfile,
+  getClassSpellFocusLimitProfile,
+  getClassCharmFearProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4080,6 +4083,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_stun_mez_profile',
+    description: 'Stun and mesmerize profile for a class — analyzes stun, mesmerize, calm, stun resist, AE stun resist, and shield bash stun effects with level progression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_focus_limit_profile',
+    description: 'Spell focus and limit profile for a class — analyzes focus effects (spell haste, crit, damage mods, twincast) with their limiting conditions (spell type, level range, mana cost).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_charm_fear_profile',
+    description: 'Charm and fear profile for a class — analyzes charm, fear, charm immunity, and group fear immunity effects with durations and level progression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6459,6 +6495,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassDamageShieldProfile(className);
+      }
+
+      case 'get_class_stun_mez_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassStunMezProfile(className);
+      }
+
+      case 'get_class_spell_focus_limit_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellFocusLimitProfile(className);
+      }
+
+      case 'get_class_charm_fear_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassCharmFearProfile(className);
       }
 
       case 'search_help_topics': {

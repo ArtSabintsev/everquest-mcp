@@ -33494,3 +33494,498 @@ export async function getClassDamageShieldProfile(className: string): Promise<st
   return lines.join('\n');
 }
 
+// Tool 324: Stun and Mesmerize profile per class
+export async function getClassStunMezProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const STUN_MEZ_SPAS: Record<number, string> = {
+    21: 'Stun',
+    74: 'Mesmerize',
+    76: 'Calm',
+    110: 'Add Stun Resist',
+    131: 'Stun Resist',
+    190: 'AE Stun Resist',
+    191: 'Stun Resist 2',
+    201: 'Shield Bash Stun',
+  };
+
+  interface StunMezSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const stunMezSpells: StunMezSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (STUN_MEZ_SPAS[spaId]) {
+        types.push(STUN_MEZ_SPAS[spaId]);
+        values[STUN_MEZ_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    stunMezSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Stun & Mesmerize Profile`, ''];
+  lines.push('*Analyzes stun, mesmerize, calm, stun resist, and shield bash stun effects.*', '');
+
+  if (stunMezSpells.length === 0) {
+    lines.push('No stun/mesmerize spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total stun/mez spells:** ${stunMezSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of stunMezSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Effect Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Offensive stuns
+  const stuns = stunMezSpells.filter(s => s.types.includes('Stun') && !s.beneficial);
+  if (stuns.length > 0) {
+    lines.push('', `## Stun Spells (${stuns.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Stun Value | Cast (s) | Mana | Duration | Target |');
+    lines.push('|:------|------:|-----------:|:---------|-----:|:---------|:-------|');
+    for (const s of stuns.sort((a, b) => (b.values['Stun'] || 0) - (a.values['Stun'] || 0)).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.values['Stun'] || 0} | ${castSec} | ${s.mana} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Mesmerize spells
+  const mez = stunMezSpells.filter(s => s.types.includes('Mesmerize'));
+  if (mez.length > 0) {
+    lines.push('', `## Mesmerize Spells (${mez.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Cast (s) | Mana | Duration | Target |');
+    lines.push('|:------|------:|:---------|-----:|:---------|:-------|');
+    for (const s of mez.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${castSec} | ${s.mana} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Calm spells
+  const calms = stunMezSpells.filter(s => s.types.includes('Calm'));
+  if (calms.length > 0) {
+    lines.push('', `## Calm Spells (${calms.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|:---------|-----:|:-------|');
+    for (const s of calms.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${castSec} | ${s.mana} | ${s.targetType} |`);
+    }
+  }
+
+  // Stun resist buffs
+  const stunResist = stunMezSpells.filter(s => s.types.some(t => t.includes('Stun Resist')));
+  if (stunResist.length > 0) {
+    lines.push('', `## Stun Resistance Effects (${stunResist.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Resist Value | Duration | Target |');
+    lines.push('|:------|------:|:-------------|:---------|:-------|');
+    for (const s of stunResist.sort((a, b) => {
+      const aVal = Math.max(...Object.entries(a.values).filter(([k]) => k.includes('Stun Resist')).map(([, v]) => Math.abs(v)));
+      const bVal = Math.max(...Object.entries(b.values).filter(([k]) => k.includes('Stun Resist')).map(([, v]) => Math.abs(v)));
+      return bVal - aVal;
+    }).slice(0, 15)) {
+      const fx = Object.entries(s.values).filter(([k]) => k.includes('Stun Resist')).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // First available level
+  lines.push('', '## First Available Level by Effect Type', '');
+  const firstLevels: Record<string, number> = {};
+  for (const s of stunMezSpells) {
+    for (const t of s.types) {
+      if (!firstLevels[t] || s.level < firstLevels[t]) firstLevels[t] = s.level;
+    }
+  }
+  for (const [type, level] of Object.entries(firstLevels).sort((a, b) => a[1] - b[1])) {
+    lines.push(`- **${type}:** Level ${level}`);
+  }
+
+  lines.push('', `*${stunMezSpells.length} stun/mez spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 325: Spell focus limit profile per class
+export async function getClassSpellFocusLimitProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const FOCUS_SPAS: Record<number, string> = {
+    127: 'Spell Haste',
+    128: 'Spell Duration Increase',
+    129: 'Spell Duration Decrease',
+    132: 'Mitigate Melee Damage',
+    133: 'Mitigate Spell Damage',
+    140: 'Twincast Chance',
+    170: 'Absorb Rune',
+    200: 'Spell Crit Chance',
+    202: 'Melee Crit Chance',
+    203: 'Spell Crit Damage',
+    218: 'DoT Damage',
+    219: 'Heal Amount',
+    221: 'Nuke Damage',
+    250: 'Increase Damage',
+    289: 'Improved Spell Effect',
+  };
+
+  const LIMIT_SPAS: Record<number, string> = {
+    226: 'Limit: Detrimental',
+    227: 'Limit: Beneficial',
+    228: 'Limit: Spell Type',
+    229: 'Limit: Min Mana',
+    230: 'Limit: Spell Class',
+    231: 'Limit: Spell Subclass',
+    232: 'Limit: Combat Skills',
+    233: 'Limit: Non-Combat Skills',
+    253: 'Limit: Spell Group',
+    286: 'Limit: Min Level',
+    287: 'Limit: Max Level',
+    288: 'Limit: Cast Time',
+    290: 'Limit: Spell',
+    291: 'Limit: Min Duration',
+    292: 'Limit: Effect',
+    293: 'Limit: Combat Skills',
+    294: 'Limit: Target',
+    295: 'Limit: Mana Min',
+    296: 'Limit: Mana Max',
+    309: 'Limit: Mana Max 2',
+    310: 'Limit: Mana Min 2',
+    311: 'Limit: Max Level 2',
+    312: 'Limit: Resist Min',
+    313: 'Limit: Resist Max',
+  };
+
+  interface FocusSpell {
+    name: string;
+    level: number;
+    focusEffects: string[];
+    focusValues: Record<string, number>;
+    limitEffects: string[];
+    limitValues: Record<string, number>;
+    mana: number;
+    targetType: string;
+    duration: number;
+  }
+
+  const focusSpells: FocusSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const focusEffects: string[] = [];
+    const focusValues: Record<string, number> = {};
+    const limitEffects: string[] = [];
+    const limitValues: Record<string, number> = {};
+
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (FOCUS_SPAS[spaId]) {
+        focusEffects.push(FOCUS_SPAS[spaId]);
+        focusValues[FOCUS_SPAS[spaId]] = base;
+      }
+      if (LIMIT_SPAS[spaId]) {
+        limitEffects.push(LIMIT_SPAS[spaId]);
+        limitValues[LIMIT_SPAS[spaId]] = base;
+      }
+    }
+    // Must have at least one focus effect AND one limit effect to be a focus spell
+    if (focusEffects.length === 0 || limitEffects.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    focusSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      focusEffects: [...new Set(focusEffects)],
+      focusValues,
+      limitEffects: [...new Set(limitEffects)],
+      limitValues,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Spell Focus & Limit Profile`, ''];
+  lines.push('*Analyzes spell focus effects (haste, crit, damage mods) with their limiting conditions (spell type, level, mana range, target).*', '');
+
+  if (focusSpells.length === 0) {
+    lines.push('No spell focus spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total focus spells:** ${focusSpells.length}`, '');
+
+  // Focus effect distribution
+  const focusCounts: Record<string, number> = {};
+  for (const s of focusSpells) {
+    for (const f of s.focusEffects) focusCounts[f] = (focusCounts[f] || 0) + 1;
+  }
+  lines.push('## Focus Effect Distribution', '');
+  for (const [effect, count] of Object.entries(focusCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${effect}:** ${count} spells`);
+  }
+
+  // Limit type distribution
+  const limitCounts: Record<string, number> = {};
+  for (const s of focusSpells) {
+    for (const l of s.limitEffects) limitCounts[l] = (limitCounts[l] || 0) + 1;
+  }
+  lines.push('', '## Limit Type Distribution', '');
+  for (const [limit, count] of Object.entries(limitCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    lines.push(`- **${limit}:** ${count} spells`);
+  }
+
+  // Top focus spells by effect type
+  for (const [effect] of Object.entries(focusCounts).sort((a, b) => b[1] - a[1]).slice(0, 5)) {
+    const matching = focusSpells.filter(s => s.focusEffects.includes(effect));
+    lines.push('', `## ${effect} Focus Spells (${matching.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Value | Limits | Target |');
+    lines.push('|:------|------:|------:|:-------|:-------|');
+    for (const s of matching.sort((a, b) => Math.abs(b.focusValues[effect] || 0) - Math.abs(a.focusValues[effect] || 0)).slice(0, 10)) {
+      const val = s.focusValues[effect] || 0;
+      const limits = s.limitEffects.slice(0, 3).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${limits} | ${s.targetType} |`);
+    }
+  }
+
+  // Average limits per focus spell
+  const avgLimits = focusSpells.reduce((sum, s) => sum + s.limitEffects.length, 0) / focusSpells.length;
+  lines.push('', '## Focus Spell Complexity', '');
+  lines.push(`- **Average limits per focus spell:** ${avgLimits.toFixed(1)}`);
+  lines.push(`- **Max limits on a single spell:** ${Math.max(...focusSpells.map(s => s.limitEffects.length))}`);
+  const noLimit = focusSpells.filter(s => s.limitEffects.length <= 1);
+  lines.push(`- **Spells with minimal limits (≤1):** ${noLimit.length}`);
+
+  lines.push('', `*${focusSpells.length} focus spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 326: Charm and Fear profile per class
+export async function getClassCharmFearProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const CF_SPAS: Record<number, string> = {
+    22: 'Charm',
+    23: 'Fear',
+    123: 'Group Fear Immunity',
+    172: 'Charm Immunity',
+  };
+
+  interface CFSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const cfSpells: CFSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (CF_SPAS[spaId]) {
+        types.push(CF_SPAS[spaId]);
+        values[CF_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    cfSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Charm & Fear Profile`, ''];
+  lines.push('*Analyzes charm, fear, charm immunity, and group fear immunity effects.*', '');
+
+  if (cfSpells.length === 0) {
+    lines.push('No charm/fear spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total charm/fear spells:** ${cfSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of cfSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Effect Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Charm spells
+  const charms = cfSpells.filter(s => s.types.includes('Charm'));
+  if (charms.length > 0) {
+    lines.push('', `## Charm Spells (${charms.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Value | Cast (s) | Mana | Duration | Target |');
+    lines.push('|:------|------:|------:|:---------|-----:|:---------|:-------|');
+    for (const s of charms.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.values['Charm'] || 0} | ${castSec} | ${s.mana} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Fear spells
+  const fears = cfSpells.filter(s => s.types.includes('Fear'));
+  if (fears.length > 0) {
+    lines.push('', `## Fear Spells (${fears.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Value | Cast (s) | Mana | Duration | Target |');
+    lines.push('|:------|------:|------:|:---------|-----:|:---------|:-------|');
+    for (const s of fears.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.values['Fear'] || 0} | ${castSec} | ${s.mana} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Charm Immunity
+  const charmImmunity = cfSpells.filter(s => s.types.includes('Charm Immunity'));
+  if (charmImmunity.length > 0) {
+    lines.push('', `## Charm Immunity (${charmImmunity.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Duration | Target |');
+    lines.push('|:------|------:|:---------|:-------|');
+    for (const s of charmImmunity.sort((a, b) => a.level - b.level).slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Group Fear Immunity
+  const fearImmunity = cfSpells.filter(s => s.types.includes('Group Fear Immunity'));
+  if (fearImmunity.length > 0) {
+    lines.push('', `## Group Fear Immunity (${fearImmunity.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Duration | Target |');
+    lines.push('|:------|------:|:---------|:-------|');
+    for (const s of fearImmunity.sort((a, b) => a.level - b.level).slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // First available level
+  lines.push('', '## First Available Level by Effect Type', '');
+  const firstLevels2: Record<string, number> = {};
+  for (const s of cfSpells) {
+    for (const t of s.types) {
+      if (!firstLevels2[t] || s.level < firstLevels2[t]) firstLevels2[t] = s.level;
+    }
+  }
+  for (const [type, level] of Object.entries(firstLevels2).sort((a, b) => a[1] - b[1])) {
+    lines.push(`- **${type}:** Level ${level}`);
+  }
+
+  lines.push('', `*${cfSpells.length} charm/fear spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

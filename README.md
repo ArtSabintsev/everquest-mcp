@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 323 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 326 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **323 tools** for querying EverQuest data
+- **326 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -303,6 +303,9 @@ Then restart Claude Desktop.
 | `get_class_spell_acquisition_curve` | Spell acquisition curve — new spells per level bracket, peak levels, drought gaps, cumulative progression |
 | `get_class_movement_profile` | Movement and mobility profile — speed buffs, snares, levitate, teleport, transport, water breathing, shrink |
 | `get_class_damage_shield_profile` | Damage shield profile — regular DS, reverse DS, spell DS, DS blocking with damage values |
+| `get_class_stun_mez_profile` | Stun and mesmerize profile — stun, mez, calm, stun resist, AE stun resist, shield bash stun |
+| `get_class_spell_focus_limit_profile` | Spell focus and limit profile — focus effects (haste, crit, damage mods) with limiting conditions |
+| `get_class_charm_fear_profile` | Charm and fear profile — charm, fear, charm immunity, group fear immunity with durations |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -481,7 +484,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (323 tools)
+├── tools.ts          # Tool definitions and handlers (326 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
