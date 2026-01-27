@@ -34333,3 +34333,361 @@ export async function getClassSpecialAttackProfile(className: string): Promise<s
   lines.push('', `*${specialSpells.length} special attack spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 330: Visibility and detection profile per class
+export async function getClassVisibilityProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const VIS_SPAS: Record<number, string> = {
+    12: 'Invisibility',
+    13: 'See Invisible',
+    28: 'Ultravision',
+    29: 'Infravision',
+    51: 'Detect Undead',
+    52: 'Detect Summoned',
+    53: 'Detect Animals',
+    56: 'True North',
+    66: 'Divination',
+    73: 'Bind Sight',
+  };
+
+  interface VisSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+  }
+
+  const visSpells: VisSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (VIS_SPAS[spaId]) {
+        types.push(VIS_SPAS[spaId]);
+        values[VIS_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    visSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Visibility & Detection Profile`, ''];
+  lines.push('*Analyzes invisibility, see invisible, ultravision, infravision, detect undead/summoned/animals, true north, divination, bind sight.*', '');
+
+  if (visSpells.length === 0) {
+    lines.push('No visibility/detection spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total visibility/detection spells:** ${visSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of visSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Effect Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Spells by each type
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    const matching = visSpells.filter(s => s.types.includes(type));
+    lines.push('', `## ${type} (${matching.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Cast (s) | Mana | Duration | Target |');
+    lines.push('|:------|------:|:---------|-----:|:---------|:-------|');
+    for (const s of matching.sort((a, b) => a.level - b.level).slice(0, 10)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${castSec} | ${s.mana} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // First available level
+  lines.push('', '## First Available Level by Effect', '');
+  const firstLevels: Record<string, number> = {};
+  for (const s of visSpells) {
+    for (const t of s.types) {
+      if (!firstLevels[t] || s.level < firstLevels[t]) firstLevels[t] = s.level;
+    }
+  }
+  for (const [type, level] of Object.entries(firstLevels).sort((a, b) => a[1] - b[1])) {
+    lines.push(`- **${type}:** Level ${level}`);
+  }
+
+  lines.push('', `*${visSpells.length} visibility/detection spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 331: Silence and amnesia profile per class
+export async function getClassSilenceAmnesiaProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const SILENCE_SPAS: Record<number, string> = {
+    84: 'Restrict Spell School',
+    95: 'Amnesia',
+    112: 'Screech',
+    162: 'Silence',
+  };
+
+  interface SilenceSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const silenceSpells: SilenceSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (SILENCE_SPAS[spaId]) {
+        types.push(SILENCE_SPAS[spaId]);
+        values[SILENCE_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    silenceSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Silence & Amnesia Profile`, ''];
+  lines.push('*Analyzes silence, amnesia, screech, and spell school restriction effects.*', '');
+
+  if (silenceSpells.length === 0) {
+    lines.push('No silence/amnesia spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total silence/amnesia spells:** ${silenceSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of silenceSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Effect Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const matching = silenceSpells.filter(s => s.types.includes(type));
+    lines.push('', `## ${type} Spells (${matching.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Value | Cast (s) | Mana | Duration | Target |');
+    lines.push('|:------|------:|------:|:---------|-----:|:---------|:-------|');
+    for (const s of matching.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.values[type] || 0} | ${castSec} | ${s.mana} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  lines.push('', `*${silenceSpells.length} silence/amnesia spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 332: Proc effect profile per class
+export async function getClassProcProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const PROC_SPAS: Record<number, string> = {
+    85: 'Spell Proc',
+    119: 'Melee Proc',
+    120: 'Range Proc',
+    139: 'Proc Rate Modifier',
+    256: 'Spell Proc 2',
+    258: 'Sympathetic Proc',
+  };
+
+  interface ProcSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const procSpells: ProcSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (PROC_SPAS[spaId]) {
+        types.push(PROC_SPAS[spaId]);
+        values[PROC_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    procSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Proc Effect Profile`, ''];
+  lines.push('*Analyzes proc effects: spell procs, melee procs, range procs, proc rate modifiers, and sympathetic procs.*', '');
+
+  if (procSpells.length === 0) {
+    lines.push('No proc spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total proc spells:** ${procSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of procSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Proc Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    const matching = procSpells.filter(s => s.types.includes(type));
+    lines.push('', `## ${type} (${matching.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Proc Value | Cast (s) | Mana | Duration | Target |');
+    lines.push('|:------|------:|-----------:|:---------|-----:|:---------|:-------|');
+    for (const s of matching.sort((a, b) => Math.abs(b.values[type] || 0) - Math.abs(a.values[type] || 0)).slice(0, 10)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const val = s.values[type] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${castSec} | ${s.mana} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // First available level
+  lines.push('', '## First Available Level by Proc Type', '');
+  const firstLevels: Record<string, number> = {};
+  for (const s of procSpells) {
+    for (const t of s.types) {
+      if (!firstLevels[t] || s.level < firstLevels[t]) firstLevels[t] = s.level;
+    }
+  }
+  for (const [type, level] of Object.entries(firstLevels).sort((a, b) => a[1] - b[1])) {
+    lines.push(`- **${type}:** Level ${level}`);
+  }
+
+  lines.push('', `*${procSpells.length} proc spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

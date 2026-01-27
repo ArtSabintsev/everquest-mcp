@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 329 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 332 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **329 tools** for querying EverQuest data
+- **332 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -309,6 +309,9 @@ Then restart Claude Desktop.
 | `get_class_crit_profile` | Critical hit profile — spell/melee crit chance, crit damage, triple attack, pet crit, frenzied devastation |
 | `get_class_avoidance_profile` | Avoidance and accuracy — parry, dodge, riposte, block, strikethrough, accuracy, combat stability |
 | `get_class_special_attack_profile` | Special attacks — rampage, headshot, slay undead, backstab variants, assassinate, finishing blow |
+| `get_class_visibility_profile` | Visibility and detection — invisibility, see invis, ultravision, infravision, detect undead/summoned/animals |
+| `get_class_silence_amnesia_profile` | Silence and amnesia — silence, amnesia, screech, spell school restriction for disrupting casters |
+| `get_class_proc_profile` | Proc effects — spell procs, melee procs, range procs, proc rate modifiers, sympathetic procs |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -487,7 +490,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (329 tools)
+├── tools.ts          # Tool definitions and handlers (332 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

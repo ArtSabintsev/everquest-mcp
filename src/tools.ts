@@ -337,6 +337,9 @@ import {
   getClassCritProfile,
   getClassAvoidanceProfile,
   getClassSpecialAttackProfile,
+  getClassVisibilityProfile,
+  getClassSilenceAmnesiaProfile,
+  getClassProcProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4152,6 +4155,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_visibility_profile',
+    description: 'Visibility and detection profile for a class — analyzes invisibility, see invisible, ultravision, infravision, detect undead/summoned/animals, true north, divination, bind sight.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Rogue", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_silence_amnesia_profile',
+    description: 'Silence and amnesia profile for a class — analyzes silence, amnesia, screech, and spell school restriction effects for disrupting enemy casters.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Bard", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_proc_profile',
+    description: 'Proc effect profile for a class — analyzes spell procs, melee procs, range procs, proc rate modifiers, and sympathetic procs with values and level progression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Ranger", "Paladin")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6567,6 +6603,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpecialAttackProfile(className);
+      }
+
+      case 'get_class_visibility_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassVisibilityProfile(className);
+      }
+
+      case 'get_class_silence_amnesia_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSilenceAmnesiaProfile(className);
+      }
+
+      case 'get_class_proc_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassProcProfile(className);
       }
 
       case 'search_help_topics': {
