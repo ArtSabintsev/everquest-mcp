@@ -247,6 +247,9 @@ import {
   getItemEffectCategoryBreakdown,
   getTributeEfficiencyAnalysis,
   getGameStringCategoryAnalysis,
+  getLoreThemeAnalysis,
+  getAugmentationSystemAnalysis,
+  getMapPOIZoneDetail,
 } from './sources/index.js';
 
 export const tools = [
@@ -3214,6 +3217,38 @@ export const tools = [
     }
   },
   {
+    name: 'get_lore_theme_analysis',
+    description: 'Lore theme analysis — analyze 50+ in-game lore stories for recurring themes (War, Magic, Gods, Death, Nature), proper nouns, word frequency, and story statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_augmentation_system_analysis',
+    description: 'Augmentation system analysis — all 31 slot types, 81 augmentation groups classified by category (Stat, Combat, Defensive, Spell, Skill, Special).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_map_poi_zone_detail',
+    description: 'Map POI zone detail — get all points of interest for a specific zone, categorized (Merchants, Zone Lines, Camps, Landmarks, etc.) with coordinates.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        zone_name: {
+          type: 'string',
+          description: 'Zone name to look up (e.g., "Plane of Knowledge", "South Karana", "Crushbone")'
+        }
+      },
+      required: ['zone_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5145,6 +5180,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_game_string_category_analysis': {
         return getGameStringCategoryAnalysis();
+      }
+
+      case 'get_lore_theme_analysis': {
+        return getLoreThemeAnalysis();
+      }
+
+      case 'get_augmentation_system_analysis': {
+        return getAugmentationSystemAnalysis();
+      }
+
+      case 'get_map_poi_zone_detail': {
+        const zoneName = typeof args.zone_name === 'string' ? args.zone_name.trim() : '';
+        if (!zoneName) return 'Error: "zone_name" parameter is required.';
+        return getMapPOIZoneDetail(zoneName);
       }
 
       case 'search_help_topics': {

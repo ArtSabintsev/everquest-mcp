@@ -22657,3 +22657,335 @@ export async function getGameStringCategoryAnalysis(): Promise<string> {
   lines.push('', `*${gameStrings.size} game strings analyzed across ${sorted.filter(([, d]) => d.count > 0).length} topics.*`);
   return lines.join('\n');
 }
+
+// ============ TOOL 240: Lore Theme Analysis ============
+export async function getLoreThemeAnalysis(): Promise<string> {
+  await loadLore();
+  if (!loreEntries || loreEntries.length === 0) return 'Lore data not available.';
+
+  const lines = ['# Lore Theme Analysis', '', '*Analyze in-game lore stories for themes, recurring names, and connections.*', ''];
+
+  lines.push(`**Total lore entries:** ${loreEntries.length}`, '');
+
+  // Word frequency across all lore
+  const wordCounts = new Map<string, number>();
+  const nameWords = new Map<string, number>(); // capitalized words (potential names)
+  let totalWords = 0;
+  let totalChars = 0;
+
+  for (const entry of loreEntries) {
+    totalChars += entry.content.length;
+    const words = entry.content.split(/\s+/).filter((w: string) => w.length >= 1);
+    totalWords += words.length;
+
+    for (const word of words) {
+      const clean = word.replace(/[^a-zA-Z']/g, '');
+      if (clean.length < 3) continue;
+
+      const lower = clean.toLowerCase();
+      wordCounts.set(lower, (wordCounts.get(lower) || 0) + 1);
+
+      // Track capitalized words as potential proper nouns
+      if (clean[0] >= 'A' && clean[0] <= 'Z' && clean.length >= 4) {
+        nameWords.set(clean, (nameWords.get(clean) || 0) + 1);
+      }
+    }
+  }
+
+  // Theme keywords
+  const themeKeywords: Record<string, string[]> = {
+    'War/Battle': ['war', 'battle', 'fight', 'army', 'soldier', 'sword', 'weapon', 'siege', 'conquer', 'warrior'],
+    'Magic/Arcane': ['magic', 'spell', 'wizard', 'mana', 'arcane', 'enchant', 'sorcery', 'power', 'mystic'],
+    'Gods/Divine': ['god', 'goddess', 'divine', 'deity', 'worship', 'temple', 'prayer', 'holy', 'sacred'],
+    'Death/Undead': ['death', 'dead', 'undead', 'necro', 'grave', 'tomb', 'skeleton', 'lich', 'corpse'],
+    'Nature/Druid': ['forest', 'tree', 'nature', 'animal', 'druid', 'wild', 'beast', 'earth', 'grove'],
+    'Dark/Evil': ['dark', 'evil', 'shadow', 'corrupt', 'curse', 'malice', 'hatred', 'demon', 'plague'],
+    'Light/Good': ['light', 'good', 'hero', 'noble', 'virtue', 'honor', 'justice', 'protect', 'pure'],
+    'Creation/Origin': ['create', 'origin', 'begin', 'born', 'first', 'ancient', 'elder', 'dawn'],
+    'Kingdom/Politics': ['king', 'queen', 'ruler', 'throne', 'empire', 'realm', 'lord', 'council'],
+    'Race/People': ['elf', 'dwarf', 'human', 'gnome', 'troll', 'ogre', 'iksar', 'erudite', 'barbarian'],
+  };
+
+  const themeCounts = new Map<string, { count: number; stories: Set<string> }>();
+  for (const theme of Object.keys(themeKeywords)) {
+    themeCounts.set(theme, { count: 0, stories: new Set() });
+  }
+
+  for (const entry of loreEntries) {
+    const lower = entry.content.toLowerCase();
+    for (const [theme, keywords] of Object.entries(themeKeywords)) {
+      let themeHits = 0;
+      for (const kw of keywords) {
+        const regex = new RegExp(`\\b${kw}`, 'gi');
+        const matches = lower.match(regex);
+        if (matches) themeHits += matches.length;
+      }
+      if (themeHits > 0) {
+        const data = themeCounts.get(theme)!;
+        data.count += themeHits;
+        data.stories.add(entry.title);
+      }
+    }
+  }
+
+  // Theme ranking
+  const sortedThemes = [...themeCounts.entries()].sort((a, b) => b[1].count - a[1].count);
+  lines.push('## Theme Analysis', '');
+  lines.push('| Theme | Mentions | Stories | Sample Stories |');
+  lines.push('|-------|--------:|-------:|:-------------|');
+  for (const [theme, data] of sortedThemes) {
+    if (data.count === 0) continue;
+    const samples = [...data.stories].slice(0, 3).join(', ');
+    lines.push(`| ${theme} | ${data.count} | ${data.stories.size} | ${samples} |`);
+  }
+
+  // Recurring proper nouns (potential character/place names)
+  const stopWords = new Set(['The', 'And', 'But', 'For', 'Not', 'With', 'This', 'That', 'From', 'They', 'Were', 'Have', 'Has', 'Their', 'Would', 'Could', 'There', 'Which', 'When', 'What', 'Into', 'Upon', 'Over', 'After', 'Before', 'Through', 'Between', 'Those', 'These', 'Only', 'Such', 'Many', 'Some', 'More', 'Most', 'Other', 'Each', 'Every', 'Then', 'Than', 'Also', 'Very', 'Even', 'Much', 'Great', 'Long', 'Though']);
+  const filteredNames = [...nameWords.entries()]
+    .filter(([name, count]) => count >= 3 && !stopWords.has(name))
+    .sort((a, b) => b[1] - a[1]);
+
+  lines.push('', '## Recurring Names (Proper Nouns)', '');
+  lines.push('| Name | Occurrences |');
+  lines.push('|------|----------:|');
+  for (const [name, count] of filteredNames.slice(0, 25)) {
+    lines.push(`| ${name} | ${count} |`);
+  }
+
+  // Story statistics
+  const storyLengths = loreEntries.map(e => e.content.length);
+  const sortedByLength = [...loreEntries].sort((a, b) => b.content.length - a.content.length);
+
+  lines.push('', '## Story Length Distribution', '');
+  lines.push('| Story | Characters | Words |');
+  lines.push('|-------|----------:|------:|');
+  for (const entry of sortedByLength.slice(0, 10)) {
+    const wc = entry.content.split(/\s+/).length;
+    lines.push(`| ${entry.title} | ${entry.content.length.toLocaleString()} | ${wc.toLocaleString()} |`);
+  }
+
+  // Most common words (excluding common English)
+  const commonStop = new Set(['the', 'and', 'was', 'that', 'with', 'for', 'his', 'her', 'had', 'not', 'but', 'this', 'from', 'they', 'were', 'have', 'their', 'been', 'would', 'could', 'which', 'when', 'what', 'who', 'all', 'she', 'there', 'into', 'them', 'has', 'its', 'are', 'upon', 'him', 'than', 'then', 'out', 'over', 'more', 'only', 'those', 'also', 'other', 'many', 'some']);
+  const contentWords = [...wordCounts.entries()]
+    .filter(([w, c]) => c >= 5 && !commonStop.has(w))
+    .sort((a, b) => b[1] - a[1]);
+
+  lines.push('', '## Most Frequent Content Words', '');
+  lines.push('| Word | Count |');
+  lines.push('|------|------:|');
+  for (const [word, count] of contentWords.slice(0, 20)) {
+    lines.push(`| ${word} | ${count} |`);
+  }
+
+  // Summary
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total stories:** ${loreEntries.length}`);
+  lines.push(`- **Total words:** ${totalWords.toLocaleString()}`);
+  lines.push(`- **Total characters:** ${totalChars.toLocaleString()}`);
+  lines.push(`- **Avg story length:** ${Math.round(totalChars / loreEntries.length).toLocaleString()} chars`);
+  lines.push(`- **Longest story:** ${sortedByLength[0]?.title || '-'} (${sortedByLength[0]?.content.length.toLocaleString() || 0} chars)`);
+  lines.push(`- **Dominant theme:** ${sortedThemes[0]?.[0] || '-'}`);
+
+  lines.push('', `*${loreEntries.length} lore stories analyzed.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 241: Augmentation System Analysis ============
+export async function getAugmentationSystemAnalysis(): Promise<string> {
+  await loadDbStrings([DBSTR_TYPES.AUGMENT_GROUP, DBSTR_TYPES.AUGMENT_SLOT_TYPE]);
+  const augGroups = dbStrings?.get(DBSTR_TYPES.AUGMENT_GROUP) || new Map();
+  const slotTypes = dbStrings?.get(DBSTR_TYPES.AUGMENT_SLOT_TYPE) || new Map();
+
+  if (augGroups.size === 0 && slotTypes.size === 0) return 'Augmentation data not available.';
+
+  const lines = ['# Augmentation System Analysis', '', '*Analyze augmentation groups and slot types for gear planning.*', ''];
+
+  // Slot types
+  if (slotTypes.size > 0) {
+    lines.push('## Augmentation Slot Types', '');
+    lines.push('| ID | Slot Type |');
+    lines.push('|---:|:---------|');
+    const sortedSlots = [...slotTypes.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [id, name] of sortedSlots) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+    lines.push('');
+  }
+
+  // Augment group analysis
+  if (augGroups.size > 0) {
+    lines.push('## Augmentation Groups', '');
+
+    // Classify groups by keywords
+    const groupCategories: Record<string, string[]> = {
+      'Stat': ['stat', 'strength', 'stamina', 'agility', 'dexterity', 'intelligence', 'wisdom', 'charisma'],
+      'Combat': ['combat', 'attack', 'damage', 'melee', 'weapon', 'strike'],
+      'Defensive': ['defense', 'armor', 'shielding', 'avoidance', 'mitigation', 'resist'],
+      'Spell': ['spell', 'focus', 'cast', 'mana'],
+      'Skill': ['skill', 'ability', 'proficiency'],
+      'Special': ['special', 'quest', 'epic', 'ornament', 'evolving'],
+    };
+
+    const catCounts = new Map<string, { count: number; samples: string[] }>();
+    for (const cat of Object.keys(groupCategories)) {
+      catCounts.set(cat, { count: 0, samples: [] });
+    }
+    catCounts.set('General', { count: 0, samples: [] });
+
+    for (const [, name] of augGroups) {
+      const lower = name.toLowerCase();
+      let classified = false;
+      for (const [cat, keywords] of Object.entries(groupCategories)) {
+        if (keywords.some(kw => lower.includes(kw))) {
+          const data = catCounts.get(cat)!;
+          data.count++;
+          if (data.samples.length < 3) data.samples.push(name);
+          classified = true;
+          break;
+        }
+      }
+      if (!classified) {
+        const data = catCounts.get('General')!;
+        data.count++;
+        if (data.samples.length < 3) data.samples.push(name);
+      }
+    }
+
+    lines.push('### Groups by Category', '');
+    lines.push('| Category | Groups | Samples |');
+    lines.push('|----------|------:|:--------|');
+    const sortedCats = [...catCounts.entries()].sort((a, b) => b[1].count - a[1].count);
+    for (const [cat, data] of sortedCats) {
+      if (data.count === 0) continue;
+      lines.push(`| ${cat} | ${data.count} | ${data.samples.join(', ')} |`);
+    }
+
+    // Common words in group names
+    const nameWordCounts = new Map<string, number>();
+    for (const [, name] of augGroups) {
+      const words = name.toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3);
+      for (const word of words) {
+        nameWordCounts.set(word, (nameWordCounts.get(word) || 0) + 1);
+      }
+    }
+    const topNameWords = [...nameWordCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+    lines.push('', '### Common Words in Group Names', '');
+    lines.push('| Word | Count |');
+    lines.push('|------|------:|');
+    for (const [word, count] of topNameWords.slice(0, 15)) {
+      lines.push(`| ${word} | ${count} |`);
+    }
+
+    // Full group listing (first 30)
+    lines.push('', '### Sample Augmentation Groups', '');
+    lines.push('| ID | Group Name |');
+    lines.push('|---:|:---------|');
+    const sortedGroups = [...augGroups.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [id, name] of sortedGroups.slice(0, 30)) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+    if (sortedGroups.length > 30) {
+      lines.push(`| ... | *${sortedGroups.length - 30} more groups* |`);
+    }
+  }
+
+  lines.push('', '## Summary', '');
+  lines.push(`- **Slot types:** ${slotTypes.size}`);
+  lines.push(`- **Augmentation groups:** ${augGroups.size}`);
+
+  lines.push('', `*${slotTypes.size} slot types and ${augGroups.size} augmentation groups analyzed.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 242: Map POI Zone Detail ============
+export async function getMapPOIZoneDetail(zoneName: string): Promise<string> {
+  await loadZones();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  // Find zone
+  const query = zoneName.toLowerCase().trim();
+  let matchedZone: { name: string; shortName: string } | null = null;
+  for (const zone of zones.values()) {
+    if (zone.name.toLowerCase() === query || zone.name.toLowerCase().includes(query)) {
+      matchedZone = { name: zone.name, shortName: zone.name.toLowerCase().replace(/[^a-z0-9]/g, '') };
+      break;
+    }
+  }
+  if (!matchedZone) return `Zone "${zoneName}" not found. Use search_zones_by_name to find zone names.`;
+
+  const pois = await loadMapPOIs(matchedZone.name);
+  if (pois.length === 0) return `No map POI data available for ${matchedZone.name}.`;
+
+  const lines = [`# Map POI Detail: ${matchedZone.name}`, '', `*${pois.length} points of interest from Brewall map data.*`, ''];
+
+  // Classify POIs by label keywords
+  const poiCategories: Record<string, string[]> = {
+    'Merchant/Vendor': ['merchant', 'vendor', 'shopkeeper', 'trader', 'supplier', 'shop'],
+    'Zone Line': ['zone', 'to ', 'entrance', 'exit', 'portal', 'door'],
+    'Bank/Guild': ['bank', 'guild hall', 'guild'],
+    'NPC/Quest': ['npc', 'quest', 'task'],
+    'Camp/Spawn': ['camp', 'spawn', 'named', 'rare', 'ph'],
+    'Craft/Tradeskill': ['forge', 'brew', 'oven', 'kiln', 'loom', 'pottery', 'fletching', 'jewel', 'tinkering'],
+    'Temple/Shrine': ['temple', 'shrine', 'altar', 'church', 'chapel'],
+    'Guard/Military': ['guard', 'soldier', 'warrior', 'captain', 'patrol'],
+    'Landmark': ['tower', 'bridge', 'lake', 'cave', 'tunnel', 'mountain', 'river', 'pit'],
+  };
+
+  const categorized = new Map<string, MapPOI[]>();
+  for (const cat of Object.keys(poiCategories)) {
+    categorized.set(cat, []);
+  }
+  categorized.set('Other', []);
+
+  for (const poi of pois) {
+    const lower = poi.label.toLowerCase();
+    let matched = false;
+    for (const [cat, keywords] of Object.entries(poiCategories)) {
+      if (keywords.some(kw => lower.includes(kw))) {
+        categorized.get(cat)!.push(poi);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) categorized.get('Other')!.push(poi);
+  }
+
+  // Category summary
+  lines.push('## POI Categories', '');
+  lines.push('| Category | POIs | % |');
+  lines.push('|----------|-----:|---:|');
+  const sortedCats = [...categorized.entries()].sort((a, b) => b[1].length - a[1].length);
+  for (const [cat, poiList] of sortedCats) {
+    if (poiList.length === 0) continue;
+    const pct = Math.round(poiList.length / pois.length * 100);
+    lines.push(`| ${cat} | ${poiList.length} | ${pct}% |`);
+  }
+
+  // Full POI listing by category
+  for (const [cat, poiList] of sortedCats) {
+    if (poiList.length === 0) continue;
+    lines.push('', `## ${cat} (${poiList.length})`, '');
+    lines.push('| Label | X | Y | Z |');
+    lines.push('|-------|---:|---:|---:|');
+    const sorted = [...poiList].sort((a, b) => a.label.localeCompare(b.label));
+    for (const poi of sorted.slice(0, 30)) {
+      lines.push(`| ${poi.label} | ${Math.round(poi.x)} | ${Math.round(poi.y)} | ${Math.round(poi.z)} |`);
+    }
+    if (sorted.length > 30) {
+      lines.push(`| *...${sorted.length - 30} more* | | | |`);
+    }
+  }
+
+  // Coordinate bounds
+  const xs = pois.map(p => p.x);
+  const ys = pois.map(p => p.y);
+  const zs = pois.map(p => p.z);
+  lines.push('', '## Zone Dimensions', '');
+  lines.push(`- **X range:** ${Math.round(Math.min(...xs))} to ${Math.round(Math.max(...xs))} (span: ${Math.round(Math.max(...xs) - Math.min(...xs))})`);
+  lines.push(`- **Y range:** ${Math.round(Math.min(...ys))} to ${Math.round(Math.max(...ys))} (span: ${Math.round(Math.max(...ys) - Math.min(...ys))})`);
+  lines.push(`- **Z range:** ${Math.round(Math.min(...zs))} to ${Math.round(Math.max(...zs))} (span: ${Math.round(Math.max(...zs) - Math.min(...zs))})`);
+
+  lines.push('', `*${pois.length} POIs analyzed for ${matchedZone.name}.*`);
+  return lines.join('\n');
+}

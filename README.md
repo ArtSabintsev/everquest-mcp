@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 239 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 242 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **239 tools** for querying EverQuest data
+- **242 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -245,6 +245,7 @@ Then restart Claude Desktop.
 | `get_zone_content_density_ranking` | Zone content density ranking — zones scored by map POIs, teleport accessibility, and level range |
 | `get_map_poi_functional_classification` | Map POI functional classification — classify POIs into categories (Merchant, Zone Line, Bank, Guard, Temple, Camp, Craft, Transport) |
 | `get_zone_level_gap_analysis` | Zone level gap analysis — find level ranges with no zones (gaps), sparse coverage (1-3 zones), and peak levels with most zone options |
+| `get_map_poi_zone_detail` | Map POI zone detail — all points of interest for a specific zone, categorized (Merchants, Zone Lines, Camps, etc.) with coordinates |
 
 ### Local Data - Factions & Currencies
 | Tool | Description |
@@ -334,6 +335,7 @@ Then restart Claude Desktop.
 | `search_augment_groups` | Search augmentation slot groups |
 | `list_augment_slot_types` | List all 31 augmentation slot types |
 | `search_item_lore_groups` | Search item lore groups (LORE duplicate definitions) |
+| `get_augmentation_system_analysis` | Augmentation system analysis — all 31 slot types, 81 augmentation groups classified by category (Stat, Combat, Defensive, Spell, etc.) |
 
 ### Local Data - Lore & Reference
 | Tool | Description |
@@ -341,6 +343,7 @@ Then restart Claude Desktop.
 | `search_lore` | Search 50+ in-game lore stories |
 | `get_lore` | Read a lore story |
 | `get_lore_overview` | Lore overview — story count, word count stats, longest/shortest stories, complete listing |
+| `get_lore_theme_analysis` | Lore theme analysis — recurring themes (War, Magic, Gods, Death, Nature), proper nouns, word frequency, story statistics |
 | `get_starting_city_lore` | Browse all 29 starting city lore descriptions from character creation |
 | `search_game_strings` | Search 7000+ game UI strings |
 | `search_game_events` | Search 550+ in-game event announcements |
@@ -396,7 +399,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (239 tools)
+├── tools.ts          # Tool definitions and handlers (242 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
