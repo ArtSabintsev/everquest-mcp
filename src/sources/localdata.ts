@@ -33074,3 +33074,423 @@ export async function getClassSpellRangeProfile(className: string): Promise<stri
   return lines.join('\n');
 }
 
+// Tool 321: Spell acquisition curve per class
+export async function getClassSpellAcquisitionCurve(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const levelCounts: Record<number, number> = {};
+  const levelSpells: Record<number, string[]> = {};
+  let totalSpells = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpells++;
+    levelCounts[level] = (levelCounts[level] || 0) + 1;
+    if (!levelSpells[level]) levelSpells[level] = [];
+    if (levelSpells[level].length < 5) levelSpells[level].push(spell.fields[SF.NAME]);
+  }
+
+  const lines = [`# ${classFullName} Spell Acquisition Curve`, ''];
+  lines.push('*Analyzes how many new spells a class gains at each level, showing peak acquisition levels, drought gaps, and progression density.*', '');
+
+  if (totalSpells === 0) {
+    lines.push('No spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const allLevels = Object.keys(levelCounts).map(Number).sort((a, b) => a - b);
+  const minLevel = allLevels[0];
+  const maxLevel = allLevels[allLevels.length - 1];
+  lines.push(`**Total spells:** ${totalSpells}`);
+  lines.push(`**Level range:** ${minLevel}–${maxLevel}`);
+  lines.push(`**Unique levels with new spells:** ${allLevels.length}`, '');
+
+  // Level bracket summary (10-level brackets)
+  lines.push('## Spells by Level Bracket', '');
+  lines.push('| Bracket | Spells | Bar |');
+  lines.push('|:--------|------:|:----|');
+  const brackets: [string, number][] = [];
+  for (let start = 1; start <= 120; start += 10) {
+    const end = start + 9;
+    let count = 0;
+    for (let l = start; l <= end; l++) count += levelCounts[l] || 0;
+    if (count > 0) brackets.push([`${start}–${end}`, count]);
+  }
+  const maxBracket = Math.max(...brackets.map(b => b[1]));
+  for (const [bracket, count] of brackets) {
+    const barLen = Math.round((count / maxBracket) * 20);
+    const bar = '█'.repeat(barLen);
+    lines.push(`| ${bracket} | ${count} | ${bar} |`);
+  }
+
+  // Peak acquisition levels
+  lines.push('', '## Peak Acquisition Levels — Top 15', '');
+  lines.push('| Level | New Spells | Example Spells |');
+  lines.push('|------:|----------:|:---------------|');
+  const sortedLevels = allLevels.sort((a, b) => levelCounts[b] - levelCounts[a]);
+  for (const lvl of sortedLevels.slice(0, 15)) {
+    const examples = levelSpells[lvl].slice(0, 3).join(', ');
+    lines.push(`| ${lvl} | ${levelCounts[lvl]} | ${examples} |`);
+  }
+
+  // Drought analysis (largest gaps between spell-granting levels)
+  const sortedAsc = [...allLevels].sort((a, b) => a - b);
+  const gaps: { from: number; to: number; gap: number }[] = [];
+  for (let i = 1; i < sortedAsc.length; i++) {
+    const gap = sortedAsc[i] - sortedAsc[i - 1];
+    if (gap > 1) gaps.push({ from: sortedAsc[i - 1], to: sortedAsc[i], gap });
+  }
+  if (gaps.length > 0) {
+    gaps.sort((a, b) => b.gap - a.gap);
+    lines.push('', '## Longest Spell Drought Gaps — Top 10', '');
+    lines.push('| After Level | Next Spells At | Gap (Levels) |');
+    lines.push('|------------:|---------------:|-------------:|');
+    for (const g of gaps.slice(0, 10)) {
+      lines.push(`| ${g.from} | ${g.to} | ${g.gap} |`);
+    }
+  }
+
+  // Cumulative progression
+  lines.push('', '## Cumulative Spell Progression', '');
+  lines.push('| Level | Cumulative Spells | % of Total |');
+  lines.push('|------:|------------------:|-----------:|');
+  let cumulative = 0;
+  const milestones = [10, 20, 30, 40, 50, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120];
+  for (const milestone of milestones) {
+    for (let l = (milestone === 10 ? 1 : milestones[milestones.indexOf(milestone) - 1] + 1); l <= milestone; l++) {
+      cumulative += levelCounts[l] || 0;
+    }
+    if (cumulative > 0) {
+      const pct = ((cumulative / totalSpells) * 100).toFixed(1);
+      lines.push(`| ${milestone} | ${cumulative} | ${pct}% |`);
+    }
+  }
+
+  lines.push('', `*${totalSpells} spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 322: Movement and mobility profile per class
+export async function getClassMovementProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const MOVEMENT_SPAS: Record<number, string> = {
+    3: 'Movement Speed',
+    14: 'Water Breathing',
+    31: 'Snare',
+    43: 'Transport',
+    57: 'Levitate',
+    82: 'Teleport Zone',
+    100: 'Teleport',
+    153: 'Shrink',
+  };
+
+  interface MovementSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const movementSpells: MovementSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (MOVEMENT_SPAS[spaId]) {
+        types.push(MOVEMENT_SPAS[spaId]);
+        values[MOVEMENT_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    movementSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Movement & Mobility Profile`, ''];
+  lines.push('*Analyzes movement speed, levitation, water breathing, snare, teleport, transport, and shrink spells.*', '');
+
+  if (movementSpells.length === 0) {
+    lines.push('No movement/mobility spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total mobility spells:** ${movementSpells.length}`, '');
+
+  // Type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of movementSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Mobility Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Speed buffs (SPA 3 positive)
+  const speedBuffs = movementSpells.filter(s => s.values['Movement Speed'] !== undefined && s.values['Movement Speed'] > 0);
+  if (speedBuffs.length > 0) {
+    lines.push('', `## Speed Buffs (${speedBuffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Speed % | Duration | Mana | Target |');
+    lines.push('|:------|------:|--------:|:---------|-----:|:-------|');
+    for (const s of speedBuffs.sort((a, b) => (b.values['Movement Speed'] || 0) - (a.values['Movement Speed'] || 0)).slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | +${s.values['Movement Speed']}% | ${s.duration || '—'} | ${s.mana} | ${s.targetType} |`);
+    }
+  }
+
+  // Snare/slow (SPA 3 negative or SPA 31)
+  const snares = movementSpells.filter(s => (s.values['Movement Speed'] !== undefined && s.values['Movement Speed'] < 0) || s.values['Snare'] !== undefined);
+  if (snares.length > 0) {
+    lines.push('', `## Snare/Slow Effects (${snares.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Effect | Duration | Mana | Target |');
+    lines.push('|:------|------:|:-------|:---------|-----:|:-------|');
+    for (const s of snares.sort((a, b) => a.level - b.level).slice(0, 15)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${s.duration || '—'} | ${s.mana} | ${s.targetType} |`);
+    }
+  }
+
+  // Teleport/Transport spells
+  const teleports = movementSpells.filter(s => s.types.includes('Teleport Zone') || s.types.includes('Teleport') || s.types.includes('Transport'));
+  if (teleports.length > 0) {
+    lines.push('', `## Teleport & Transport Spells (${teleports.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Type | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|:-----|:---------|-----:|:-------|');
+    for (const s of teleports.sort((a, b) => a.level - b.level).slice(0, 15)) {
+      const type = s.types.filter(t => t.includes('Teleport') || t.includes('Transport')).join(', ');
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${type} | ${castSec} | ${s.mana} | ${s.targetType} |`);
+    }
+  }
+
+  // Levitate/Water Breathing/Shrink
+  const utility = movementSpells.filter(s => s.types.includes('Levitate') || s.types.includes('Water Breathing') || s.types.includes('Shrink'));
+  if (utility.length > 0) {
+    lines.push('', `## Utility Mobility (${utility.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Type | Duration | Mana | Target |');
+    lines.push('|:------|------:|:-----|:---------|-----:|:-------|');
+    for (const s of utility.sort((a, b) => a.level - b.level).slice(0, 15)) {
+      const type = s.types.filter(t => ['Levitate', 'Water Breathing', 'Shrink'].includes(t)).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${type} | ${s.duration || '—'} | ${s.mana} | ${s.targetType} |`);
+    }
+  }
+
+  // First available level by mobility type
+  lines.push('', '## First Available Level by Mobility Type', '');
+  const firstLevels: Record<string, number> = {};
+  for (const s of movementSpells) {
+    for (const t of s.types) {
+      if (!firstLevels[t] || s.level < firstLevels[t]) firstLevels[t] = s.level;
+    }
+  }
+  for (const [type, level] of Object.entries(firstLevels).sort((a, b) => a[1] - b[1])) {
+    lines.push(`- **${type}:** Level ${level}`);
+  }
+
+  lines.push('', `*${movementSpells.length} mobility spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 323: Damage shield profile per class
+export async function getClassDamageShieldProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const DS_SPAS: Record<number, string> = {
+    87: 'Damage Shield',
+    89: 'Reverse Damage Shield',
+    111: 'Reverse DS Debuff',
+    304: 'Spell Damage Shield',
+    317: 'Block DS',
+  };
+
+  interface DSSpell {
+    name: string;
+    level: number;
+    dsTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const dsSpells: DSSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const dsTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (DS_SPAS[spaId]) {
+        dsTypes.push(DS_SPAS[spaId]);
+        values[DS_SPAS[spaId]] = base;
+      }
+    }
+    if (dsTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    dsSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      dsTypes: [...new Set(dsTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Damage Shield Profile`, ''];
+  lines.push('*Analyzes damage shields: regular DS, reverse DS, spell DS, and DS blocking effects.*', '');
+
+  if (dsSpells.length === 0) {
+    lines.push('No damage shield spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total DS spells:** ${dsSpells.length}`, '');
+
+  // Type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of dsSpells) {
+    for (const t of s.dsTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Damage Shield Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Regular damage shields (SPA 87)
+  const regularDS = dsSpells.filter(s => s.values['Damage Shield'] !== undefined);
+  if (regularDS.length > 0) {
+    lines.push('', `## Regular Damage Shields (${regularDS.length}) — Top 15`, '');
+    lines.push('| Spell | Level | DS Value | Duration | Mana | Target |');
+    lines.push('|:------|------:|---------:|:---------|-----:|:-------|');
+    for (const s of regularDS.sort((a, b) => Math.abs(b.values['Damage Shield']) - Math.abs(a.values['Damage Shield'])).slice(0, 15)) {
+      const val = s.values['Damage Shield'];
+      lines.push(`| ${s.name} | ${s.level} | ${val > 0 ? '+' : ''}${val} | ${s.duration || '—'} | ${s.mana} | ${s.targetType} |`);
+    }
+  }
+
+  // Reverse damage shields (SPA 89, 111)
+  const reverseDS = dsSpells.filter(s => s.values['Reverse Damage Shield'] !== undefined || s.values['Reverse DS Debuff'] !== undefined);
+  if (reverseDS.length > 0) {
+    lines.push('', `## Reverse Damage Shields (${reverseDS.length}) — Top 15`, '');
+    lines.push('| Spell | Level | DS Value | Duration | Mana | Target |');
+    lines.push('|:------|------:|---------:|:---------|-----:|:-------|');
+    for (const s of reverseDS.sort((a, b) => {
+      const aVal = Math.abs(a.values['Reverse Damage Shield'] || a.values['Reverse DS Debuff'] || 0);
+      const bVal = Math.abs(b.values['Reverse Damage Shield'] || b.values['Reverse DS Debuff'] || 0);
+      return bVal - aVal;
+    }).slice(0, 15)) {
+      const val = s.values['Reverse Damage Shield'] || s.values['Reverse DS Debuff'] || 0;
+      const type = s.dsTypes.filter(t => t.includes('Reverse')).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${val} (${type}) | ${s.duration || '—'} | ${s.mana} | ${s.targetType} |`);
+    }
+  }
+
+  // Spell damage shields (SPA 304)
+  const spellDS = dsSpells.filter(s => s.values['Spell Damage Shield'] !== undefined);
+  if (spellDS.length > 0) {
+    lines.push('', `## Spell Damage Shields (${spellDS.length}) — Top 15`, '');
+    lines.push('| Spell | Level | DS Value | Duration | Mana | Target |');
+    lines.push('|:------|------:|---------:|:---------|-----:|:-------|');
+    for (const s of spellDS.sort((a, b) => Math.abs(b.values['Spell Damage Shield']) - Math.abs(a.values['Spell Damage Shield'])).slice(0, 15)) {
+      const val = s.values['Spell Damage Shield'];
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${s.duration || '—'} | ${s.mana} | ${s.targetType} |`);
+    }
+  }
+
+  // Level progression
+  lines.push('', '## First Available Level by DS Type', '');
+  const firstLevels: Record<string, number> = {};
+  for (const s of dsSpells) {
+    for (const t of s.dsTypes) {
+      if (!firstLevels[t] || s.level < firstLevels[t]) firstLevels[t] = s.level;
+    }
+  }
+  for (const [type, level] of Object.entries(firstLevels).sort((a, b) => a[1] - b[1])) {
+    lines.push(`- **${type}:** Level ${level}`);
+  }
+
+  lines.push('', `*${dsSpells.length} damage shield spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+

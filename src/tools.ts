@@ -328,6 +328,9 @@ import {
   getClassResistBuffProfile,
   getClassHPRegenProfile,
   getClassSpellRangeProfile,
+  getClassSpellAcquisitionCurve,
+  getClassMovementProfile,
+  getClassDamageShieldProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4044,6 +4047,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_acquisition_curve',
+    description: 'Spell acquisition curve for a class — shows how many new spells are gained at each level bracket, peak acquisition levels, drought gaps, and cumulative progression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Bard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_movement_profile',
+    description: 'Movement and mobility profile for a class — analyzes movement speed, levitation, water breathing, snare, teleport, transport, and shrink spells with speed percentages and level progression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Wizard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_damage_shield_profile',
+    description: 'Damage shield profile for a class — analyzes regular damage shields, reverse DS, spell DS, and DS blocking effects with damage values and level progression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Magician")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6405,6 +6441,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellRangeProfile(className);
+      }
+
+      case 'get_class_spell_acquisition_curve': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellAcquisitionCurve(className);
+      }
+
+      case 'get_class_movement_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassMovementProfile(className);
+      }
+
+      case 'get_class_damage_shield_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDamageShieldProfile(className);
       }
 
       case 'search_help_topics': {
