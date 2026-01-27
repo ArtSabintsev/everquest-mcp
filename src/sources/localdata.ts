@@ -29412,3 +29412,511 @@ export async function getClassMeleeDisciplineProfile(className: string): Promise
   lines.push('', `*${disciplines.length} melee disciplines analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 297: Pet spell profile per class
+export async function getClassPetSpellProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const PET_CATEGORIES: Record<string, number[]> = {
+    'Summon Pet': [33, 45, 72],
+    'Charm': [22],
+    'Pet Buff': [167, 180, 181, 182, 183, 196, 197, 225, 276, 277, 319, 322, 386, 460],
+    'Pet Heal': [205],
+    'Pet Shield': [105],
+    'Familiar': [109],
+  };
+
+  const allPetSpas = new Set<number>();
+  for (const spas of Object.values(PET_CATEGORIES)) spas.forEach(s => allPetSpas.add(s));
+
+  interface PetSpell {
+    name: string;
+    level: number;
+    category: string;
+    effects: string[];
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+  }
+
+  const petSpells: PetSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const foundCategories = new Set<string>();
+    const effectNames: string[] = [];
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      if (allPetSpas.has(spaId)) {
+        for (const [cat, catSpas] of Object.entries(PET_CATEGORIES)) {
+          if (catSpas.includes(spaId)) foundCategories.add(cat);
+        }
+      }
+      if (spaId > 0 && SPA_NAMES[spaId]) effectNames.push(SPA_NAMES[spaId]);
+    }
+    if (foundCategories.size === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    petSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      category: [...foundCategories].join(', '),
+      effects: [...new Set(effectNames)],
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Pet Spell Profile`, ''];
+  lines.push('*Analyzes pet-related spells: summon, charm, pet buffs, pet heals, familiars.*', '');
+
+  if (petSpells.length === 0) {
+    lines.push('No pet-related spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total pet-related spells:** ${petSpells.length}`, '');
+
+  // Category breakdown
+  const catCounts: Record<string, number> = {};
+  for (const s of petSpells) {
+    for (const c of s.category.split(', ')) catCounts[c] = (catCounts[c] || 0) + 1;
+  }
+  lines.push('## Pet Spell Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${cat}:** ${count} spells`);
+  }
+
+  // Summon pet spells
+  const summonPets = petSpells.filter(s => s.category.includes('Summon Pet'));
+  if (summonPets.length > 0) {
+    const sorted = summonPets.sort((a, b) => b.level - a.level);
+    lines.push('', '## Summon Pet Spells (Top 15)', '');
+    lines.push('| Spell | Level | Mana | Cast (s) | Target |');
+    lines.push('|:------|------:|-----:|---------:|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.mana.toLocaleString()} | ${castSec} | ${s.targetType} |`);
+    }
+  }
+
+  // Charm spells
+  const charmSpells = petSpells.filter(s => s.category.includes('Charm'));
+  if (charmSpells.length > 0) {
+    const sorted = charmSpells.sort((a, b) => b.level - a.level);
+    lines.push('', '## Charm Spells (Top 15)', '');
+    lines.push('| Spell | Level | Mana | Cast (s) | Duration | Target |');
+    lines.push('|:------|------:|-----:|---------:|---------:|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.mana.toLocaleString()} | ${castSec} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Pet buff/enhancement spells
+  const petBuffs = petSpells.filter(s => s.category.includes('Pet Buff') || s.category.includes('Pet Shield') || s.category.includes('Pet Heal'));
+  if (petBuffs.length > 0) {
+    const sorted = petBuffs.sort((a, b) => b.level - a.level);
+    lines.push('', '## Pet Enhancement Spells (Top 15)', '');
+    lines.push('| Spell | Level | Category | Key Effects |');
+    lines.push('|:------|------:|:---------|:------------|');
+    for (const s of sorted.slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.category} | ${s.effects.slice(0, 4).join(', ')} |`);
+    }
+  }
+
+  // Familiar spells
+  const familiars = petSpells.filter(s => s.category.includes('Familiar'));
+  if (familiars.length > 0) {
+    lines.push('', `## Familiar Spells (${familiars.length})`, '');
+    lines.push('| Spell | Level | Mana |');
+    lines.push('|:------|------:|-----:|');
+    for (const s of familiars.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.mana.toLocaleString()} |`);
+    }
+  }
+
+  // First-available level per category
+  lines.push('', '## First Available Level by Category', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1])) {
+    const firstLevel = petSpells.filter(s => s.category.includes(cat)).reduce((min, s) => Math.min(min, s.level), 999);
+    if (firstLevel < 999) lines.push(`- **${cat}:** Level ${firstLevel} (${count} total spells)`);
+  }
+
+  // Most common pet effects
+  const effectCounts: Record<string, number> = {};
+  for (const s of petSpells) {
+    for (const e of s.effects) effectCounts[e] = (effectCounts[e] || 0) + 1;
+  }
+  lines.push('', '## Most Common Pet Spell Effects', '');
+  for (const [effect, count] of Object.entries(effectCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    lines.push(`- **${effect}:** ${count} spells`);
+  }
+
+  lines.push('', `*${petSpells.length} pet-related spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 298: Cure spell profile per class
+export async function getClassCureSpellProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const CURE_SPAS: Record<number, string> = {
+    36: 'Dispel Magic',
+    77: 'Dispel Detrimental',
+    145: 'Cure Corruption',
+    116: 'Curse',
+  };
+
+  interface CureSpell {
+    name: string;
+    level: number;
+    cureTypes: string[];
+    mana: number;
+    castTime: number;
+    targetType: string;
+    beneficial: boolean;
+    effects: string[];
+  }
+
+  const cureSpells: CureSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const cureTypes: string[] = [];
+    const effects: string[] = [];
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      if (CURE_SPAS[spaId]) cureTypes.push(CURE_SPAS[spaId]);
+      if (spaId > 0 && SPA_NAMES[spaId]) effects.push(SPA_NAMES[spaId]);
+    }
+    if (cureTypes.length === 0) continue;
+
+    const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+
+    cureSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      cureTypes: [...new Set(cureTypes)],
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      beneficial: isBeneficial,
+      effects: [...new Set(effects)],
+    });
+  }
+
+  const lines = [`# ${classFullName} Cure Spell Profile`, ''];
+  lines.push('*Analyzes cure and dispel spells: dispel magic, dispel detrimental, cure corruption, curse removal.*', '');
+
+  if (cureSpells.length === 0) {
+    lines.push('No cure/dispel spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total cure/dispel spells:** ${cureSpells.length}`, '');
+  const beneficialCures = cureSpells.filter(s => s.beneficial);
+  const detrimentalDispels = cureSpells.filter(s => !s.beneficial);
+  lines.push(`- Beneficial (cures): ${beneficialCures.length}`);
+  lines.push(`- Detrimental (dispels): ${detrimentalDispels.length}`);
+
+  // Cure type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of cureSpells) {
+    for (const t of s.cureTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('', '## Cure/Dispel Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Target type breakdown
+  const targetCounts: Record<string, number> = {};
+  for (const s of cureSpells) targetCounts[s.targetType] = (targetCounts[s.targetType] || 0) + 1;
+  lines.push('', '## Target Type Distribution', '');
+  for (const [target, count] of Object.entries(targetCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${target}:** ${count} spells`);
+  }
+
+  // Beneficial cures (most useful)
+  if (beneficialCures.length > 0) {
+    const sorted = beneficialCures.sort((a, b) => b.level - a.level);
+    lines.push('', '## Beneficial Cure Spells (Top 20)', '');
+    lines.push('| Spell | Level | Cure Types | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|:-----------|:---------|-----:|:-------|');
+    for (const s of sorted.slice(0, 20)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.cureTypes.join(', ')} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // Detrimental dispels
+  if (detrimentalDispels.length > 0) {
+    const sorted = detrimentalDispels.sort((a, b) => b.level - a.level);
+    lines.push('', '## Detrimental Dispel Spells (Top 15)', '');
+    lines.push('| Spell | Level | Dispel Types | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|:-------------|:---------|-----:|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.cureTypes.join(', ')} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // Group cures (Group v1=3, Group v2=41)
+  const groupCures = cureSpells.filter(s => s.targetType.includes('Group') || s.targetType.includes('AE'));
+  if (groupCures.length > 0) {
+    lines.push('', `## Group/AE Cure Spells (${groupCures.length})`, '');
+    lines.push('| Spell | Level | Cure Types | Cast (s) | Target |');
+    lines.push('|:------|------:|:-----------|:---------|:-------|');
+    for (const s of groupCures.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.cureTypes.join(', ')} | ${castSec} | ${s.targetType} |`);
+    }
+  }
+
+  // Fastest cures (instant cast)
+  const instantCures = cureSpells.filter(s => s.castTime === 0 && s.beneficial);
+  if (instantCures.length > 0) {
+    lines.push('', `## Instant-Cast Cures (${instantCures.length})`, '');
+    for (const s of instantCures.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      lines.push(`- **${s.name}** (Level ${s.level}) — ${s.cureTypes.join(', ')} — ${s.targetType}`);
+    }
+  }
+
+  // First available level per cure type
+  lines.push('', '## First Available Level by Cure Type', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const firstLevel = cureSpells.filter(s => s.cureTypes.includes(type)).reduce((min, s) => Math.min(min, s.level), 999);
+    if (firstLevel < 999) lines.push(`- **${type}:** Level ${firstLevel} (${count} total spells)`);
+  }
+
+  lines.push('', `*${cureSpells.length} cure/dispel spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 299: Transport/travel spell profile per class
+export async function getClassTransportProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // SPA-based travel types (excludes teleport — detected via TELEPORT_ZONE field instead)
+  const TRAVEL_SPAS: Record<number, string> = {
+    3: 'Movement Speed',
+    12: 'Invisibility',
+    14: 'Water Breathing',
+    25: 'Bind Affinity',
+    26: 'Gate',
+    57: 'Levitate',
+  };
+
+  interface TravelSpell {
+    name: string;
+    level: number;
+    travelTypes: string[];
+    mana: number;
+    castTime: number;
+    targetType: string;
+    teleportZone: string;
+    duration: number;
+    effects: string[];
+  }
+
+  const travelSpells: TravelSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+
+    const travelTypes: string[] = [];
+    const effectNames: string[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length < 3) continue;
+        const spaId = parseInt(parts[1]);
+        if (TRAVEL_SPAS[spaId]) travelTypes.push(TRAVEL_SPAS[spaId]);
+        if (spaId > 0 && SPA_NAMES[spaId]) effectNames.push(SPA_NAMES[spaId]);
+      }
+    }
+
+    // Detect teleport spells via TELEPORT_ZONE field (more reliable than SPA)
+    const teleportZone = spell.fields[SF.TELEPORT_ZONE]?.trim() || '';
+    if (teleportZone && /^[a-z_]+[a-z0-9_]*$/.test(teleportZone)) {
+      travelTypes.push('Teleport');
+    }
+
+    if (travelTypes.length === 0) continue;
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+
+    travelSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      travelTypes: [...new Set(travelTypes)],
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      teleportZone,
+      duration: durationVal,
+      effects: [...new Set(effectNames)],
+    });
+  }
+
+  const lines = [`# ${classFullName} Transport & Travel Profile`, ''];
+  lines.push('*Analyzes travel spells: teleport, gate, bind, levitate, speed, invis, water breathing, shadowstep.*', '');
+
+  if (travelSpells.length === 0) {
+    lines.push('No transport/travel spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total travel-related spells:** ${travelSpells.length}`, '');
+
+  // Travel type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of travelSpells) {
+    for (const t of s.travelTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Travel Spell Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Teleport spells with destinations
+  const teleports = travelSpells.filter(s => s.travelTypes.includes('Transport') || s.travelTypes.includes('Teleport Zone') || s.travelTypes.includes('Teleport'));
+  if (teleports.length > 0) {
+    const withDest = teleports.filter(s => s.teleportZone);
+    const uniqueZones = new Set(withDest.map(s => s.teleportZone));
+    lines.push('', `## Teleport Spells (${teleports.length}) — ${uniqueZones.size} unique destinations`, '');
+    lines.push('| Spell | Level | Destination | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|:------------|:---------|-----:|:-------|');
+    for (const s of teleports.sort((a, b) => b.level - a.level).slice(0, 20)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.teleportZone || '—'} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // Gate spells
+  const gates = travelSpells.filter(s => s.travelTypes.includes('Gate'));
+  if (gates.length > 0) {
+    lines.push('', `## Gate Spells (${gates.length})`, '');
+    lines.push('| Spell | Level | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|:---------|-----:|:-------|');
+    for (const s of gates.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // Movement speed
+  const speed = travelSpells.filter(s => s.travelTypes.includes('Movement Speed'));
+  if (speed.length > 0) {
+    lines.push('', `## Movement Speed Spells (${speed.length})`, '');
+    lines.push('| Spell | Level | Duration | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|---------:|:---------|-----:|:-------|');
+    for (const s of speed.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.duration || '—'} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // Levitate
+  const levitate = travelSpells.filter(s => s.travelTypes.includes('Levitate'));
+  if (levitate.length > 0) {
+    lines.push('', `## Levitate Spells (${levitate.length})`, '');
+    for (const s of levitate.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      lines.push(`- **${s.name}** (Level ${s.level}) — ${s.targetType}, Duration: ${s.duration || '—'}`);
+    }
+  }
+
+  // Invisibility
+  const invis = travelSpells.filter(s => s.travelTypes.includes('Invisibility'));
+  if (invis.length > 0) {
+    lines.push('', `## Invisibility Spells (${invis.length})`, '');
+    lines.push('| Spell | Level | Duration | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|---------:|:---------|-----:|:-------|');
+    for (const s of invis.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.duration || '—'} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // Bind / Water breathing / Shadowstep
+  for (const cat of ['Bind Affinity', 'Water Breathing', 'Shadow Step', 'Shadowstep']) {
+    const spells = travelSpells.filter(s => s.travelTypes.includes(cat));
+    if (spells.length > 0) {
+      lines.push('', `## ${cat} Spells (${spells.length})`, '');
+      for (const s of spells.sort((a, b) => b.level - a.level).slice(0, 10)) {
+        lines.push(`- **${s.name}** (Level ${s.level}) — ${s.targetType}`);
+      }
+    }
+  }
+
+  // First available level per travel type
+  lines.push('', '## First Available Level by Travel Type', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const firstLevel = travelSpells.filter(s => s.travelTypes.includes(type)).reduce((min, s) => Math.min(min, s.level), 999);
+    if (firstLevel < 999) lines.push(`- **${type}:** Level ${firstLevel} (${count} total spells)`);
+  }
+
+  lines.push('', `*${travelSpells.length} travel spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

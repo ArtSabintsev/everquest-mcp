@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 296 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 299 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **296 tools** for querying EverQuest data
+- **299 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -276,6 +276,9 @@ Then restart Claude Desktop.
 | `get_class_group_buff_profile` | Group buff profile for a class — group v1/v2 targeting, most common effects, categories, duration tiers, most complex group buffs |
 | `get_class_heal_breakdown` | Detailed heal breakdown for a class — direct heals, HoTs, group heals, mana efficiency, strongest heals by type |
 | `get_class_melee_discipline_profile` | Melee discipline (endurance) profile for a class — category distribution, most expensive, longest cooldowns, shared timer groups |
+| `get_class_pet_spell_profile` | Pet spell profile for a class — summon pets, charm, pet buffs/heals/shields, familiars, first-available levels |
+| `get_class_cure_spell_profile` | Cure and dispel profile for a class — dispel magic, dispel detrimental, cure corruption, beneficial vs detrimental, group cures, instant cures |
+| `get_class_transport_profile` | Transport and travel profile for a class — teleport destinations, gate, bind, speed, levitate, invisibility, water breathing |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -454,7 +457,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (296 tools)
+├── tools.ts          # Tool definitions and handlers (299 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

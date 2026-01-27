@@ -304,6 +304,9 @@ import {
   getClassGroupBuffProfile,
   getClassHealBreakdown,
   getClassMeleeDisciplineProfile,
+  getClassPetSpellProfile,
+  getClassCureSpellProfile,
+  getClassTransportProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -3756,6 +3759,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_pet_spell_profile',
+    description: 'Pet spell profile for a class — summon pets, charm, pet buffs/heals/shields, familiars, first-available levels, pet effect distribution.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Magician", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_cure_spell_profile',
+    description: 'Cure and dispel spell profile for a class — dispel magic, dispel detrimental, cure corruption, beneficial cures vs detrimental dispels, group cures, instant cures.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_transport_profile',
+    description: 'Transport and travel spell profile for a class — teleport destinations, gate, bind, movement speed, levitate, invis, water breathing, shadowstep.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5973,6 +6009,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassMeleeDisciplineProfile(className);
+      }
+
+      case 'get_class_pet_spell_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassPetSpellProfile(className);
+      }
+
+      case 'get_class_cure_spell_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassCureSpellProfile(className);
+      }
+
+      case 'get_class_transport_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassTransportProfile(className);
       }
 
       case 'search_help_topics': {
