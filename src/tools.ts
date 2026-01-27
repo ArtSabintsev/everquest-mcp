@@ -412,6 +412,9 @@ import {
   getClassDoTEfficiency,
   getClassBurstDamageWindow,
   getClassSustainedDPSProfile,
+  getClassSpellByEffectValue,
+  getClassNewSpellsByLevelBracket,
+  getClassObsoleteSpellAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -5058,6 +5061,41 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_by_effect_value',
+    description: 'Filter spells by SPA effect and minimum value — find spells with a specific SPA having absolute base value above threshold.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Cleric")' },
+        spa_id: { type: 'number', description: 'SPA ID (e.g. 0 for HP, 15 for Mana, 79 for HP Change)' },
+        min_value: { type: 'number', description: 'Minimum absolute base value (e.g. 10000, 50000)' }
+      },
+      required: ['class_name', 'spa_id', 'min_value']
+    }
+  },
+  {
+    name: 'get_class_new_spells_by_level_bracket',
+    description: 'New vs upgrade spells by level bracket — distinguishes truly new spell lines from upgrades of existing ones.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Paladin")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_obsolete_spell_analysis',
+    description: 'Obsolete spell analysis — identifies spells superseded by strictly better versions in the same spell line.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7944,6 +7982,28 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSustainedDPSProfile(className);
+      }
+
+      case 'get_class_spell_by_effect_value': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const spaId = typeof args.spa_id === 'number' ? args.spa_id : parseInt(String(args.spa_id));
+        const minValue = typeof args.min_value === 'number' ? args.min_value : parseInt(String(args.min_value));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(spaId)) return 'Error: "spa_id" parameter is required (number).';
+        if (isNaN(minValue)) return 'Error: "min_value" parameter is required (number).';
+        return getClassSpellByEffectValue(className, spaId, minValue);
+      }
+
+      case 'get_class_new_spells_by_level_bracket': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassNewSpellsByLevelBracket(className);
+      }
+
+      case 'get_class_obsolete_spell_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassObsoleteSpellAnalysis(className);
       }
 
       case 'search_help_topics': {

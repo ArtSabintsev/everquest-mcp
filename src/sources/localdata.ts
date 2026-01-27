@@ -40028,3 +40028,258 @@ export async function getClassSustainedDPSProfile(className: string): Promise<st
   lines.push('', `*${nukes.length} nukes analyzed for sustained DPS for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassSpellByEffectValue(className: string, spaId: number, minValue: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const spaName = SPA_NAMES[spaId] || `SPA ${spaId}`;
+  const matches: { name: string; level: number; value: number; target: string; beneficial: boolean }[] = [];
+  let totalSpellsEV = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsEV++;
+
+    const fields = spell.fields;
+    let maxVal = 0;
+    let found = false;
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] && fields[i].includes('|')) {
+        const slots = fields[i].split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length >= 3 && parseInt(parts[1]) === spaId) {
+            const base = parseInt(parts[2]) || 0;
+            const absBase = Math.abs(base);
+            if (absBase >= minValue) {
+              found = true;
+              if (absBase > maxVal) maxVal = absBase;
+            }
+          }
+        }
+        break;
+      }
+    }
+    if (!found) continue;
+
+    const targetId = parseInt(fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = (parseInt(fields[SF.BENEFICIAL]) || 0) === 1;
+    matches.push({ name: spell.fields[SF.NAME], level, value: maxVal, target: targetName, beneficial });
+  }
+
+  matches.sort((a, b) => b.value - a.value || a.level - b.level);
+
+  const lines = [`# ${classFullName} — SPA ${spaId} (${spaName}) with Value ≥ ${minValue}`, ''];
+  lines.push(`*Spells with SPA ${spaId} (${spaName}) and absolute base value ≥ ${minValue}.*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsEV}`);
+  lines.push(`**Matching spells:** ${matches.length}`, '');
+
+  if (matches.length > 0) {
+    lines.push('| Spell | Level | Value | Target | Type |');
+    lines.push('|:------|------:|------:|:-------|:-----|');
+    for (const m of matches.slice(0, 50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.value.toLocaleString()} | ${m.target} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells with SPA ${spaId} value ≥ ${minValue} for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassNewSpellsByLevelBracket(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Group spells by base name (strip Rk. I/II/III and trailing numbers)
+  const spellsByBase = new Map<string, { levels: number[]; names: string[] }>();
+  let totalSpellsNS = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsNS++;
+
+    const name = spell.fields[SF.NAME];
+    // Strip rank suffixes to find base name
+    const baseName = name.replace(/\s+Rk\.\s+(I{1,3}|IV|V|VI{0,3})$/i, '').replace(/\s+(I{1,3}|IV|V|VI{0,3}|VII|VIII|IX|X{1,3})$/i, '').trim();
+
+    if (!spellsByBase.has(baseName)) {
+      spellsByBase.set(baseName, { levels: [], names: [] });
+    }
+    const entry = spellsByBase.get(baseName)!;
+    if (!entry.levels.includes(level)) entry.levels.push(level);
+    entry.names.push(name);
+  }
+
+  // A "new" spell line appears at its minimum level; an "upgrade" appears at higher levels
+  const brackets = [
+    { label: '1–10', min: 1, max: 10 },
+    { label: '11–20', min: 11, max: 20 },
+    { label: '21–30', min: 21, max: 30 },
+    { label: '31–40', min: 31, max: 40 },
+    { label: '41–50', min: 41, max: 50 },
+    { label: '51–60', min: 51, max: 60 },
+    { label: '61–70', min: 61, max: 70 },
+    { label: '71–80', min: 71, max: 80 },
+    { label: '81–90', min: 81, max: 90 },
+    { label: '91–100', min: 91, max: 100 },
+    { label: '101–110', min: 101, max: 110 },
+    { label: '111–120', min: 111, max: 120 },
+    { label: '121+', min: 121, max: 999 }
+  ];
+
+  const bracketNewCounts: number[] = [];
+  const bracketUpgradeCounts: number[] = [];
+  const bracketTotalCounts: number[] = [];
+
+  for (const b of brackets) {
+    let newCount = 0;
+    let upgradeCount = 0;
+    let totalCount = 0;
+
+    for (const [, data] of spellsByBase) {
+      const minLevel = Math.min(...data.levels);
+      const levelsInBracket = data.levels.filter(l => l >= b.min && l <= b.max);
+
+      for (const lv of levelsInBracket) {
+        totalCount++;
+        if (lv === minLevel && lv >= b.min && lv <= b.max) {
+          newCount++;
+        } else {
+          upgradeCount++;
+        }
+      }
+    }
+
+    bracketNewCounts.push(newCount);
+    bracketUpgradeCounts.push(upgradeCount);
+    bracketTotalCounts.push(totalCount);
+  }
+
+  const lines = [`# ${classFullName} — New vs Upgrade Spells by Level Bracket`, ''];
+  lines.push(`*Distinguishes truly new spell lines from upgrades of existing spells.*`, '');
+  lines.push(`**Total spells:** ${totalSpellsNS} | **Unique spell lines:** ${spellsByBase.size}`, '');
+
+  lines.push('| Level Range | Total | New Lines | Upgrades | New % |');
+  lines.push('|:------------|------:|----------:|---------:|------:|');
+  for (let i = 0; i < brackets.length; i++) {
+    if (bracketTotalCounts[i] > 0) {
+      const pct = ((bracketNewCounts[i] / bracketTotalCounts[i]) * 100).toFixed(0);
+      lines.push(`| ${brackets[i].label} | ${bracketTotalCounts[i]} | ${bracketNewCounts[i]} | ${bracketUpgradeCounts[i]} | ${pct}% |`);
+    }
+  }
+
+  const totalNew = bracketNewCounts.reduce((a, b) => a + b, 0);
+  const totalUpg = bracketUpgradeCounts.reduce((a, b) => a + b, 0);
+  lines.push('', `*${totalNew} new spell lines, ${totalUpg} upgrades for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassObsoleteSpellAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Group spells by base name
+  const spellGroups = new Map<string, { name: string; level: number; mana: number; damage: number; heal: number }[]>();
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const name = spell.fields[SF.NAME];
+    const baseName = name.replace(/\s+Rk\.\s+(I{1,3}|IV|V|VI{0,3})$/i, '').replace(/\s+(I{1,3}|IV|V|VI{0,3}|VII|VIII|IX|X{1,3})$/i, '').trim();
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+
+    // Find SPA 0 value
+    let damage = 0;
+    let heal = 0;
+    const fields = spell.fields;
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] && fields[i].includes('|')) {
+        const slots = fields[i].split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length >= 3 && parseInt(parts[1]) === 0) {
+            const base = parseInt(parts[2]) || 0;
+            if (base < 0) damage += Math.abs(base);
+            if (base > 0) heal += base;
+          }
+        }
+        break;
+      }
+    }
+
+    if (!spellGroups.has(baseName)) spellGroups.set(baseName, []);
+    spellGroups.get(baseName)!.push({ name, level, mana, damage, heal });
+  }
+
+  // Find obsolete: lower-level spells in a group that are strictly worse
+  let obsoleteCount = 0;
+  let activeCount = 0;
+  const obsoleteExamples: { name: string; level: number; replacedBy: string; replacedLevel: number }[] = [];
+
+  for (const [, group] of spellGroups) {
+    if (group.length <= 1) {
+      activeCount++;
+      continue;
+    }
+
+    // Sort by level descending
+    group.sort((a, b) => b.level - a.level);
+    const best = group[0];
+
+    for (let i = 1; i < group.length; i++) {
+      const older = group[i];
+      // Consider obsolete if same base name and higher level version exists
+      // with equal or better damage/heal
+      if ((best.damage >= older.damage && best.heal >= older.heal) && (best.damage > 0 || best.heal > 0 || older.damage > 0 || older.heal > 0)) {
+        obsoleteCount++;
+        if (obsoleteExamples.length < 30) {
+          obsoleteExamples.push({ name: older.name, level: older.level, replacedBy: best.name, replacedLevel: best.level });
+        }
+      } else {
+        activeCount++;
+      }
+    }
+    activeCount++; // The best version is active
+  }
+
+  const totalAnalyzed = obsoleteCount + activeCount;
+  const lines = [`# ${classFullName} — Obsolete Spell Analysis`, ''];
+  lines.push(`*Spells superseded by strictly better versions in the same spell line.*`, '');
+  lines.push(`**Spell lines analyzed:** ${spellGroups.size}`);
+  lines.push(`**Active (best in line):** ${activeCount}`);
+  lines.push(`**Obsolete (superseded):** ${obsoleteCount} (${((obsoleteCount / totalAnalyzed) * 100).toFixed(1)}%)`, '');
+
+  if (obsoleteExamples.length > 0) {
+    lines.push('### Sample Obsolete Spells');
+    lines.push('| Old Spell | Old Level | Replaced By | New Level |');
+    lines.push('|:----------|----------:|:------------|----------:|');
+    for (const e of obsoleteExamples) {
+      lines.push(`| ${e.name} | ${e.level} | ${e.replacedBy} | ${e.replacedLevel} |`);
+    }
+    if (obsoleteCount > obsoleteExamples.length) lines.push(`| ...and ${obsoleteCount - obsoleteExamples.length} more | | | |`);
+  }
+
+  lines.push('', `*${obsoleteCount} obsolete spells identified for ${classFullName}.*`);
+  return lines.join('\n');
+}
