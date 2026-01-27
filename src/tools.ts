@@ -316,6 +316,9 @@ import {
   getClassMeleeCombatProfile,
   getClassStatBuffProfile,
   getClassLifetapProfile,
+  getClassAggroManagementProfile,
+  getClassEnduranceProfile,
+  getClassSkillModifierProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -3900,6 +3903,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_aggro_management_profile',
+    description: 'Aggro management profile for a class — hate generation, aggro reduction, taunt, AE taunt, spell hate, improved taunt abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Shadow Knight")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_endurance_profile',
+    description: 'Endurance profile for a class — endurance regen, max endurance buffs, endurance drain, endurance burn, endurance absorb effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Berserker", "Monk")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_skill_modifier_profile',
+    description: 'Skill modifier profile for a class — skill damage, archery damage, offhand damage, skill attack, accuracy, timer reduction effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Rogue", "Ranger")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6189,6 +6225,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassLifetapProfile(className);
+      }
+
+      case 'get_class_aggro_management_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassAggroManagementProfile(className);
+      }
+
+      case 'get_class_endurance_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassEnduranceProfile(className);
+      }
+
+      case 'get_class_skill_modifier_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSkillModifierProfile(className);
       }
 
       case 'search_help_topics': {

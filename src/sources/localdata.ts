@@ -31313,3 +31313,506 @@ export async function getClassLifetapProfile(className: string): Promise<string>
   lines.push('', `*${hpSpells.length} HP spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 309: Aggro management profile per class
+export async function getClassAggroManagementProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const AGGRO_SPAS: Record<number, string> = {
+    92: 'Adjust Aggro',
+    114: 'Aggro',
+    125: 'AE Taunt',
+    138: 'Taunt',
+    158: 'Hate',
+    365: 'AE Hate',
+    366: 'Spell Hate',
+    485: 'Improved Taunt',
+  };
+
+  interface AggroSpell {
+    name: string;
+    level: number;
+    aggroTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    endurance: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const aggroSpells: AggroSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const aggroTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (AGGRO_SPAS[spaId]) {
+        aggroTypes.push(AGGRO_SPAS[spaId]);
+        values[AGGRO_SPAS[spaId]] = base;
+      }
+    }
+    if (aggroTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    aggroSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      aggroTypes: [...new Set(aggroTypes)],
+      values,
+      mana,
+      endurance,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Aggro Management Profile`, ''];
+  lines.push('*Analyzes hate/aggro spells: taunt, AE taunt, hate generation, aggro adjustment, spell hate, improved taunt.*', '');
+
+  if (aggroSpells.length === 0) {
+    lines.push('No aggro management spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const hateGenerators = aggroSpells.filter(s => {
+    const hateVal = s.values['Hate'] || s.values['Aggro'] || s.values['AE Hate'] || s.values['Spell Hate'] || 0;
+    return hateVal > 0 || s.aggroTypes.includes('Taunt') || s.aggroTypes.includes('AE Taunt') || s.aggroTypes.includes('Improved Taunt');
+  });
+  const hateReducers = aggroSpells.filter(s => {
+    const adjVal = s.values['Adjust Aggro'] || s.values['Hate'] || s.values['Aggro'] || 0;
+    return adjVal < 0;
+  });
+
+  lines.push(`**Total aggro spells:** ${aggroSpells.length}`);
+  lines.push(`- Hate generators: ${hateGenerators.length}`);
+  lines.push(`- Hate reducers: ${hateReducers.length}`, '');
+
+  // Type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of aggroSpells) {
+    for (const t of s.aggroTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Aggro Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Hate generators (top 15)
+  if (hateGenerators.length > 0) {
+    lines.push('', `## Hate Generators (${hateGenerators.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Hate Value | Cast (s) | Cost | Target |');
+    lines.push('|:------|------:|-----------:|:---------|-----:|:-------|');
+    for (const s of hateGenerators.sort((a, b) => {
+      const aVal = Math.max(a.values['Hate'] || 0, a.values['Aggro'] || 0, a.values['AE Hate'] || 0, a.values['Spell Hate'] || 0, a.values['Taunt'] || 0);
+      const bVal = Math.max(b.values['Hate'] || 0, b.values['Aggro'] || 0, b.values['AE Hate'] || 0, b.values['Spell Hate'] || 0, b.values['Taunt'] || 0);
+      return bVal - aVal;
+    }).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const hateVal = Math.max(s.values['Hate'] || 0, s.values['Aggro'] || 0, s.values['AE Hate'] || 0, s.values['Spell Hate'] || 0, s.values['Taunt'] || 0);
+      const cost = s.endurance > 0 ? `${s.endurance.toLocaleString()} end` : `${s.mana.toLocaleString()} mana`;
+      lines.push(`| ${s.name} | ${s.level} | +${hateVal.toLocaleString()} | ${castSec} | ${cost} | ${s.targetType} |`);
+    }
+  }
+
+  // Hate reducers (top 15)
+  if (hateReducers.length > 0) {
+    lines.push('', `## Hate Reducers (${hateReducers.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Hate Adj | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|---------:|:---------|-----:|:-------|');
+    for (const s of hateReducers.sort((a, b) => (a.values['Adjust Aggro'] || a.values['Hate'] || a.values['Aggro'] || 0) - (b.values['Adjust Aggro'] || b.values['Hate'] || b.values['Aggro'] || 0)).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const adjVal = s.values['Adjust Aggro'] || s.values['Hate'] || s.values['Aggro'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${adjVal.toLocaleString()} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // AE aggro
+  const aeAggro = aggroSpells.filter(s => s.aggroTypes.includes('AE Taunt') || s.aggroTypes.includes('AE Hate'));
+  if (aeAggro.length > 0) {
+    lines.push('', `## AE Aggro Spells (${aeAggro.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Effects | Duration | Target |');
+    lines.push('|:------|------:|:--------|:---------|:-------|');
+    for (const s of aeAggro.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // First available per type
+  lines.push('', '## First Available Level by Aggro Type', '');
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const first = aggroSpells.filter(s => s.aggroTypes.includes(type)).reduce((min, s) => Math.min(min, s.level), 999);
+    if (first < 999) lines.push(`- **${type}:** Level ${first}`);
+  }
+
+  lines.push('', `*${aggroSpells.length} aggro management spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 310: Endurance profile per class
+export async function getClassEnduranceProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const END_SPAS: Record<number, string> = {
+    24: 'Stamina/Endurance',
+    107: 'Endurance',
+    108: 'Endurance Regen',
+    137: 'Endurance Regen',
+    165: 'Max Endurance',
+    252: 'Endurance Burn',
+    268: 'Endurance Regen from Spells',
+    271: 'Max Endurance Mod',
+    275: 'Max Endurance',
+    367: 'Worn Endurance Regen',
+    405: 'Endurance Drain',
+    454: 'Endurance Absorb',
+    470: 'Endurance Absorb',
+  };
+
+  interface EndSpell {
+    name: string;
+    level: number;
+    endTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    endurance: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const endSpells: EndSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const endTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (END_SPAS[spaId]) {
+        endTypes.push(END_SPAS[spaId]);
+        values[END_SPAS[spaId]] = base;
+      }
+    }
+    if (endTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    endSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      endTypes: [...new Set(endTypes)],
+      values,
+      mana,
+      endurance,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Endurance Profile`, ''];
+  lines.push('*Analyzes endurance-related spells: endurance regen, max endurance buffs, endurance drain, endurance burn, endurance absorb.*', '');
+
+  if (endSpells.length === 0) {
+    lines.push('No endurance-related spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const endBuffs = endSpells.filter(s => s.beneficial);
+  const endDebuffs = endSpells.filter(s => !s.beneficial);
+  lines.push(`**Total endurance spells:** ${endSpells.length}`);
+  lines.push(`- Endurance buffs: ${endBuffs.length}`);
+  lines.push(`- Endurance debuffs/drains: ${endDebuffs.length}`, '');
+
+  // Type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of endSpells) {
+    for (const t of s.endTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Endurance Effect Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Endurance regen spells
+  const regenSpells = endSpells.filter(s => s.endTypes.includes('Endurance Regen') || s.endTypes.includes('Endurance Regen from Spells') || s.endTypes.includes('Worn Endurance Regen'));
+  if (regenSpells.length > 0) {
+    lines.push('', `## Endurance Regen Spells (${regenSpells.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Regen Value | Duration | Target |');
+    lines.push('|:------|------:|------------:|:---------|:-------|');
+    for (const s of regenSpells.sort((a, b) => {
+      const aVal = a.values['Endurance Regen'] || a.values['Endurance Regen from Spells'] || a.values['Worn Endurance Regen'] || 0;
+      const bVal = b.values['Endurance Regen'] || b.values['Endurance Regen from Spells'] || b.values['Worn Endurance Regen'] || 0;
+      return bVal - aVal;
+    }).slice(0, 15)) {
+      const rVal = s.values['Endurance Regen'] || s.values['Endurance Regen from Spells'] || s.values['Worn Endurance Regen'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${rVal > 0 ? '+' : ''}${rVal.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Max endurance buffs
+  const maxEndSpells = endSpells.filter(s => s.endTypes.includes('Max Endurance') || s.endTypes.includes('Max Endurance Mod'));
+  if (maxEndSpells.length > 0) {
+    lines.push('', `## Max Endurance Buffs (${maxEndSpells.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Max End Boost | Duration | Target |');
+    lines.push('|:------|------:|--------------:|:---------|:-------|');
+    for (const s of maxEndSpells.sort((a, b) => {
+      const aVal = a.values['Max Endurance'] || a.values['Max Endurance Mod'] || 0;
+      const bVal = b.values['Max Endurance'] || b.values['Max Endurance Mod'] || 0;
+      return bVal - aVal;
+    }).slice(0, 15)) {
+      const mVal = s.values['Max Endurance'] || s.values['Max Endurance Mod'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | +${mVal.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Endurance drains
+  const drainSpells = endSpells.filter(s => s.endTypes.includes('Endurance Drain') || s.endTypes.includes('Endurance Burn'));
+  if (drainSpells.length > 0) {
+    lines.push('', `## Endurance Drain/Burn Spells (${drainSpells.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Drain Value | Cast (s) | Target |');
+    lines.push('|:------|------:|------------:|:---------|:-------|');
+    for (const s of drainSpells.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const dVal = s.values['Endurance Drain'] || s.values['Endurance Burn'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${dVal.toLocaleString()} | ${castSec} | ${s.targetType} |`);
+    }
+  }
+
+  // Multi-endurance effect spells
+  const multiEnd = endSpells.filter(s => s.endTypes.length >= 2);
+  if (multiEnd.length > 0) {
+    lines.push('', `## Multi-Endurance Effect Spells (${multiEnd.length}) — Top 15`, '');
+    for (const s of multiEnd.sort((a, b) => b.endTypes.length - a.endTypes.length || b.level - a.level).slice(0, 15)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`- **${s.name}** (Level ${s.level}, ${s.endTypes.length} effects) — ${fx}`);
+    }
+  }
+
+  lines.push('', `*${endSpells.length} endurance spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 311: Skill modifier profile per class
+export async function getClassSkillModifierProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const SKILL_SPAS: Record<number, string> = {
+    136: 'Skill Damage',
+    174: 'Skill Damage Mod',
+    175: 'Skill Damage Mod2',
+    188: 'Increase Skill Damage',
+    207: 'Archery Damage Mod',
+    208: 'Offhand Damage Mod',
+    216: 'Increase Archery',
+    297: 'Skill Attack',
+    298: 'Skill Accuracy Mod',
+    302: 'Archery Damage',
+    354: 'Skill Specialization',
+    359: 'Reduce Skill Timer',
+    361: 'Reduce Combat Skill Timer',
+    402: 'Skill Min Damage Mod',
+    434: 'Skill Base Damage Mod',
+    442: 'Skill Min Damage2',
+  };
+
+  interface SkillSpell {
+    name: string;
+    level: number;
+    skillTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    endurance: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+  }
+
+  const skillSpells: SkillSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const skillTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (SKILL_SPAS[spaId]) {
+        skillTypes.push(SKILL_SPAS[spaId]);
+        values[SKILL_SPAS[spaId]] = base;
+      }
+    }
+    if (skillTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    skillSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      skillTypes: [...new Set(skillTypes)],
+      values,
+      mana,
+      endurance,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Skill Modifier Profile`, ''];
+  lines.push('*Analyzes skill-modifying spells: skill damage, archery damage, offhand damage, skill attack, skill accuracy, timer reduction.*', '');
+
+  if (skillSpells.length === 0) {
+    lines.push('No skill modifier spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total skill modifier spells:** ${skillSpells.length}`, '');
+
+  // Type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of skillSpells) {
+    for (const t of s.skillTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Skill Modifier Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Skill damage spells
+  const dmgSpells = skillSpells.filter(s => s.skillTypes.includes('Skill Damage') || s.skillTypes.includes('Skill Damage Mod') || s.skillTypes.includes('Skill Damage Mod2') || s.skillTypes.includes('Increase Skill Damage') || s.skillTypes.includes('Skill Base Damage Mod'));
+  if (dmgSpells.length > 0) {
+    lines.push('', `## Skill Damage Modifiers (${dmgSpells.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Effects | Duration | Target |');
+    lines.push('|:------|------:|:--------|:---------|:-------|');
+    for (const s of dmgSpells.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const fx = Object.entries(s.values)
+        .filter(([t]) => t.includes('Damage'))
+        .map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`)
+        .join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Archery modifiers
+  const archerySpells = skillSpells.filter(s => s.skillTypes.includes('Archery Damage Mod') || s.skillTypes.includes('Increase Archery') || s.skillTypes.includes('Archery Damage'));
+  if (archerySpells.length > 0) {
+    lines.push('', `## Archery Modifiers (${archerySpells.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Archery Value | Duration | Target |');
+    lines.push('|:------|------:|--------------:|:---------|:-------|');
+    for (const s of archerySpells.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      const aVal = s.values['Archery Damage Mod'] || s.values['Increase Archery'] || s.values['Archery Damage'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${aVal > 0 ? '+' : ''}${aVal} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Timer reduction spells
+  const timerSpells = skillSpells.filter(s => s.skillTypes.includes('Reduce Skill Timer') || s.skillTypes.includes('Reduce Combat Skill Timer'));
+  if (timerSpells.length > 0) {
+    lines.push('', `## Skill Timer Reduction (${timerSpells.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Timer Reduction | Duration | Target |');
+    lines.push('|:------|------:|----------------:|:---------|:-------|');
+    for (const s of timerSpells.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      const tVal = s.values['Reduce Skill Timer'] || s.values['Reduce Combat Skill Timer'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${tVal} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Multi-skill spells
+  const multiSkill = skillSpells.filter(s => s.skillTypes.length >= 2);
+  if (multiSkill.length > 0) {
+    lines.push('', `## Multi-Skill Modifier Spells (${multiSkill.length}) — Top 15`, '');
+    for (const s of multiSkill.sort((a, b) => b.skillTypes.length - a.skillTypes.length || b.level - a.level).slice(0, 15)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`- **${s.name}** (Level ${s.level}, ${s.skillTypes.length} effects) — ${fx}`);
+    }
+  }
+
+  // First available per type
+  lines.push('', '## First Available Level by Skill Modifier', '');
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const first = skillSpells.filter(s => s.skillTypes.includes(type)).reduce((min, s) => Math.min(min, s.level), 999);
+    if (first < 999) lines.push(`- **${type}:** Level ${first}`);
+  }
+
+  lines.push('', `*${skillSpells.length} skill modifier spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
