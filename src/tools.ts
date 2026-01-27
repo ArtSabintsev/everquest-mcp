@@ -406,6 +406,9 @@ import {
   getSpellDetail,
   getClassExclusiveSpells,
   getGlobalResistTypeDistribution,
+  getGlobalTargetTypeDistribution,
+  getClassNukeEfficiency,
+  getClassHealEfficiency,
 } from './sources/index.js';
 
 export const tools = [
@@ -4988,6 +4991,37 @@ export const tools = [
     }
   },
   {
+    name: 'get_global_target_type_distribution',
+    description: 'Global target type distribution — breakdown of all target types across the entire spell database.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_class_nuke_efficiency',
+    description: 'Nuke efficiency analysis — direct damage spells ranked by DPS and damage per mana for a class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_heal_efficiency',
+    description: 'Heal efficiency analysis — direct heal spells ranked by HPS and heal per mana for a class.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7840,6 +7874,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_global_resist_type_distribution': {
         return getGlobalResistTypeDistribution();
+      }
+
+      case 'get_global_target_type_distribution': {
+        return getGlobalTargetTypeDistribution();
+      }
+
+      case 'get_class_nuke_efficiency': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassNukeEfficiency(className);
+      }
+
+      case 'get_class_heal_efficiency': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassHealEfficiency(className);
       }
 
       case 'search_help_topics': {

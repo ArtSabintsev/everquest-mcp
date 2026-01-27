@@ -39616,3 +39616,188 @@ export async function getGlobalResistTypeDistribution(): Promise<string> {
   lines.push('', `*${sorted.length} resist types across ${totalSpellsGR.toLocaleString()} spells.*`);
   return lines.join('\n');
 }
+
+export async function getGlobalTargetTypeDistribution(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const targetCounts = new Map<number, number>();
+  let totalSpellsGT = 0;
+
+  for (const spell of spells.values()) {
+    totalSpellsGT++;
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    targetCounts.set(targetId, (targetCounts.get(targetId) || 0) + 1);
+  }
+
+  const sorted = [...targetCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  const lines = ['# Global Target Type Distribution', ''];
+  lines.push(`*Target type distribution across all ${totalSpellsGT.toLocaleString()} spells.*`, '');
+
+  lines.push('| Target Type | ID | Count | Percentage |');
+  lines.push('|:------------|---:|------:|-----------:|');
+  for (const [id, count] of sorted) {
+    const name = TARGET_TYPES[id] || `Unknown ${id}`;
+    const pct = ((count / totalSpellsGT) * 100).toFixed(1);
+    lines.push(`| ${name} | ${id} | ${count.toLocaleString()} | ${pct}% |`);
+  }
+
+  lines.push('', `*${sorted.length} target types across ${totalSpellsGT.toLocaleString()} spells.*`);
+  return lines.join('\n');
+}
+
+export async function getClassNukeEfficiency(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const nukes: { name: string; level: number; damage: number; mana: number; castTime: number; dps: number; dpm: number; dpsMana: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    if (beneficial) continue;
+
+    // Find DD damage (SPA 0 with negative base = damage)
+    let damage = 0;
+    const fields = spell.fields;
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] && fields[i].includes('|')) {
+        const slots = fields[i].split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length >= 3 && parseInt(parts[1]) === 0) {
+            const base = parseInt(parts[2]) || 0;
+            if (base < 0) damage += Math.abs(base);
+          }
+        }
+        break;
+      }
+    }
+    if (damage === 0) continue;
+
+    // Only instant/short duration (DD, not DoT)
+    const durValue = parseInt(fields[SF.DURATION_VALUE]) || 0;
+    if (durValue > 0) continue;
+
+    const mana = parseInt(fields[SF.MANA]) || 0;
+    const castTimeMs = parseInt(fields[SF.CAST_TIME]) || 0;
+    const castTime = Math.max(castTimeMs / 1000, 0.5); // minimum 0.5s effective
+    const dps = damage / castTime;
+    const dpm = mana > 0 ? damage / mana : 0;
+    const dpsMana = mana > 0 ? dps / mana * 1000 : 0; // DPS per 1000 mana
+
+    nukes.push({ name: spell.fields[SF.NAME], level, damage, mana, castTime, dps, dpm, dpsMana });
+  }
+
+  nukes.sort((a, b) => b.dps - a.dps);
+
+  const lines = [`# ${classFullName} — Nuke Efficiency`, ''];
+  lines.push(`*Direct damage spells ranked by DPS and mana efficiency.*`, '');
+  lines.push(`**Total nukes:** ${nukes.length}`, '');
+
+  if (nukes.length > 0) {
+    lines.push('### Top 40 by DPS');
+    lines.push('| Spell | Level | Damage | Mana | Cast (s) | DPS | Dmg/Mana |');
+    lines.push('|:------|------:|-------:|-----:|---------:|----:|---------:|');
+    for (const n of nukes.slice(0, 40)) {
+      lines.push(`| ${n.name} | ${n.level} | ${n.damage.toLocaleString()} | ${n.mana.toLocaleString()} | ${n.castTime.toFixed(1)} | ${n.dps.toFixed(0)} | ${n.dpm.toFixed(1)} |`);
+    }
+    if (nukes.length > 40) lines.push(`| ...and ${nukes.length - 40} more | | | | | | |`);
+
+    // Top by mana efficiency
+    const byDpm = [...nukes].sort((a, b) => b.dpm - a.dpm);
+    lines.push('', '### Top 20 by Damage per Mana');
+    lines.push('| Spell | Level | Damage | Mana | Dmg/Mana | DPS |');
+    lines.push('|:------|------:|-------:|-----:|---------:|----:|');
+    for (const n of byDpm.slice(0, 20)) {
+      lines.push(`| ${n.name} | ${n.level} | ${n.damage.toLocaleString()} | ${n.mana.toLocaleString()} | ${n.dpm.toFixed(1)} | ${n.dps.toFixed(0)} |`);
+    }
+  }
+
+  lines.push('', `*${nukes.length} direct damage nukes for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassHealEfficiency(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const heals: { name: string; level: number; heal: number; mana: number; castTime: number; hps: number; hpm: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    if (!beneficial) continue;
+
+    // Find heal amount (SPA 0 with positive base = heal)
+    let heal = 0;
+    const fields = spell.fields;
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] && fields[i].includes('|')) {
+        const slots = fields[i].split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length >= 3 && parseInt(parts[1]) === 0) {
+            const base = parseInt(parts[2]) || 0;
+            if (base > 0) heal += base;
+          }
+        }
+        break;
+      }
+    }
+    if (heal === 0) continue;
+
+    // Only instant heals (not HoTs)
+    const durValue = parseInt(fields[SF.DURATION_VALUE]) || 0;
+    if (durValue > 0) continue;
+
+    const mana = parseInt(fields[SF.MANA]) || 0;
+    const castTimeMs = parseInt(fields[SF.CAST_TIME]) || 0;
+    const castTime = Math.max(castTimeMs / 1000, 0.5);
+    const hps = heal / castTime;
+    const hpm = mana > 0 ? heal / mana : 0;
+
+    heals.push({ name: spell.fields[SF.NAME], level, heal, mana, castTime, hps, hpm });
+  }
+
+  heals.sort((a, b) => b.hps - a.hps);
+
+  const lines = [`# ${classFullName} — Heal Efficiency`, ''];
+  lines.push(`*Direct heal spells ranked by HPS and mana efficiency.*`, '');
+  lines.push(`**Total direct heals:** ${heals.length}`, '');
+
+  if (heals.length > 0) {
+    lines.push('### Top 40 by HPS');
+    lines.push('| Spell | Level | Heal | Mana | Cast (s) | HPS | Heal/Mana |');
+    lines.push('|:------|------:|-----:|-----:|---------:|----:|----------:|');
+    for (const h of heals.slice(0, 40)) {
+      lines.push(`| ${h.name} | ${h.level} | ${h.heal.toLocaleString()} | ${h.mana.toLocaleString()} | ${h.castTime.toFixed(1)} | ${h.hps.toFixed(0)} | ${h.hpm.toFixed(1)} |`);
+    }
+    if (heals.length > 40) lines.push(`| ...and ${heals.length - 40} more | | | | | | |`);
+
+    // Top by mana efficiency
+    const byHpm = [...heals].sort((a, b) => b.hpm - a.hpm);
+    lines.push('', '### Top 20 by Heal per Mana');
+    lines.push('| Spell | Level | Heal | Mana | Heal/Mana | HPS |');
+    lines.push('|:------|------:|-----:|-----:|----------:|----:|');
+    for (const h of byHpm.slice(0, 20)) {
+      lines.push(`| ${h.name} | ${h.level} | ${h.heal.toLocaleString()} | ${h.mana.toLocaleString()} | ${h.hpm.toFixed(1)} | ${h.hps.toFixed(0)} |`);
+    }
+  }
+
+  lines.push('', `*${heals.length} direct heals for ${classFullName}.*`);
+  return lines.join('\n');
+}
