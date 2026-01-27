@@ -25723,3 +25723,321 @@ export async function getSkillCapCrossClassComparison(skillName: string): Promis
   lines.push('', `*${sName} skill cap compared across ${hasSkill.length} classes.*`);
   return lines.join('\n');
 }
+
+// Tool 267: Spell mana efficiency analysis
+export async function getSpellManaEfficiencyAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells) return 'Spell data not available.';
+
+  const classId = Object.entries(CLASS_IDS).find(([, name]) => name.toLowerCase() === className.toLowerCase())?.[0];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+
+  const cid = parseInt(classId);
+  const lines = [`# Spell Mana Efficiency Analysis — ${CLASS_IDS[cid]}`, ''];
+  lines.push(`*Analyzes mana costs and efficiency patterns for ${CLASS_IDS[cid]} spells.*`, '');
+
+  const classSpells: { id: number; name: string; level: number; mana: number; castTime: number; beneficial: boolean; category: string }[] = [];
+  for (const [spellId, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    if (mana <= 0) continue;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const cat = spellCategories?.get(catId) || 'Unknown';
+    classSpells.push({ id: spellId, name: spell.name, level, mana, castTime, beneficial, category: cat });
+  }
+
+  if (classSpells.length === 0) return `No mana-cost spells found for ${CLASS_IDS[cid]}.`;
+
+  lines.push(`- **Total spells with mana cost:** ${classSpells.length}`);
+  const avgMana = classSpells.reduce((s, sp) => s + sp.mana, 0) / classSpells.length;
+  lines.push(`- **Average mana cost:** ${Math.round(avgMana)}`);
+
+  // Mana cost distribution
+  lines.push('', '## Mana Cost Distribution', '');
+  const buckets: Record<string, number> = {};
+  for (const sp of classSpells) {
+    const bucket = sp.mana <= 50 ? '1-50' : sp.mana <= 100 ? '51-100' : sp.mana <= 250 ? '101-250' :
+      sp.mana <= 500 ? '251-500' : sp.mana <= 1000 ? '501-1000' : sp.mana <= 5000 ? '1001-5000' : '5001+';
+    buckets[bucket] = (buckets[bucket] || 0) + 1;
+  }
+  const bucketOrder = ['1-50', '51-100', '101-250', '251-500', '501-1000', '1001-5000', '5001+'];
+  for (const b of bucketOrder) {
+    if (buckets[b]) {
+      const pct = ((buckets[b] / classSpells.length) * 100).toFixed(1);
+      lines.push(`- **${b} mana:** ${buckets[b]} spells (${pct}%)`);
+    }
+  }
+
+  // Most expensive spells
+  const byMana = [...classSpells].sort((a, b) => b.mana - a.mana);
+  lines.push('', '## Most Expensive Spells (Top 15)', '');
+  lines.push('| Spell | Level | Mana | Cast (s) | Category |');
+  lines.push('|:------|------:|-----:|---------:|:---------|');
+  for (const sp of byMana.slice(0, 15)) {
+    const castSec = (sp.castTime / 1000).toFixed(1);
+    lines.push(`| ${sp.name} | ${sp.level} | ${sp.mana} | ${castSec} | ${sp.category} |`);
+  }
+
+  // Cheapest spells at high levels
+  const highLevel = classSpells.filter(sp => sp.level >= 100);
+  if (highLevel.length > 0) {
+    const cheapHigh = [...highLevel].sort((a, b) => a.mana - b.mana);
+    lines.push('', '## Cheapest Spells at Level 100+ (Top 15)', '');
+    lines.push('| Spell | Level | Mana | Cast (s) | Type |');
+    lines.push('|:------|------:|-----:|---------:|:-----|');
+    for (const sp of cheapHigh.slice(0, 15)) {
+      const castSec = (sp.castTime / 1000).toFixed(1);
+      const type = sp.beneficial ? 'Beneficial' : 'Detrimental';
+      lines.push(`| ${sp.name} | ${sp.level} | ${sp.mana} | ${castSec} | ${type} |`);
+    }
+  }
+
+  // Mana cost per level trend
+  lines.push('', '## Average Mana Cost by Level Range', '');
+  lines.push('| Level Range | Avg Mana | Spell Count | Max Mana |');
+  lines.push('|:------------|--------:|-----------:|---------:|');
+  const levelRanges: [string, number, number][] = [
+    ['1-20', 1, 20], ['21-40', 21, 40], ['41-60', 41, 60], ['61-80', 61, 80],
+    ['81-100', 81, 100], ['101-115', 101, 115], ['116-130', 116, 130],
+  ];
+  for (const [label, lo, hi] of levelRanges) {
+    const inRange = classSpells.filter(sp => sp.level >= lo && sp.level <= hi);
+    if (inRange.length === 0) continue;
+    const avg = Math.round(inRange.reduce((s, sp) => s + sp.mana, 0) / inRange.length);
+    const max = Math.max(...inRange.map(sp => sp.mana));
+    lines.push(`| ${label} | ${avg} | ${inRange.length} | ${max} |`);
+  }
+
+  // Mana cost by category
+  lines.push('', '## Mana Cost by Spell Category', '');
+  lines.push('| Category | Spells | Avg Mana | Min | Max |');
+  lines.push('|:---------|-------:|--------:|----:|----:|');
+  const byCat: Record<string, { count: number; total: number; min: number; max: number }> = {};
+  for (const sp of classSpells) {
+    if (!byCat[sp.category]) byCat[sp.category] = { count: 0, total: 0, min: Infinity, max: 0 };
+    byCat[sp.category].count++;
+    byCat[sp.category].total += sp.mana;
+    if (sp.mana < byCat[sp.category].min) byCat[sp.category].min = sp.mana;
+    if (sp.mana > byCat[sp.category].max) byCat[sp.category].max = sp.mana;
+  }
+  for (const [cat, d] of Object.entries(byCat).sort((a, b) => b[1].count - a[1].count).slice(0, 15)) {
+    const avg = Math.round(d.total / d.count);
+    lines.push(`| ${cat} | ${d.count} | ${avg} | ${d.min} | ${d.max} |`);
+  }
+
+  // Cast time vs mana correlation
+  lines.push('', '## Cast Time vs Mana (Averages)', '');
+  const castBuckets: Record<string, { count: number; totalMana: number }> = {};
+  for (const sp of classSpells) {
+    const castSec = sp.castTime / 1000;
+    const bucket = castSec <= 0.5 ? 'Instant' : castSec <= 1.5 ? '0.5-1.5s' : castSec <= 3 ? '1.5-3s' : castSec <= 6 ? '3-6s' : '6s+';
+    if (!castBuckets[bucket]) castBuckets[bucket] = { count: 0, totalMana: 0 };
+    castBuckets[bucket].count++;
+    castBuckets[bucket].totalMana += sp.mana;
+  }
+  const castOrder = ['Instant', '0.5-1.5s', '1.5-3s', '3-6s', '6s+'];
+  for (const b of castOrder) {
+    if (castBuckets[b]) {
+      const avg = Math.round(castBuckets[b].totalMana / castBuckets[b].count);
+      lines.push(`- **${b}:** ${castBuckets[b].count} spells, avg ${avg} mana`);
+    }
+  }
+
+  lines.push('', `*${classSpells.length} ${CLASS_IDS[cid]} spells analyzed for mana efficiency.*`);
+  return lines.join('\n');
+}
+
+// Tool 268: Faction category analysis
+export async function getFactionCategoryAnalysis(): Promise<string> {
+  await loadFactions();
+  if (!factions || factions.size === 0) return 'Faction data not available.';
+
+  const lines = ['# Faction Category Analysis', ''];
+  lines.push('*Analyzes how factions are distributed across categories (expansions) with value range and starting value statistics.*', '');
+
+  const catFactions: Record<string, FactionEntry[]> = {};
+  let uncategorized = 0;
+  for (const [, f] of factions) {
+    const cat = f.category || 'Uncategorized';
+    if (!f.category) uncategorized++;
+    if (!catFactions[cat]) catFactions[cat] = [];
+    catFactions[cat].push(f);
+  }
+
+  lines.push(`- **Total factions:** ${factions.size}`);
+  lines.push(`- **Categories:** ${Object.keys(catFactions).length}`);
+  lines.push(`- **Uncategorized:** ${uncategorized}`);
+
+  // Category distribution
+  lines.push('', '## Factions by Category', '');
+  lines.push('| Category | Factions | Avg Min | Avg Max | Range Span |');
+  lines.push('|:---------|--------:|-------:|--------:|----------:|');
+  const sortedCats = Object.entries(catFactions).sort((a, b) => b[1].length - a[1].length);
+  for (const [cat, entries] of sortedCats) {
+    const avgMin = Math.round(entries.reduce((s, e) => s + e.minValue, 0) / entries.length);
+    const avgMax = Math.round(entries.reduce((s, e) => s + e.maxValue, 0) / entries.length);
+    const avgSpan = avgMax - avgMin;
+    lines.push(`| ${cat} | ${entries.length} | ${avgMin.toLocaleString()} | ${avgMax.toLocaleString()} | ${avgSpan.toLocaleString()} |`);
+  }
+
+  // Faction value range analysis
+  lines.push('', '## Faction Value Range Distribution', '');
+  const rangeBuckets: Record<string, number> = {};
+  for (const [, f] of factions) {
+    const span = f.maxValue - f.minValue;
+    const bucket = span <= 1000 ? '0-1K' : span <= 5000 ? '1K-5K' : span <= 10000 ? '5K-10K' : span <= 50000 ? '10K-50K' : '50K+';
+    rangeBuckets[bucket] = (rangeBuckets[bucket] || 0) + 1;
+  }
+  for (const [bucket, count] of Object.entries(rangeBuckets).sort((a, b) => b[1] - a[1])) {
+    const pct = ((count / factions.size) * 100).toFixed(1);
+    lines.push(`- **${bucket}:** ${count} factions (${pct}%)`);
+  }
+
+  // Factions with starting values
+  let factionsWithStarting = 0;
+  let totalStartingEntries = 0;
+  const modifierUsage: Record<number, number> = {};
+  for (const [, f] of factions) {
+    if (f.startingValues && f.startingValues.length > 0) {
+      factionsWithStarting++;
+      totalStartingEntries += f.startingValues.length;
+      for (const sv of f.startingValues) {
+        modifierUsage[sv.modifierId] = (modifierUsage[sv.modifierId] || 0) + 1;
+      }
+    }
+  }
+  lines.push('', '## Starting Value Analysis', '');
+  lines.push(`- **Factions with starting values:** ${factionsWithStarting} (${((factionsWithStarting / factions.size) * 100).toFixed(1)}%)`);
+  lines.push(`- **Total starting value entries:** ${totalStartingEntries}`);
+
+  if (Object.keys(modifierUsage).length > 0) {
+    lines.push('', '## Most Common Starting Value Modifiers', '');
+    lines.push('| Modifier ID | Modifier Name | Faction Count |');
+    lines.push('|:------------|:--------------|-------------:|');
+    const sortedMods = Object.entries(modifierUsage).sort((a, b) => b[1] - a[1]);
+    for (const [modId, count] of sortedMods.slice(0, 20)) {
+      const name = factionModifierNames?.get(parseInt(modId)) || `Modifier ${modId}`;
+      lines.push(`| ${modId} | ${name} | ${count} |`);
+    }
+  }
+
+  // Widest and narrowest faction ranges
+  lines.push('', '## Widest Faction Ranges (Top 10)', '');
+  lines.push('| Faction | Min | Max | Span | Category |');
+  lines.push('|:--------|----:|----:|-----:|:---------|');
+  const bySpan = [...factions.values()].sort((a, b) => (b.maxValue - b.minValue) - (a.maxValue - a.minValue));
+  for (const f of bySpan.slice(0, 10)) {
+    const span = f.maxValue - f.minValue;
+    lines.push(`| ${f.name} | ${f.minValue.toLocaleString()} | ${f.maxValue.toLocaleString()} | ${span.toLocaleString()} | ${f.category || '—'} |`);
+  }
+
+  lines.push('', '## Narrowest Faction Ranges (Top 10)', '');
+  lines.push('| Faction | Min | Max | Span | Category |');
+  lines.push('|:--------|----:|----:|-----:|:---------|');
+  const narrowest = [...factions.values()].sort((a, b) => (a.maxValue - a.minValue) - (b.maxValue - b.minValue));
+  for (const f of narrowest.slice(0, 10)) {
+    const span = f.maxValue - f.minValue;
+    lines.push(`| ${f.name} | ${f.minValue.toLocaleString()} | ${f.maxValue.toLocaleString()} | ${span.toLocaleString()} | ${f.category || '—'} |`);
+  }
+
+  lines.push('', `*${factions.size} factions across ${Object.keys(catFactions).length} categories analyzed.*`);
+  return lines.join('\n');
+}
+
+// Tool 269: Overseer quest slot job requirement analysis
+export async function getOverseerQuestSlotJobAnalysis(): Promise<string> {
+  await loadOverseerQuests();
+  await loadOverseerEnhancements();
+  if (!overseerQuests || overseerQuests.size === 0) return 'Overseer quest data not available.';
+
+  const lines = ['# Overseer Quest Slot & Job Requirement Analysis', ''];
+  lines.push('*Analyzes which job types are most commonly required across quest slots, slot distributions, and job demand.*', '');
+
+  let totalRequired = 0;
+  let totalOptional = 0;
+  let totalSlots = 0;
+  const jobRequired: Map<number, number> = new Map();
+  const jobOptional: Map<number, number> = new Map();
+  const jobTotal: Map<number, number> = new Map();
+  const slotCountDist: Record<number, number> = {};
+  const requiredCountDist: Record<number, number> = {};
+  const bonusTraitCountDist: Record<number, number> = {};
+
+  for (const [, quest] of overseerQuests) {
+    totalRequired += quest.requiredSlots;
+    totalOptional += quest.optionalSlots;
+    const total = quest.requiredSlots + quest.optionalSlots;
+    totalSlots += total;
+    slotCountDist[total] = (slotCountDist[total] || 0) + 1;
+    requiredCountDist[quest.requiredSlots] = (requiredCountDist[quest.requiredSlots] || 0) + 1;
+
+    for (const slot of quest.slotDetails) {
+      const map = slot.isRequired ? jobRequired : jobOptional;
+      map.set(slot.jobTypeId, (map.get(slot.jobTypeId) || 0) + 1);
+      jobTotal.set(slot.jobTypeId, (jobTotal.get(slot.jobTypeId) || 0) + 1);
+      bonusTraitCountDist[slot.bonusTraitIds.length] = (bonusTraitCountDist[slot.bonusTraitIds.length] || 0) + 1;
+    }
+  }
+
+  lines.push(`- **Total quests:** ${overseerQuests.size}`);
+  lines.push(`- **Total slots:** ${totalSlots}`);
+  lines.push(`- **Total required slots:** ${totalRequired}`);
+  lines.push(`- **Total optional slots:** ${totalOptional}`);
+  lines.push(`- **Average slots per quest:** ${(totalSlots / overseerQuests.size).toFixed(1)}`);
+
+  const jobName = (id: number): string => overseerJobNames?.get(id) || `Job ${id}`;
+  lines.push('', '## Job Type Demand (All Slots)', '');
+  lines.push('| Job Type | Total | Required | Optional | % of Total |');
+  lines.push('|:---------|------:|---------:|---------:|---------:|');
+  const sortedJobs = [...jobTotal.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [jobId, total] of sortedJobs) {
+    const req = jobRequired.get(jobId) || 0;
+    const opt = jobOptional.get(jobId) || 0;
+    const pct = ((total / totalSlots) * 100).toFixed(1);
+    lines.push(`| ${jobName(jobId)} | ${total} | ${req} | ${opt} | ${pct}% |`);
+  }
+
+  lines.push('', '## Slot Count Distribution', '');
+  for (const [count, freq] of Object.entries(slotCountDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    const pct = ((freq / overseerQuests.size) * 100).toFixed(1);
+    lines.push(`- **${count} slots:** ${freq} quests (${pct}%)`);
+  }
+
+  lines.push('', '## Required Slot Distribution', '');
+  for (const [count, freq] of Object.entries(requiredCountDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    const pct = ((freq / overseerQuests.size) * 100).toFixed(1);
+    lines.push(`- **${count} required:** ${freq} quests (${pct}%)`);
+  }
+
+  lines.push('', '## Bonus Traits per Slot', '');
+  for (const [count, freq] of Object.entries(bonusTraitCountDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    lines.push(`- **${count} bonus traits:** ${freq} slots`);
+  }
+
+  lines.push('', '## Job Required vs Optional Ratio', '');
+  lines.push('| Job Type | Required % | Optional % |');
+  lines.push('|:---------|----------:|-----------:|');
+  for (const [jobId, total] of sortedJobs.slice(0, 15)) {
+    const req = jobRequired.get(jobId) || 0;
+    const opt = jobOptional.get(jobId) || 0;
+    const reqPct = ((req / total) * 100).toFixed(0);
+    const optPct = ((opt / total) * 100).toFixed(0);
+    lines.push(`| ${jobName(jobId)} | ${reqPct}% | ${optPct}% |`);
+  }
+
+  lines.push('', '## Quests with Most Slots', '');
+  lines.push('| Quest | Required | Optional | Total | Difficulty |');
+  lines.push('|:------|--------:|---------:|------:|---------:|');
+  const sortedBySlots = [...overseerQuests.values()].sort((a, b) => (b.requiredSlots + b.optionalSlots) - (a.requiredSlots + a.optionalSlots));
+  for (const q of sortedBySlots.slice(0, 10)) {
+    lines.push(`| ${q.name} | ${q.requiredSlots} | ${q.optionalSlots} | ${q.requiredSlots + q.optionalSlots} | ${q.difficulty} |`);
+  }
+
+  lines.push('', `*${totalSlots} slots across ${overseerQuests.size} quests analyzed.*`);
+  return lines.join('\n');
+}

@@ -274,6 +274,9 @@ import {
   getDrakkinHeritageClassAnalysis,
   getSpellSubcategoryDepthAnalysis,
   getSkillCapCrossClassComparison,
+  getSpellManaEfficiencyAnalysis,
+  getFactionCategoryAnalysis,
+  getOverseerQuestSlotJobAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -3456,6 +3459,27 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_mana_efficiency_analysis',
+    description: 'Spell mana efficiency analysis for a class — mana cost distribution, most/least expensive spells, mana trends by level, cost by category, and cast time vs mana correlation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_faction_category_analysis',
+    description: 'Faction category analysis — faction distribution across expansion categories, value range statistics, starting value modifier analysis, widest and narrowest faction ranges.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_overseer_quest_slot_job_analysis',
+    description: 'Overseer quest slot and job requirement analysis — job type demand, required vs optional ratios, slot count distributions, bonus trait counts, and quests with the most slots.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5513,6 +5537,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const skillName = typeof args.skill_name === 'string' ? args.skill_name.trim() : '';
         if (!skillName) return 'Error: "skill_name" parameter is required.';
         return getSkillCapCrossClassComparison(skillName);
+      }
+
+      case 'get_spell_mana_efficiency_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellManaEfficiencyAnalysis(className);
+      }
+
+      case 'get_faction_category_analysis': {
+        return getFactionCategoryAnalysis();
+      }
+
+      case 'get_overseer_quest_slot_job_analysis': {
+        return getOverseerQuestSlotJobAnalysis();
       }
 
       case 'search_help_topics': {
