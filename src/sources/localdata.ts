@@ -34691,3 +34691,326 @@ export async function getClassProcProfile(className: string): Promise<string> {
   lines.push('', `*${procSpells.length} proc spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 333: Max HP and Mana modifier profile per class
+export async function getClassMaxHPManaProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const MAXHP_SPAS: Record<number, string> = {
+    69: 'Max HP',
+    79: 'HP Limit',
+    104: 'Max HP Change',
+    106: 'Max Mana Change',
+    163: 'Max Mana',
+    269: 'Max HP Mod %',
+    270: 'Max Mana Mod %',
+    273: 'Max HP 2',
+    274: 'Max Mana 2',
+    275: 'Max Endurance',
+  };
+
+  interface MaxSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const maxSpells: MaxSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (MAXHP_SPAS[spaId]) {
+        types.push(MAXHP_SPAS[spaId]);
+        values[MAXHP_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    maxSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Max HP & Mana Profile`, ''];
+  lines.push('*Analyzes max HP, max mana, max endurance modifiers: flat increases, percentage mods, HP/mana caps.*', '');
+
+  if (maxSpells.length === 0) {
+    lines.push('No max HP/mana modifier spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total max HP/mana spells:** ${maxSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of maxSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Modifier Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    const matching = maxSpells.filter(s => s.types.includes(type));
+    lines.push('', `## ${type} (${matching.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Value | Duration | Target |');
+    lines.push('|:------|------:|------:|:---------|:-------|');
+    for (const s of matching.sort((a, b) => Math.abs(b.values[type] || 0) - Math.abs(a.values[type] || 0)).slice(0, 10)) {
+      const val = s.values[type] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${val > 0 ? '+' : ''}${val} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  lines.push('', `*${maxSpells.length} max HP/mana spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 334: Beneficial vs detrimental spell ratio per class
+export async function getClassSpellBeneficialRatio(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const brackets: Record<string, { ben: number; det: number; total: number }> = {};
+  let totalBen = 0;
+  let totalDet = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    if (beneficial) totalBen++;
+    else totalDet++;
+
+    let bracketKey: string;
+    if (level <= 10) bracketKey = '1-10';
+    else if (level <= 20) bracketKey = '11-20';
+    else if (level <= 30) bracketKey = '21-30';
+    else if (level <= 40) bracketKey = '31-40';
+    else if (level <= 50) bracketKey = '41-50';
+    else if (level <= 60) bracketKey = '51-60';
+    else if (level <= 70) bracketKey = '61-70';
+    else if (level <= 80) bracketKey = '71-80';
+    else if (level <= 90) bracketKey = '81-90';
+    else if (level <= 100) bracketKey = '91-100';
+    else if (level <= 110) bracketKey = '101-110';
+    else if (level <= 120) bracketKey = '111-120';
+    else bracketKey = '121+';
+
+    if (!brackets[bracketKey]) brackets[bracketKey] = { ben: 0, det: 0, total: 0 };
+    brackets[bracketKey].total++;
+    if (beneficial) brackets[bracketKey].ben++;
+    else brackets[bracketKey].det++;
+  }
+
+  const lines = [`# ${classFullName} Beneficial vs Detrimental Ratio`, ''];
+  lines.push('*Analyzes the ratio of beneficial (buffs, heals) to detrimental (nukes, debuffs) spells across level brackets.*', '');
+
+  const total = totalBen + totalDet;
+  if (total === 0) {
+    lines.push('No spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const benPct = ((totalBen / total) * 100).toFixed(1);
+  const detPct = ((totalDet / total) * 100).toFixed(1);
+  lines.push(`**Total spells:** ${total}`);
+  lines.push(`- Beneficial: ${totalBen} (${benPct}%)`);
+  lines.push(`- Detrimental: ${totalDet} (${detPct}%)`);
+  lines.push(`- Ratio: ${(totalBen / Math.max(totalDet, 1)).toFixed(2)}:1 (ben:det)`, '');
+
+  lines.push('## By Level Bracket', '');
+  lines.push('| Bracket | Beneficial | Detrimental | Total | Ben % | Bar |');
+  lines.push('|:--------|----------:|-----------:|------:|------:|:----|');
+  const orderedBrackets = ['1-10', '11-20', '21-30', '31-40', '41-50', '51-60', '61-70', '71-80', '81-90', '91-100', '101-110', '111-120', '121+'];
+  for (const bk of orderedBrackets) {
+    const data = brackets[bk];
+    if (!data) continue;
+    const pct = ((data.ben / data.total) * 100).toFixed(0);
+    const barLen = Math.round((data.ben / data.total) * 20);
+    const bar = '\u2588'.repeat(barLen) + '\u2591'.repeat(20 - barLen);
+    lines.push(`| ${bk} | ${data.ben} | ${data.det} | ${data.total} | ${pct}% | ${bar} |`);
+  }
+
+  // Target type breakdown
+  const targetBen: Record<string, number> = {};
+  const targetDet: Record<string, number> = {};
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const tt = TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`;
+    if (beneficial) targetBen[tt] = (targetBen[tt] || 0) + 1;
+    else targetDet[tt] = (targetDet[tt] || 0) + 1;
+  }
+
+  lines.push('', '## By Target Type', '');
+  lines.push('| Target | Beneficial | Detrimental |');
+  lines.push('|:-------|----------:|-----------:|');
+  const allTargets = new Set([...Object.keys(targetBen), ...Object.keys(targetDet)]);
+  for (const tt of [...allTargets].sort((a, b) => ((targetBen[b] || 0) + (targetDet[b] || 0)) - ((targetBen[a] || 0) + (targetDet[a] || 0))).slice(0, 10)) {
+    lines.push(`| ${tt} | ${targetBen[tt] || 0} | ${targetDet[tt] || 0} |`);
+  }
+
+  lines.push('', `*${total} spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 335: Pet enhancement profile per class
+export async function getClassPetEnhancementProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const PET_SPAS: Record<number, string> = {
+    105: 'Pet Shield',
+    167: 'Pet Haste',
+    180: 'Pet Crit Melee',
+    181: 'Pet Crit Spell',
+    182: 'Pet Max HP',
+    183: 'Pet Avoidance',
+    196: 'Extended Pet Duration',
+    197: 'Pet Power Increase',
+    205: 'Mend Companion',
+    209: 'Pet Melee Crit Damage',
+    225: 'Pet Discipline',
+    276: 'Pet Flurry',
+    277: 'Pet Crit',
+    319: 'Focus Pet',
+  };
+
+  interface PetEnhSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    targetType: string;
+    duration: number;
+  }
+
+  const petEnhSpells: PetEnhSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (PET_SPAS[spaId]) {
+        types.push(PET_SPAS[spaId]);
+        values[PET_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    petEnhSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Pet Enhancement Profile`, ''];
+  lines.push('*Analyzes pet-enhancing effects: pet haste, pet crit, pet max HP, pet avoidance, pet flurry, pet power, mend companion, focus pet.*', '');
+
+  if (petEnhSpells.length === 0) {
+    lines.push('No pet enhancement spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total pet enhancement spells:** ${petEnhSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of petEnhSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Pet Enhancement Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    const matching = petEnhSpells.filter(s => s.types.includes(type));
+    lines.push('', `## ${type} (${matching.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Value | Duration | Mana | Target |');
+    lines.push('|:------|------:|------:|:---------|-----:|:-------|');
+    for (const s of matching.sort((a, b) => Math.abs(b.values[type] || 0) - Math.abs(a.values[type] || 0)).slice(0, 10)) {
+      const val = s.values[type] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${s.duration || '—'} | ${s.mana} | ${s.targetType} |`);
+    }
+  }
+
+  lines.push('', `*${petEnhSpells.length} pet enhancement spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

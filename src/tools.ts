@@ -340,6 +340,9 @@ import {
   getClassVisibilityProfile,
   getClassSilenceAmnesiaProfile,
   getClassProcProfile,
+  getClassMaxHPManaProfile,
+  getClassSpellBeneficialRatio,
+  getClassPetEnhancementProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4188,6 +4191,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_max_hp_mana_profile',
+    description: 'Max HP and mana modifier profile for a class — analyzes max HP, max mana, max endurance modifiers including flat increases, percentage mods, and caps.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_beneficial_ratio',
+    description: 'Beneficial vs detrimental spell ratio for a class — shows the proportion of buffs/heals to nukes/debuffs across level brackets with target type breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_pet_enhancement_profile',
+    description: 'Pet enhancement profile for a class — analyzes pet haste, pet crit, pet max HP, pet avoidance, pet flurry, pet power, mend companion, and focus pet effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Magician", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6621,6 +6657,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassProcProfile(className);
+      }
+
+      case 'get_class_max_hp_mana_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassMaxHPManaProfile(className);
+      }
+
+      case 'get_class_spell_beneficial_ratio': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellBeneficialRatio(className);
+      }
+
+      case 'get_class_pet_enhancement_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassPetEnhancementProfile(className);
       }
 
       case 'search_help_topics': {
