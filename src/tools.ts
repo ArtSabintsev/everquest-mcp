@@ -400,6 +400,9 @@ import {
   getClassSpellByCategory,
   getClassSpellByRange,
   getClassSpellByEnduranceCost,
+  getClassSpellByLevelRange,
+  getGlobalSPADistribution,
+  getSPAClassMatrix,
 } from './sources/index.js';
 
 export const tools = [
@@ -4918,6 +4921,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_by_level_range',
+    description: 'Query spells in a level range — find all spells between min and max level with per-level breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Bard")' },
+        min_level: { type: 'number', description: 'Minimum level (inclusive)' },
+        max_level: { type: 'number', description: 'Maximum level (inclusive)' }
+      },
+      required: ['class_name', 'min_level', 'max_level']
+    }
+  },
+  {
+    name: 'get_global_spa_distribution',
+    description: 'Global SPA distribution — top 50 most common Spell Property Attributes across all 70K+ spells in the database.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'get_spa_class_matrix',
+    description: 'SPA class matrix — shows which of the 16 classes have spells using a specific SPA ID, with counts and level ranges.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spa_id: { type: 'number', description: 'SPA ID number (e.g. 0 for HP change, 79 for Hit Points, 15 for Mana)' }
+      },
+      required: ['spa_id']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7734,6 +7770,26 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!className) return 'Error: "class_name" parameter is required.';
         if (isNaN(minEnd)) return 'Error: "min_endurance" parameter is required (number).';
         return getClassSpellByEnduranceCost(className, minEnd);
+      }
+
+      case 'get_class_spell_by_level_range': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const minLevel = typeof args.min_level === 'number' ? args.min_level : parseInt(String(args.min_level));
+        const maxLevel = typeof args.max_level === 'number' ? args.max_level : parseInt(String(args.max_level));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(minLevel)) return 'Error: "min_level" parameter is required (number).';
+        if (isNaN(maxLevel)) return 'Error: "max_level" parameter is required (number).';
+        return getClassSpellByLevelRange(className, minLevel, maxLevel);
+      }
+
+      case 'get_global_spa_distribution': {
+        return getGlobalSPADistribution();
+      }
+
+      case 'get_spa_class_matrix': {
+        const spaId = typeof args.spa_id === 'number' ? args.spa_id : parseInt(String(args.spa_id));
+        if (isNaN(spaId)) return 'Error: "spa_id" parameter is required (number).';
+        return getSPAClassMatrix(spaId);
       }
 
       case 'search_help_topics': {

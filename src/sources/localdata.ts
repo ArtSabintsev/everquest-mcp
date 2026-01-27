@@ -39228,3 +39228,175 @@ export async function getClassSpellByEnduranceCost(className: string, minEnduran
   lines.push('', `*${matches.length} spells with endurance ≥ ${minEndurance} for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassSpellByLevelRange(className: string, minLevel: number, maxLevel: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const matches: { name: string; level: number; target: string; resist: string; beneficial: boolean; mana: number }[] = [];
+  let totalSpellsLR = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsLR++;
+
+    if (level < minLevel || level > maxLevel) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const resistName = RESIST_TYPES[resistId] || `Resist ${resistId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    matches.push({ name: spell.fields[SF.NAME], level, target: targetName, resist: resistName, beneficial, mana });
+  }
+
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} — Spells Level ${minLevel}–${maxLevel}`, ''];
+  lines.push(`*All spells in level range ${minLevel} to ${maxLevel}.*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsLR}`);
+  lines.push(`**Matching spells:** ${matches.length} (${((matches.length / totalSpellsLR) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    // Per-level count within range
+    const levelCounts = new Map<number, number>();
+    for (const m of matches) levelCounts.set(m.level, (levelCounts.get(m.level) || 0) + 1);
+    lines.push('### Spells per Level');
+    lines.push('| Level | Spells |');
+    lines.push('|------:|-------:|');
+    for (const [lv, ct] of [...levelCounts.entries()].sort((a, b) => a[0] - b[0])) {
+      lines.push(`| ${lv} | ${ct} |`);
+    }
+    lines.push('');
+
+    lines.push('| Spell | Level | Target | Resist | Mana | Type |');
+    lines.push('|:------|------:|:-------|:-------|-----:|:-----|');
+    for (const m of matches.slice(0, 60)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.target} | ${m.resist} | ${m.mana} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 60) lines.push(`| ...and ${matches.length - 60} more | | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells in level ${minLevel}–${maxLevel} for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getGlobalSPADistribution(): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const spaCounts = new Map<number, number>();
+  let totalSlots = 0;
+
+  for (const spell of spells.values()) {
+    const fields = spell.fields;
+    // Find effect slots — look for fields containing pipe chars
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] && fields[i].includes('|')) {
+        const slots = fields[i].split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length >= 2) {
+            const spaCode = parseInt(parts[1]) || 0;
+            if (spaCode > 0) {
+              spaCounts.set(spaCode, (spaCounts.get(spaCode) || 0) + 1);
+              totalSlots++;
+            }
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  const sorted = [...spaCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  const lines = ['# Global SPA Distribution', ''];
+  lines.push(`*Most common Spell Property Attributes across all ${spells.size.toLocaleString()} spells.*`, '');
+  lines.push(`**Unique SPAs used:** ${sorted.length}`);
+  lines.push(`**Total effect slots:** ${totalSlots.toLocaleString()}`, '');
+
+  lines.push('### Top 50 Most Common SPAs');
+  lines.push('| Rank | SPA ID | Name | Count | % of Slots |');
+  lines.push('|-----:|-------:|:-----|------:|-----------:|');
+  for (let i = 0; i < Math.min(50, sorted.length); i++) {
+    const [spaId, count] = sorted[i];
+    const name = SPA_NAMES[spaId] || `Unknown SPA ${spaId}`;
+    const pct = ((count / totalSlots) * 100).toFixed(1);
+    lines.push(`| ${i + 1} | ${spaId} | ${name} | ${count.toLocaleString()} | ${pct}% |`);
+  }
+
+  lines.push('', `*${sorted.length} unique SPAs across ${totalSlots.toLocaleString()} effect slots.*`);
+  return lines.join('\n');
+}
+
+export async function getSPAClassMatrix(spaId: number): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const spaName = SPA_NAMES[spaId] || `Unknown SPA ${spaId}`;
+  const classData = new Map<number, { count: number; minLevel: number; maxLevel: number; spellNames: string[] }>();
+
+  for (const spell of spells.values()) {
+    // Check if this spell uses the target SPA
+    let hasSPA = false;
+    const fields = spell.fields;
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] && fields[i].includes('|')) {
+        const slots = fields[i].split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length >= 2 && parseInt(parts[1]) === spaId) {
+            hasSPA = true;
+            break;
+          }
+        }
+        break;
+      }
+    }
+    if (!hasSPA) continue;
+
+    // Check which classes can use this spell
+    for (let ci = 0; ci < 16; ci++) {
+      const level = parseInt(fields[SF.CLASS_LEVEL_START + ci]) || 255;
+      if (level <= 0 || level >= 255) continue;
+      const classId = ci + 1;
+      if (!classData.has(classId)) {
+        classData.set(classId, { count: 0, minLevel: 999, maxLevel: 0, spellNames: [] });
+      }
+      const cd = classData.get(classId)!;
+      cd.count++;
+      if (level < cd.minLevel) cd.minLevel = level;
+      if (level > cd.maxLevel) cd.maxLevel = level;
+      if (cd.spellNames.length < 5) cd.spellNames.push(fields[SF.NAME]);
+    }
+  }
+
+  const sorted = [...classData.entries()].sort((a, b) => b[1].count - a[1].count);
+
+  const lines = [`# SPA ${spaId}: ${spaName} — Class Matrix`, ''];
+  lines.push(`*Which classes have spells using SPA ${spaId} (${spaName}).*`, '');
+  lines.push(`**Classes with this SPA:** ${sorted.length}/16`, '');
+
+  if (sorted.length > 0) {
+    lines.push('| Class | Spells | Level Range | Sample Spells |');
+    lines.push('|:------|-------:|:------------|:--------------|');
+    for (const [cid, data] of sorted) {
+      const className = CLASS_IDS[cid] || `Class ${cid}`;
+      const samples = data.spellNames.join(', ');
+      lines.push(`| ${className} | ${data.count} | ${data.minLevel}–${data.maxLevel} | ${samples} |`);
+    }
+  } else {
+    lines.push('No classes have spells using this SPA.');
+  }
+
+  lines.push('', `*SPA ${spaId} (${spaName}) used by ${sorted.length} classes.*`);
+  return lines.join('\n');
+}
