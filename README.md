@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 242 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 245 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **242 tools** for querying EverQuest data
+- **245 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -182,6 +182,7 @@ Then restart Claude Desktop.
 | `get_spell_school_analysis` | Spell school analysis — group spells by resist type × beneficial/detrimental "school", class dominance per school, class specialization matrix |
 | `get_spell_category_cooccurrence` | Spell category co-occurrence — which categories appear together in class spell books, universal vs specialized pairs, class-exclusive categories |
 | `get_spell_target_effect_matrix` | Spell target type × effect matrix — how spell effects distribute across target types (Self, Single, Group, AE), AE-specific effects |
+| `get_spell_level_milestone_guide` | Spell level milestone guide — key spell milestones per class (first heal, nuke, mez, port, pet, rez, etc.) by level |
 
 ### Local Data - Character
 | Tool | Description |
@@ -366,6 +367,8 @@ Then restart Claude Desktop.
 | `search_all_local_data` | Unified search across ALL local data systems (spells, zones, factions, achievements, AAs, tributes, creatures, overseer, events, lore, item effects) |
 | `get_db_string_type_overview` | Meta overview of all 68 string data types in dbstr_us.txt with entry counts, names, and samples |
 | `get_game_string_category_analysis` | Game string category analysis — classify 7000+ game UI strings by topic (Combat, Spells, Items, Trading, Group, Guild, etc.) |
+| `get_help_topic_content_analysis` | Help topic content analysis — analyze 75+ in-game help topics by content length, cross-references between topics, and category distribution |
+| `get_cross_system_name_overlap` | Cross-system name overlap — find names appearing across 3+ game systems (zones, factions, achievements, AAs, lore, overseer agents) revealing lore connections |
 
 ## Example Queries
 
@@ -399,7 +402,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (242 tools)
+├── tools.ts          # Tool definitions and handlers (245 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

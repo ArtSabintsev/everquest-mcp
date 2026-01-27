@@ -22989,3 +22989,423 @@ export async function getMapPOIZoneDetail(zoneName: string): Promise<string> {
   lines.push('', `*${pois.length} POIs analyzed for ${matchedZone.name}.*`);
   return lines.join('\n');
 }
+
+// ============ TOOL 243: Help Topic Content Analysis ============
+export async function getHelpTopicContentAnalysis(): Promise<string> {
+  await loadHelpTopics();
+  if (!helpTopics || helpTopics.size === 0) return 'Help topic data not available.';
+
+  const lines = ['# Help Topic Content Analysis', '', '*Analyze 75+ in-game help topics by content, length, and cross-references.*', ''];
+
+  // Load all topic content
+  interface TopicInfo {
+    key: string;
+    title: string;
+    content: string;
+    wordCount: number;
+    links: string[];
+  }
+
+  const topics: TopicInfo[] = [];
+  for (const [key, info] of helpTopics) {
+    try {
+      const filePath = join(EQ_GAME_PATH, 'Help', info.filename);
+      const raw = await readFile(filePath, 'utf8');
+      const content = stripHelpHtml(raw);
+      const wordCount = content.split(/\s+/).filter((w: string) => w.length > 0).length;
+
+      // Find cross-references (links to other help files)
+      const linkMatches = raw.matchAll(/href="file:\/\/\/help\/([^"]+)"/gi);
+      const links: string[] = [];
+      for (const match of linkMatches) {
+        links.push(match[1].replace('.html', ''));
+      }
+
+      topics.push({ key, title: info.title, content, wordCount, links });
+    } catch {
+      topics.push({ key, title: info.title, content: '', wordCount: 0, links: [] });
+    }
+  }
+
+  lines.push(`**Total topics:** ${topics.length}`, '');
+
+  // Sort by word count
+  const byLength = [...topics].sort((a, b) => b.wordCount - a.wordCount);
+  lines.push('## Topics by Length', '');
+  lines.push('| Topic | Title | Words | Cross-refs |');
+  lines.push('|-------|-------|------:|-----------:|');
+  for (const t of byLength.slice(0, 20)) {
+    lines.push(`| ${t.key} | ${t.title} | ${t.wordCount} | ${t.links.length} |`);
+  }
+
+  // Cross-reference analysis
+  const incomingLinks = new Map<string, string[]>();
+  for (const t of topics) {
+    for (const link of t.links) {
+      if (!incomingLinks.has(link)) incomingLinks.set(link, []);
+      incomingLinks.get(link)!.push(t.key);
+    }
+  }
+
+  const sortedIncoming = [...incomingLinks.entries()].sort((a, b) => b[1].length - a[1].length);
+  if (sortedIncoming.length > 0) {
+    lines.push('', '## Most-Referenced Topics', '');
+    lines.push('| Topic | Incoming Links | Referenced From |');
+    lines.push('|-------|-------------:|:---------------|');
+    for (const [topic, refs] of sortedIncoming.slice(0, 15)) {
+      lines.push(`| ${topic} | ${refs.length} | ${refs.slice(0, 3).join(', ')}${refs.length > 3 ? '...' : ''} |`);
+    }
+  }
+
+  // Topic keyword categorization
+  const topicCategories: Record<string, string[]> = {
+    'Combat': ['combat', 'melee', 'attack', 'weapon', 'damage'],
+    'Magic': ['spell', 'magic', 'mana', 'cast'],
+    'Character': ['class', 'race', 'skill', 'level', 'experience', 'ability'],
+    'Social': ['group', 'guild', 'raid', 'fellowship', 'friend', 'chat'],
+    'Economy': ['trade', 'bazaar', 'merchant', 'coin', 'tribute'],
+    'UI/System': ['window', 'interface', 'command', 'key', 'option', 'macro'],
+    'Content': ['quest', 'zone', 'dungeon', 'achievement', 'overseer'],
+    'Items': ['item', 'augment', 'equip', 'loot', 'inventory'],
+  };
+
+  const catResults = new Map<string, string[]>();
+  for (const t of topics) {
+    const lower = (t.title + ' ' + t.content.slice(0, 200)).toLowerCase();
+    for (const [cat, keywords] of Object.entries(topicCategories)) {
+      if (keywords.some(kw => lower.includes(kw))) {
+        if (!catResults.has(cat)) catResults.set(cat, []);
+        catResults.get(cat)!.push(t.title);
+        break;
+      }
+    }
+  }
+
+  lines.push('', '## Topics by Category', '');
+  lines.push('| Category | Topics | Examples |');
+  lines.push('|----------|------:|:--------|');
+  const sortedCatResults = [...catResults.entries()].sort((a, b) => b[1].length - a[1].length);
+  for (const [cat, topicList] of sortedCatResults) {
+    lines.push(`| ${cat} | ${topicList.length} | ${topicList.slice(0, 3).join(', ')} |`);
+  }
+
+  // Statistics
+  const totalWords = topics.reduce((sum, t) => sum + t.wordCount, 0);
+  const totalLinks = topics.reduce((sum, t) => sum + t.links.length, 0);
+  lines.push('', '## Statistics', '');
+  lines.push(`- **Total topics:** ${topics.length}`);
+  lines.push(`- **Total words:** ${totalWords.toLocaleString()}`);
+  lines.push(`- **Average words/topic:** ${Math.round(totalWords / topics.length)}`);
+  lines.push(`- **Total cross-references:** ${totalLinks}`);
+  lines.push(`- **Topics with links:** ${topics.filter(t => t.links.length > 0).length}`);
+  lines.push(`- **Longest topic:** ${byLength[0]?.title || '-'} (${byLength[0]?.wordCount || 0} words)`);
+
+  lines.push('', `*${topics.length} help topics analyzed.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 244: Spell Level Milestone Guide ============
+export async function getSpellLevelMilestoneGuide(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  // Resolve class
+  const classNameUpper = className.toUpperCase().trim();
+  let classId = 0;
+  for (const [id, short] of Object.entries(CLASS_SHORT)) {
+    if (short === classNameUpper) { classId = parseInt(id); break; }
+  }
+  if (!classId) {
+    for (const [id, name] of Object.entries(CLASS_IDS)) {
+      if (name.toUpperCase() === classNameUpper) { classId = parseInt(id); break; }
+    }
+  }
+  if (!classId) return `Unknown class: "${className}". Use 3-letter code (WAR, CLR) or full name (Warrior, Cleric).`;
+
+  const fullName = CLASS_IDS[classId];
+  const lines = [`# Spell Level Milestone Guide: ${fullName} (${CLASS_SHORT[classId]})`, '', '*Key spell milestones — first spell of each important type by level.*', ''];
+
+  // Milestone types: SPA-based and category-based
+  const milestoneTypes: { name: string; check: (spell: { spaIds: Set<number>; beneficial: boolean; catName: string; base1Map: Map<number, number>; targetType: number }) => boolean }[] = [
+    { name: 'First Heal', check: (s) => s.spaIds.has(0) && s.beneficial && s.base1Map.get(0)! > 0 },
+    { name: 'First Nuke (DD)', check: (s) => s.spaIds.has(0) && !s.beneficial && (s.base1Map.get(0) || 0) < 0 },
+    { name: 'First DoT', check: (s) => s.spaIds.has(0) && !s.beneficial && (s.base1Map.get(0) || 0) < 0 && s.catName.toLowerCase().includes('dot') },
+    { name: 'First Root', check: (s) => s.spaIds.has(99) },
+    { name: 'First Snare', check: (s) => s.spaIds.has(3) && !s.beneficial },
+    { name: 'First Stun', check: (s) => s.spaIds.has(21) },
+    { name: 'First Mez', check: (s) => s.spaIds.has(31) || s.spaIds.has(74) },
+    { name: 'First Charm', check: (s) => s.spaIds.has(22) },
+    { name: 'First Fear', check: (s) => s.spaIds.has(23) },
+    { name: 'First Haste', check: (s) => s.spaIds.has(11) && s.beneficial },
+    { name: 'First Slow', check: (s) => s.spaIds.has(11) && !s.beneficial },
+    { name: 'First Invisibility', check: (s) => s.spaIds.has(12) },
+    { name: 'First Levitate', check: (s) => s.spaIds.has(57) },
+    { name: 'First Teleport', check: (s) => s.spaIds.has(82) || s.spaIds.has(100) || s.spaIds.has(43) },
+    { name: 'First Summon Pet', check: (s) => s.spaIds.has(33) },
+    { name: 'First Resurrection', check: (s) => s.spaIds.has(80) },
+    { name: 'First Damage Shield', check: (s) => s.spaIds.has(87) && s.beneficial },
+    { name: 'First Rune', check: (s) => s.spaIds.has(55) || s.spaIds.has(54) },
+    { name: 'First Gate', check: (s) => s.spaIds.has(26) || s.spaIds.has(71) },
+    { name: 'First Group Heal', check: (s) => s.spaIds.has(0) && s.beneficial && (s.base1Map.get(0) || 0) > 0 && [3, 41].includes(s.targetType) },
+    { name: 'First AE Nuke', check: (s) => s.spaIds.has(0) && !s.beneficial && (s.base1Map.get(0) || 0) < 0 && [2, 4, 8, 40, 42, 44, 46].includes(s.targetType) },
+    { name: 'First AC Buff', check: (s) => s.spaIds.has(1) && s.beneficial },
+    { name: 'First Bind Affinity', check: (s) => s.spaIds.has(25) },
+  ];
+
+  // Find first spell of each type
+  const milestones: { name: string; level: number; spellName: string }[] = [];
+  const found = new Set<string>();
+
+  // Collect all class spells sorted by level
+  interface MilestoneSpell {
+    name: string;
+    level: number;
+    spaIds: Set<number>;
+    beneficial: boolean;
+    catName: string;
+    base1Map: Map<number, number>;
+    targetType: number;
+  }
+
+  const classSpells: MilestoneSpell[] = [];
+
+  for (const spell of spells.values()) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + classId - 1]) || 255;
+    if (lv < 1 || lv > 254) continue;
+
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const catName = catId === 0 ? 'Uncategorized' : (spellCategories?.get(catId) || `Cat ${catId}`);
+    const targetType = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+
+    // Parse effects
+    let slotsField = -1;
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        slotsField = i;
+        break;
+      }
+    }
+    if (slotsField < 0) continue;
+
+    const spaIds = new Set<number>();
+    const base1Map = new Map<number, number>();
+    const slots = spell.fields[slotsField].split('$');
+    for (const slot of slots) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spa = parseInt(parts[1]);
+        const base1 = parseInt(parts[2]) || 0;
+        spaIds.add(spa);
+        if (!base1Map.has(spa)) base1Map.set(spa, base1);
+      }
+    }
+
+    classSpells.push({ name: spell.name, level: lv, spaIds, beneficial, catName, base1Map, targetType });
+  }
+
+  classSpells.sort((a, b) => a.level - b.level);
+
+  for (const spell of classSpells) {
+    for (const milestone of milestoneTypes) {
+      if (found.has(milestone.name)) continue;
+      try {
+        if (milestone.check(spell)) {
+          milestones.push({ name: milestone.name, level: spell.level, spellName: spell.name });
+          found.add(milestone.name);
+        }
+      } catch { /* skip check errors */ }
+    }
+  }
+
+  milestones.sort((a, b) => a.level - b.level);
+
+  // Milestone timeline
+  lines.push('## Spell Milestones', '');
+  lines.push('| Level | Milestone | Spell |');
+  lines.push('|------:|:----------|:------|');
+  for (const m of milestones) {
+    lines.push(`| ${m.level} | ${m.name} | ${m.spellName} |`);
+  }
+
+  // Missing milestones (class doesn't have these)
+  const missing = milestoneTypes.filter(m => !found.has(m.name));
+  if (missing.length > 0) {
+    lines.push('', '## Not Available for This Class', '');
+    for (const m of missing) {
+      lines.push(`- ${m.name}`);
+    }
+  }
+
+  // Level bracket summary
+  lines.push('', '## Milestones by Level Bracket', '');
+  const brackets = [
+    { name: '1-10', min: 1, max: 10 },
+    { name: '11-20', min: 11, max: 20 },
+    { name: '21-40', min: 21, max: 40 },
+    { name: '41-60', min: 41, max: 60 },
+    { name: '61-75', min: 61, max: 75 },
+    { name: '76-100', min: 76, max: 100 },
+    { name: '101-125', min: 101, max: 125 },
+    { name: '126+', min: 126, max: 999 },
+  ];
+
+  for (const bracket of brackets) {
+    const bracketMilestones = milestones.filter(m => m.level >= bracket.min && m.level <= bracket.max);
+    if (bracketMilestones.length > 0) {
+      lines.push(`- **Level ${bracket.name}:** ${bracketMilestones.map(m => m.name).join(', ')}`);
+    }
+  }
+
+  lines.push('', `*${milestones.length} milestones found for ${fullName} out of ${milestoneTypes.length} tracked.*`);
+  return lines.join('\n');
+}
+
+// ============ TOOL 245: Cross-System Name Overlap ============
+export async function getCrossSystemNameOverlap(): Promise<string> {
+  await loadSpells();
+  await loadFactions();
+  await loadZones();
+  await loadAchievements();
+  await loadAAAbilities();
+  await loadLore();
+  await loadOverseerMinions();
+  if (!spells) return 'Data not available.';
+
+  const lines = ['# Cross-System Name Overlap Analysis', '', '*Find names that appear across multiple game data systems to discover lore connections.*', ''];
+
+  // Build name sets per system
+  const systems: { name: string; names: Set<string> }[] = [];
+
+  // Zones
+  if (zones && zones.size > 0) {
+    const zoneNames = new Set<string>();
+    for (const zone of zones.values()) {
+      for (const word of zone.name.split(/[\s,()]+/).filter((w: string) => w.length >= 4)) {
+        zoneNames.add(word.toLowerCase());
+      }
+    }
+    systems.push({ name: 'Zones', names: zoneNames });
+  }
+
+  // Factions
+  if (factions && factions.size > 0) {
+    const factionNames = new Set<string>();
+    for (const faction of factions.values()) {
+      for (const word of faction.name.split(/[\s,()]+/).filter((w: string) => w.length >= 4)) {
+        factionNames.add(word.toLowerCase());
+      }
+    }
+    systems.push({ name: 'Factions', names: factionNames });
+  }
+
+  // Achievements
+  if (achievements && achievements.size > 0) {
+    const achNames = new Set<string>();
+    for (const ach of achievements.values()) {
+      for (const word of ach.name.split(/[\s,()]+/).filter((w: string) => w.length >= 4)) {
+        achNames.add(word.toLowerCase());
+      }
+    }
+    systems.push({ name: 'Achievements', names: achNames });
+  }
+
+  // AA
+  if (aaAbilities && aaAbilities.size > 0) {
+    const aaNames = new Set<string>();
+    for (const aa of aaAbilities.values()) {
+      for (const word of aa.name.split(/[\s,()]+/).filter((w: string) => w.length >= 4)) {
+        aaNames.add(word.toLowerCase());
+      }
+    }
+    systems.push({ name: 'AAs', names: aaNames });
+  }
+
+  // Lore
+  if (loreEntries && loreEntries.length > 0) {
+    const loreNames = new Set<string>();
+    for (const entry of loreEntries) {
+      // Extract capitalized proper nouns from titles
+      for (const word of entry.title.split(/[\s,()]+/).filter((w: string) => w.length >= 4)) {
+        loreNames.add(word.toLowerCase());
+      }
+    }
+    systems.push({ name: 'Lore', names: loreNames });
+  }
+
+  // Overseer agents
+  if (overseerMinions && overseerMinions.size > 0) {
+    const agentNames = new Set<string>();
+    for (const agent of overseerMinions.values()) {
+      const name = agent.shortName || agent.fullName;
+      for (const word of name.split(/[\s,()]+/).filter((w: string) => w.length >= 4)) {
+        agentNames.add(word.toLowerCase());
+      }
+    }
+    systems.push({ name: 'Overseer Agents', names: agentNames });
+  }
+
+  // Spell categories as names
+  if (spellCategories && spellCategories.size > 0) {
+    const catNames = new Set<string>();
+    for (const cat of spellCategories.values()) {
+      for (const word of cat.split(/[\s:,()]+/).filter((w: string) => w.length >= 4)) {
+        catNames.add(word.toLowerCase());
+      }
+    }
+    systems.push({ name: 'Spell Categories', names: catNames });
+  }
+
+  // Find words in 3+ systems
+  const stopWords = new Set(['that', 'this', 'with', 'from', 'they', 'were', 'have', 'their', 'been', 'would', 'could', 'which', 'when', 'what', 'into', 'over', 'more', 'only', 'those', 'also', 'other', 'many', 'some', 'each', 'first', 'second', 'third', 'last', 'next', 'same', 'like', 'just', 'will', 'about', 'dark', 'high', 'long', 'great', 'lost', 'lands', 'power', 'ancient']);
+
+  const wordSystems = new Map<string, Set<string>>();
+  for (const sys of systems) {
+    for (const word of sys.names) {
+      if (stopWords.has(word)) continue;
+      if (!wordSystems.has(word)) wordSystems.set(word, new Set());
+      wordSystems.get(word)!.add(sys.name);
+    }
+  }
+
+  const multiSystem = [...wordSystems.entries()]
+    .filter(([, sysSet]) => sysSet.size >= 3)
+    .sort((a, b) => b[1].size - a[1].size);
+
+  lines.push('## Names in 3+ Systems', '');
+  lines.push('| Name | Systems | Which Systems |');
+  lines.push('|------|--------:|:-------------|');
+  for (const [word, sysSet] of multiSystem.slice(0, 40)) {
+    lines.push(`| ${word} | ${sysSet.size} | ${[...sysSet].join(', ')} |`);
+  }
+
+  // System overlap matrix
+  lines.push('', '## System Overlap Matrix', '');
+  lines.push('| System A | System B | Shared Words |');
+  lines.push('|----------|----------|------------:|');
+  for (let i = 0; i < systems.length; i++) {
+    for (let j = i + 1; j < systems.length; j++) {
+      let overlap = 0;
+      for (const word of systems[i].names) {
+        if (systems[j].names.has(word) && !stopWords.has(word)) overlap++;
+      }
+      if (overlap > 0) {
+        lines.push(`| ${systems[i].name} | ${systems[j].name} | ${overlap} |`);
+      }
+    }
+  }
+
+  // Summary
+  lines.push('', '## Summary', '');
+  lines.push(`- **Systems analyzed:** ${systems.length}`);
+  for (const sys of systems) {
+    lines.push(`  - ${sys.name}: ${sys.names.size} unique words`);
+  }
+  lines.push(`- **Words in 3+ systems:** ${multiSystem.length}`);
+  lines.push(`- **Most connected word:** ${multiSystem[0]?.[0] || '-'} (${multiSystem[0]?.[1].size || 0} systems)`);
+
+  lines.push('', `*${systems.length} game systems cross-referenced.*`);
+  return lines.join('\n');
+}

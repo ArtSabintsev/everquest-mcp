@@ -250,6 +250,9 @@ import {
   getLoreThemeAnalysis,
   getAugmentationSystemAnalysis,
   getMapPOIZoneDetail,
+  getHelpTopicContentAnalysis,
+  getSpellLevelMilestoneGuide,
+  getCrossSystemNameOverlap,
 } from './sources/index.js';
 
 export const tools = [
@@ -3249,6 +3252,30 @@ export const tools = [
     }
   },
   {
+    name: 'get_help_topic_content_analysis',
+    description: 'Help topic content analysis — analyze 75+ in-game help topics by content length, cross-references between topics, and category distribution.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_spell_level_milestone_guide',
+    description: 'Spell level milestone guide — key spell milestones per class showing first heal, nuke, mez, port, pet, rez, buff, debuff, etc. by level.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class name (e.g., "Cleric", "Wizard", "Enchanter")'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_cross_system_name_overlap',
+    description: 'Cross-system name overlap — find names/words appearing across 3+ game systems (zones, factions, achievements, AAs, lore, overseer agents) revealing lore connections.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5194,6 +5221,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const zoneName = typeof args.zone_name === 'string' ? args.zone_name.trim() : '';
         if (!zoneName) return 'Error: "zone_name" parameter is required.';
         return getMapPOIZoneDetail(zoneName);
+      }
+
+      case 'get_help_topic_content_analysis': {
+        return getHelpTopicContentAnalysis();
+      }
+
+      case 'get_spell_level_milestone_guide': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellLevelMilestoneGuide(className);
+      }
+
+      case 'get_cross_system_name_overlap': {
+        return getCrossSystemNameOverlap();
       }
 
       case 'search_help_topics': {
