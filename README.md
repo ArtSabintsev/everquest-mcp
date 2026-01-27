@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 380 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 383 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **380 tools** for querying EverQuest data
+- **383 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -360,6 +360,9 @@ Then restart Claude Desktop.
 | `get_class_spell_timer_conflict_analysis` | Timer conflict analysis — spells sharing timer IDs (can't use simultaneously) |
 | `get_class_spell_global_ranking` | Global class ranking — rank among 16 classes on spells, SPAs, damage, healing |
 | `get_class_resource_cost_comparison` | Resource cost comparison — avg/max mana and endurance by level bracket |
+| `get_class_spell_by_spa` | Query spells by SPA effect ID — find all spells using a specific spell effect |
+| `get_class_spell_by_resist_type` | Query spells by resist type — filter by resist name or ID (Magic, Fire, etc.) |
+| `get_class_spell_by_target_type` | Query spells by target type — filter by target name or ID (Single, Group, AE, etc.) |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -538,7 +541,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (380 tools)
+├── tools.ts          # Tool definitions and handlers (383 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

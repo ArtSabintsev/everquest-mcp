@@ -388,6 +388,9 @@ import {
   getClassSpellTimerConflictAnalysis,
   getClassSpellGlobalRanking,
   getClassResourceCostComparison,
+  getClassSpellBySPA,
+  getClassSpellByResistType,
+  getClassSpellByTargetType,
 } from './sources/index.js';
 
 export const tools = [
@@ -4762,6 +4765,42 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_by_spa',
+    description: 'Query spells by SPA ID — lists all spells for a class that use a specific Spell Ability (SPA) effect.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Shaman")' },
+        spa_id: { type: 'number', description: 'SPA ID number (e.g. 0 for HP, 11 for Haste, 21 for Stun, 31 for Mesmerize, 58 for Illusion)' }
+      },
+      required: ['class_name', 'spa_id']
+    }
+  },
+  {
+    name: 'get_class_spell_by_resist_type',
+    description: 'Query spells by resist type — lists all spells for a class with a specific resist type (Magic, Fire, Cold, Poison, Disease, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Necromancer")' },
+        resist_type: { type: 'string', description: 'Resist type name or ID (e.g. "Fire", "Magic", "Cold", "Poison", "Disease", "Chromatic")' }
+      },
+      required: ['class_name', 'resist_type']
+    }
+  },
+  {
+    name: 'get_class_spell_by_target_type',
+    description: 'Query spells by target type — lists all spells for a class with a specific target type (Self, Single, Group, PB AE, Beam, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Druid")' },
+        target_type: { type: 'string', description: 'Target type name or ID (e.g. "Self", "Single", "Group", "PB AE", "Beam", "Pet")' }
+      },
+      required: ['class_name', 'target_type']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7482,6 +7521,30 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassResourceCostComparison(className);
+      }
+
+      case 'get_class_spell_by_spa': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const spaId = typeof args.spa_id === 'number' ? args.spa_id : parseInt(String(args.spa_id));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(spaId)) return 'Error: "spa_id" parameter is required (number).';
+        return getClassSpellBySPA(className, spaId);
+      }
+
+      case 'get_class_spell_by_resist_type': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const resistType = typeof args.resist_type === 'string' ? args.resist_type.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (!resistType) return 'Error: "resist_type" parameter is required.';
+        return getClassSpellByResistType(className, resistType);
+      }
+
+      case 'get_class_spell_by_target_type': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const targetType = typeof args.target_type === 'string' ? args.target_type.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (!targetType) return 'Error: "target_type" parameter is required.';
+        return getClassSpellByTargetType(className, targetType);
       }
 
       case 'search_help_topics': {

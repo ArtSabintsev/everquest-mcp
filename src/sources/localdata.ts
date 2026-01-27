@@ -38510,3 +38510,201 @@ export async function getClassResourceCostComparison(className: string): Promise
   lines.push('', `*Resource cost analysis for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 381: Class spell by SPA query
+export async function getClassSpellBySPA(className: string, spaId: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const spaName = SPA_NAMES[spaId] || `SPA ${spaId}`;
+  const matches: { name: string; level: number; value: number; target: string }[] = [];
+  let totalSpellsSQ = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsSQ++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      if (parseInt(parts[1]) === spaId) {
+        const base = parseInt(parts[2]) || 0;
+        const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+        const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+        matches.push({ name: spell.fields[SF.NAME], level, value: base, target: targetName });
+        break;
+      }
+    }
+  }
+
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} — SPA ${spaId} (${spaName}) Spells`, ''];
+  lines.push(`*All spells using SPA ${spaId} (${spaName}).*`, '');
+  lines.push(`**Total spells:** ${totalSpellsSQ}`);
+  lines.push(`**Matching spells:** ${matches.length} (${((matches.length / totalSpellsSQ) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    lines.push('| Spell | Level | Value | Target |');
+    lines.push('|:------|------:|------:|:-------|');
+    for (const m of matches.slice(-50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.value} | ${m.target} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells with SPA ${spaId} for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 382: Class spell by resist type query
+export async function getClassSpellByResistType(className: string, resistType: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Find matching resist type ID
+  const resistLower = resistType.toLowerCase();
+  let matchedResistId = -1;
+  let matchedResistName = '';
+  for (const [id, name] of Object.entries(RESIST_TYPES)) {
+    if (name.toLowerCase() === resistLower || name.toLowerCase().includes(resistLower)) {
+      matchedResistId = parseInt(id);
+      matchedResistName = name;
+      break;
+    }
+  }
+  // Also try numeric
+  if (matchedResistId === -1) {
+    const numId = parseInt(resistType);
+    if (!isNaN(numId) && RESIST_TYPES[numId]) {
+      matchedResistId = numId;
+      matchedResistName = RESIST_TYPES[numId];
+    }
+  }
+  if (matchedResistId === -1) {
+    return `Unknown resist type: "${resistType}". Valid types: ${Object.values(RESIST_TYPES).join(', ')}`;
+  }
+
+  const matches: { name: string; level: number; target: string; beneficial: boolean }[] = [];
+  let totalSpellsRT = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsRT++;
+
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    if (resistId !== matchedResistId) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    matches.push({ name: spell.fields[SF.NAME], level, target: targetName, beneficial });
+  }
+
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} — ${matchedResistName} Spells`, ''];
+  lines.push(`*All spells with ${matchedResistName} resist type.*`, '');
+  lines.push(`**Total spells:** ${totalSpellsRT}`);
+  lines.push(`**${matchedResistName} spells:** ${matches.length} (${((matches.length / totalSpellsRT) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    lines.push('| Spell | Level | Target | Type |');
+    lines.push('|:------|------:|:-------|:-----|');
+    for (const m of matches.slice(-50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.target} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | |`);
+  }
+
+  lines.push('', `*${matches.length} ${matchedResistName} spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 383: Class spell by target type query
+export async function getClassSpellByTargetType(className: string, targetType: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Find matching target type ID
+  const targetLower = targetType.toLowerCase();
+  let matchedTargetId = -1;
+  let matchedTargetName = '';
+  for (const [id, name] of Object.entries(TARGET_TYPES)) {
+    if (name.toLowerCase() === targetLower || name.toLowerCase().includes(targetLower)) {
+      matchedTargetId = parseInt(id);
+      matchedTargetName = name;
+      break;
+    }
+  }
+  // Also try numeric
+  if (matchedTargetId === -1) {
+    const numId = parseInt(targetType);
+    if (!isNaN(numId) && TARGET_TYPES[numId]) {
+      matchedTargetId = numId;
+      matchedTargetName = TARGET_TYPES[numId];
+    }
+  }
+  if (matchedTargetId === -1) {
+    return `Unknown target type: "${targetType}". Valid types: ${Object.values(TARGET_TYPES).join(', ')}`;
+  }
+
+  const matches: { name: string; level: number; resist: string; beneficial: boolean }[] = [];
+  let totalSpellsTT = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsTT++;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    if (targetId !== matchedTargetId) continue;
+
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const resistName = RESIST_TYPES[resistId] || `Resist ${resistId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    matches.push({ name: spell.fields[SF.NAME], level, resist: resistName, beneficial });
+  }
+
+  matches.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} — ${matchedTargetName} Target Spells`, ''];
+  lines.push(`*All spells with ${matchedTargetName} target type.*`, '');
+  lines.push(`**Total spells:** ${totalSpellsTT}`);
+  lines.push(`**${matchedTargetName} spells:** ${matches.length} (${((matches.length / totalSpellsTT) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    lines.push('| Spell | Level | Resist | Type |');
+    lines.push('|:------|------:|:-------|:-----|');
+    for (const m of matches.slice(-50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.resist} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | |`);
+  }
+
+  lines.push('', `*${matches.length} ${matchedTargetName} target spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
