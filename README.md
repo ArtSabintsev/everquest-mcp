@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 347 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 350 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **347 tools** for querying EverQuest data
+- **350 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -327,6 +327,9 @@ Then restart Claude Desktop.
 | `get_class_spell_overlap` | Compare two classes' spell overlap — shared/unique spells, level differences |
 | `get_class_ae_range_profile` | AE range distribution — range brackets, AE by target type, largest radius abilities |
 | `get_class_spell_density_map` | Spell density heat map — spells per 5-level bucket, peak levels, level gaps |
+| `get_class_spell_upgrade_chains` | Spell upgrade chains — rank progressions, chain lengths, longest upgrade paths |
+| `get_class_level_cap_progression` | Level cap progression — spell counts at each historical EQ level cap with growth |
+| `get_class_multi_effect_profile` | Multi-effect complexity — SPA effect counts per spell, most complex abilities |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -505,7 +508,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (347 tools)
+├── tools.ts          # Tool definitions and handlers (350 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

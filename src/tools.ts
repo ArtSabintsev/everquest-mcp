@@ -355,6 +355,9 @@ import {
   getClassSpellOverlap,
   getClassAERangeProfile,
   getClassSpellDensityMap,
+  getClassSpellUpgradeChains,
+  getClassLevelCapProgression,
+  getClassMultiEffectProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4369,6 +4372,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_upgrade_chains',
+    description: 'Spell upgrade chain analysis — identifies spell rank progressions (Rk. II/III, numbered suffixes), longest chains, chain length distribution, and level spans.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Wizard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_level_cap_progression',
+    description: 'Level cap progression for a class — shows spell count growth at each historical EQ level cap (50, 60, 65, 70, ..., 125), expansion eras, and biggest growth jumps.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Ranger", "Beastlord")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_multi_effect_profile',
+    description: 'Multi-effect profile for a class — analyzes spell complexity by counting distinct SPA effects per spell, most complex spells, and average complexity by level.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Paladin")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6893,6 +6929,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellDensityMap(className);
+      }
+
+      case 'get_class_spell_upgrade_chains': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellUpgradeChains(className);
+      }
+
+      case 'get_class_level_cap_progression': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassLevelCapProgression(className);
+      }
+
+      case 'get_class_multi_effect_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassMultiEffectProfile(className);
       }
 
       case 'search_help_topics': {

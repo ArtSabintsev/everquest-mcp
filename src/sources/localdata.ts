@@ -35966,3 +35966,258 @@ export async function getClassSpellDensityMap(className: string): Promise<string
   lines.push('', `*${totalSpellsDM} spells across ${Object.keys(levelCounts).length} levels for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassSpellUpgradeChains(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Collect all class spells with their names and levels
+  const classSpells: { name: string; level: number }[] = [];
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    classSpells.push({ name: spell.fields[SF.NAME], level });
+  }
+
+  // Strip rank suffixes to find base names
+  const stripRank = (name: string): string => {
+    return name.replace(/\s+Rk\.\s*(II|III|IV|V|VI|VII|VIII|IX|X)\s*$/i, '')
+               .replace(/\s+(II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX|XXI)\s*$/i, '')
+               .trim();
+  };
+
+  // Group by base name
+  const chains: Record<string, { name: string; level: number }[]> = {};
+  for (const s of classSpells) {
+    const base = stripRank(s.name);
+    if (!chains[base]) chains[base] = [];
+    chains[base].push(s);
+  }
+
+  // Sort each chain by level
+  for (const chain of Object.values(chains)) {
+    chain.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+  }
+
+  // Find chains with 4+ ranks (most interesting upgrade paths)
+  const longChains = Object.entries(chains)
+    .filter(([, spells]) => spells.length >= 4)
+    .sort((a, b) => b[1].length - a[1].length);
+
+  const totalChains = Object.keys(chains).length;
+  const multiRankChains = Object.entries(chains).filter(([, s]) => s.length >= 2).length;
+
+  const lines = [`# ${classFullName} Spell Upgrade Chains`, ''];
+  lines.push('*Identifies spell upgrade chains — groups of spells sharing a base name with rank progression.*', '');
+  lines.push(`**Total spells:** ${classSpells.length}`);
+  lines.push(`**Unique base names:** ${totalChains}`);
+  lines.push(`**Multi-rank chains:** ${multiRankChains}`, '');
+
+  // Chain length distribution
+  const lenDist: Record<number, number> = {};
+  for (const [, spells] of Object.entries(chains)) {
+    const len = spells.length;
+    lenDist[len] = (lenDist[len] || 0) + 1;
+  }
+
+  lines.push('## Chain Length Distribution', '');
+  lines.push('| Ranks | Chains |');
+  lines.push('|------:|-------:|');
+  for (const [len, count] of Object.entries(lenDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    lines.push(`| ${len} | ${count} |`);
+  }
+
+  lines.push('', '## Longest Upgrade Chains — Top 20', '');
+  lines.push('| Base Name | Ranks | Level Range | Span |');
+  lines.push('|:----------|------:|:------------|-----:|');
+  for (const [base, spellList] of longChains.slice(0, 20)) {
+    const minLvl = spellList[0].level;
+    const maxLvl = spellList[spellList.length - 1].level;
+    lines.push(`| ${base} | ${spellList.length} | ${minLvl}-${maxLvl} | ${maxLvl - minLvl} |`);
+  }
+
+  // Show example full chain
+  if (longChains.length > 0) {
+    const [exBase, exSpells] = longChains[0];
+    lines.push('', `## Example Chain: ${exBase}`, '');
+    lines.push('| Rank | Level |');
+    lines.push('|:-----|------:|');
+    for (const s of exSpells.slice(0, 20)) {
+      lines.push(`| ${s.name} | ${s.level} |`);
+    }
+    if (exSpells.length > 20) lines.push(`| ...and ${exSpells.length - 20} more | |`);
+  }
+
+  lines.push('', `*${multiRankChains} multi-rank chains found for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassLevelCapProgression(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const levelCaps = [
+    { cap: 50, era: 'Classic/Kunark/Velious' },
+    { cap: 60, era: 'Luclin/PoP' },
+    { cap: 65, era: 'GoD/OoW' },
+    { cap: 70, era: 'DoN/DoDH/PoR' },
+    { cap: 75, era: 'TSS/TBS' },
+    { cap: 80, era: 'SoF/SoD' },
+    { cap: 85, era: 'UF/HoT' },
+    { cap: 90, era: 'VoA/RoF' },
+    { cap: 95, era: 'CotF/TDS' },
+    { cap: 100, era: 'TBM/EoK' },
+    { cap: 105, era: 'RoS/TBL' },
+    { cap: 110, era: 'ToV/CoV' },
+    { cap: 115, era: 'ToL' },
+    { cap: 120, era: 'NoS/LS' },
+    { cap: 125, era: 'HS+' },
+  ];
+
+  // Count spells available at each cap
+  const capData: { cap: number; era: string; total: number; newAtCap: number }[] = [];
+  let prevTotal = 0;
+
+  for (const { cap, era } of levelCaps) {
+    let total = 0;
+    for (const spell of spells.values()) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+      if (level > 0 && level <= cap && level < 255) total++;
+    }
+    capData.push({ cap, era, total, newAtCap: total - prevTotal });
+    prevTotal = total;
+  }
+
+  const maxTotal = capData.length > 0 ? capData[capData.length - 1].total : 1;
+  const lines = [`# ${classFullName} Level Cap Progression`, ''];
+  lines.push('*Shows spell count growth across EverQuest historical level caps.*', '');
+
+  lines.push('## Spells Available at Each Level Cap', '');
+  lines.push('| Level Cap | Era | Total Spells | New | Growth | Bar |');
+  lines.push('|----------:|:----|------------:|----:|-------:|:----|');
+  for (const d of capData) {
+    if (d.total === 0) continue;
+    const growthPct = d.newAtCap > 0 && d.total > d.newAtCap
+      ? `+${((d.newAtCap / (d.total - d.newAtCap)) * 100).toFixed(0)}%`
+      : '—';
+    const bar = '█'.repeat(Math.round((d.total / maxTotal) * 20));
+    lines.push(`| ${d.cap} | ${d.era} | ${d.total} | +${d.newAtCap} | ${growthPct} | ${bar} |`);
+  }
+
+  // Biggest expansion jumps
+  const sorted = [...capData].filter(d => d.newAtCap > 0).sort((a, b) => b.newAtCap - a.newAtCap);
+  lines.push('', '## Biggest Expansion Jumps', '');
+  lines.push('| Level Cap | Era | New Spells |');
+  lines.push('|----------:|:----|----------:|');
+  for (const d of sorted.slice(0, 5)) {
+    lines.push(`| ${d.cap} | ${d.era} | +${d.newAtCap} |`);
+  }
+
+  lines.push('', `*${classFullName} progression across ${capData.filter(d => d.total > 0).length} level caps.*`);
+  return lines.join('\n');
+}
+
+export async function getClassMultiEffectProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const effectCountDist: Record<number, number> = {};
+  const complexSpells: { name: string; level: number; effectCount: number; effects: string[]; target: string }[] = [];
+  let totalSpellsME = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsME++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+
+    if (!effectField) {
+      effectCountDist[0] = (effectCountDist[0] || 0) + 1;
+      continue;
+    }
+
+    const effects: string[] = [];
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spaId = parseInt(parts[1]);
+        const base = parseInt(parts[2]) || 0;
+        if (spaId > 0 || base !== 0) {
+          const spaName = SPA_NAMES[spaId] || `SPA ${spaId}`;
+          effects.push(spaName);
+        }
+      }
+    }
+
+    const count = effects.length;
+    effectCountDist[count] = (effectCountDist[count] || 0) + 1;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    complexSpells.push({ name: spell.fields[SF.NAME], level, effectCount: count, effects, target: targetName });
+  }
+
+  complexSpells.sort((a, b) => b.effectCount - a.effectCount);
+
+  const lines = [`# ${classFullName} Multi-Effect Profile`, ''];
+  lines.push('*Analyzes spell complexity — how many distinct SPA effects each spell contains.*', '');
+  lines.push(`**Total spells:** ${totalSpellsME}`, '');
+
+  lines.push('## Effect Count Distribution', '');
+  lines.push('| Effects | Spells | % | Bar |');
+  lines.push('|--------:|------:|--:|:----|');
+  const maxDist = Math.max(...Object.values(effectCountDist));
+  for (const [count, num] of Object.entries(effectCountDist).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))) {
+    const pct = ((num / totalSpellsME) * 100).toFixed(1);
+    const bar = '█'.repeat(Math.round((num / maxDist) * 15));
+    lines.push(`| ${count} | ${num} | ${pct}% | ${bar} |`);
+  }
+
+  lines.push('', '## Most Complex Spells — Top 20', '');
+  lines.push('| Spell | Level | Effects | Target | Effect Types |');
+  lines.push('|:------|------:|--------:|:-------|:-------------|');
+  for (const s of complexSpells.slice(0, 20)) {
+    const uniqueEffects = [...new Set(s.effects)].slice(0, 5).join(', ');
+    const more = s.effects.length > 5 ? ` +${s.effects.length - 5}` : '';
+    lines.push(`| ${s.name} | ${s.level} | ${s.effectCount} | ${s.target} | ${uniqueEffects}${more} |`);
+  }
+
+  // Average effect count by level bracket
+  const avgByBracket: Record<string, { total: number; count: number }> = {};
+  for (const s of complexSpells) {
+    const bl = s.level <= 50 ? '1-50' : s.level <= 70 ? '51-70' : s.level <= 90 ? '71-90' :
+      s.level <= 110 ? '91-110' : s.level <= 120 ? '111-120' : '121+';
+    if (!avgByBracket[bl]) avgByBracket[bl] = { total: 0, count: 0 };
+    avgByBracket[bl].total += s.effectCount;
+    avgByBracket[bl].count++;
+  }
+
+  lines.push('', '## Average Complexity by Level', '');
+  lines.push('| Bracket | Avg Effects | Spells |');
+  lines.push('|:--------|------------:|------:|');
+  for (const [bl, data] of Object.entries(avgByBracket)) {
+    lines.push(`| ${bl} | ${(data.total / data.count).toFixed(1)} | ${data.count} |`);
+  }
+
+  lines.push('', `*${totalSpellsME} spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
