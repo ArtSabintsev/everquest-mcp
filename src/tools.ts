@@ -334,6 +334,9 @@ import {
   getClassStunMezProfile,
   getClassSpellFocusLimitProfile,
   getClassCharmFearProfile,
+  getClassCritProfile,
+  getClassAvoidanceProfile,
+  getClassSpecialAttackProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4116,6 +4119,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_crit_profile',
+    description: 'Critical hit profile for a class — analyzes spell crit chance/damage, melee crit chance, triple attack, pet crit, frenzied devastation, and crit HoT effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Berserker", "Wizard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_avoidance_profile',
+    description: 'Avoidance and accuracy profile for a class — analyzes parry, dodge, riposte, block, strikethrough, accuracy, combat stability, and double melee effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Monk")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_special_attack_profile',
+    description: 'Special attack profile for a class — analyzes rampage, headshot, slay undead, backstab variants, assassinate, finishing blow, and AE melee effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Rogue", "Ranger")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6513,6 +6549,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassCharmFearProfile(className);
+      }
+
+      case 'get_class_crit_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassCritProfile(className);
+      }
+
+      case 'get_class_avoidance_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassAvoidanceProfile(className);
+      }
+
+      case 'get_class_special_attack_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpecialAttackProfile(className);
       }
 
       case 'search_help_topics': {

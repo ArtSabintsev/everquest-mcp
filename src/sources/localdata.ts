@@ -33989,3 +33989,347 @@ export async function getClassCharmFearProfile(className: string): Promise<strin
   lines.push('', `*${cfSpells.length} charm/fear spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 327: Critical hit profile per class
+export async function getClassCritProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const CRIT_SPAS: Record<number, string> = {
+    169: 'Crit HoT',
+    173: 'Primary Melee Double',
+    200: 'Spell Crit Chance',
+    202: 'Melee Crit Chance',
+    203: 'Spell Crit Damage',
+    209: 'Pet Melee Crit Damage',
+    255: 'Triple Attack',
+    276: 'Pet Flurry',
+    277: 'Pet Crit',
+    321: 'Frenzied Devastation',
+  };
+
+  interface CritSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const critSpells: CritSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (CRIT_SPAS[spaId]) {
+        types.push(CRIT_SPAS[spaId]);
+        values[CRIT_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    critSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Critical Hit Profile`, ''];
+  lines.push('*Analyzes critical hit effects: spell crit chance/damage, melee crit chance, triple attack, pet crit, frenzied devastation.*', '');
+
+  if (critSpells.length === 0) {
+    lines.push('No critical hit spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total crit spells:** ${critSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of critSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Crit Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Top crit spells by each type
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    const matching = critSpells.filter(s => s.types.includes(type));
+    lines.push('', `## ${type} (${matching.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Value | Duration | Target |');
+    lines.push('|:------|------:|------:|:---------|:-------|');
+    for (const s of matching.sort((a, b) => Math.abs(b.values[type] || 0) - Math.abs(a.values[type] || 0)).slice(0, 10)) {
+      const val = s.values[type] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  lines.push('', `*${critSpells.length} critical hit spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 328: Avoidance and mitigation profile per class
+export async function getClassAvoidanceProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const AVOIDANCE_SPAS: Record<number, string> = {
+    130: 'Strikethrough',
+    176: 'Parry Chance',
+    177: 'Dodge Chance',
+    178: 'Riposte Chance',
+    184: 'Accuracy',
+    189: 'Double Riposte',
+    194: 'Shield Block Chance',
+    204: 'Dodge Chance 2',
+    211: 'Combat Stability',
+    222: 'All Avoidance',
+    279: 'Accuracy Mod',
+    307: 'Block Behind',
+    308: 'Double Melee Round',
+  };
+
+  interface AvoidSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const avoidSpells: AvoidSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (AVOIDANCE_SPAS[spaId]) {
+        types.push(AVOIDANCE_SPAS[spaId]);
+        values[AVOIDANCE_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    avoidSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Avoidance & Accuracy Profile`, ''];
+  lines.push('*Analyzes parry, dodge, riposte, block, strikethrough, accuracy, combat stability, and double melee effects.*', '');
+
+  if (avoidSpells.length === 0) {
+    lines.push('No avoidance/accuracy spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total avoidance/accuracy spells:** ${avoidSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of avoidSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Effect Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Top spells by each avoidance type
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    const matching = avoidSpells.filter(s => s.types.includes(type));
+    lines.push('', `## ${type} (${matching.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Value | Duration | Target |');
+    lines.push('|:------|------:|------:|:---------|:-------|');
+    for (const s of matching.sort((a, b) => Math.abs(b.values[type] || 0) - Math.abs(a.values[type] || 0)).slice(0, 10)) {
+      const val = s.values[type] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  lines.push('', `*${avoidSpells.length} avoidance/accuracy spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 329: Special attack profile per class
+export async function getClassSpecialAttackProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const SPECIAL_SPAS: Record<number, string> = {
+    124: 'Rampage',
+    185: 'Headshot',
+    187: 'Slay Undead',
+    192: 'Frontal Backstab Chance',
+    193: 'Chaotic Stab',
+    198: 'Backstab from Front',
+    210: 'Triple Backstab',
+    280: 'Headshot Damage',
+    281: 'Assassinate Damage',
+    282: 'Finishing Blow Damage',
+    303: 'Secondary Bash',
+    320: 'AE Melee',
+  };
+
+  interface SpecialSpell {
+    name: string;
+    level: number;
+    types: string[];
+    values: Record<string, number>;
+    mana: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const specialSpells: SpecialSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (SPECIAL_SPAS[spaId]) {
+        types.push(SPECIAL_SPAS[spaId]);
+        values[SPECIAL_SPAS[spaId]] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    specialSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(types)],
+      values,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Special Attack Profile`, ''];
+  lines.push('*Analyzes special attacks: rampage, headshot, slay undead, backstab variants, assassinate, finishing blow, AE melee.*', '');
+
+  if (specialSpells.length === 0) {
+    lines.push('No special attack spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total special attack spells:** ${specialSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of specialSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Special Attack Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Top spells by each type
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    const matching = specialSpells.filter(s => s.types.includes(type));
+    lines.push('', `## ${type} (${matching.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Value | Duration | Target |');
+    lines.push('|:------|------:|------:|:---------|:-------|');
+    for (const s of matching.sort((a, b) => Math.abs(b.values[type] || 0) - Math.abs(a.values[type] || 0)).slice(0, 10)) {
+      const val = s.values[type] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  lines.push('', `*${specialSpells.length} special attack spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
