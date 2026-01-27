@@ -28995,3 +28995,420 @@ export async function getClassSpellEffectDiversity(className: string): Promise<s
   lines.push('', `*${uniqueSPAs} unique spell effects analyzed across ${totalSpells} spells for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// ============ CLASS GROUP BUFF PROFILE ============
+
+export async function getClassGroupBuffProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // Group target types: 3=Group v1, 41=Group v2
+  const groupBuffs: { name: string; level: number; effects: string[]; duration: number; mana: number; castTime: number; targetType: string; category: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    if (targetTypeId !== 3 && targetTypeId !== 41) continue; // Group v1 or Group v2
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const effects: string[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (spaId > 0 && SPA_NAMES[spaId]) effects.push(SPA_NAMES[spaId]);
+        }
+      }
+    }
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    groupBuffs.push({
+      name: spell.fields[SF.NAME],
+      level,
+      effects: [...new Set(effects)],
+      duration: durationVal,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      category,
+    });
+  }
+
+  const lines = [`# ${classFullName} Group Buff Profile`, ''];
+  lines.push(`*Analyzes all group-targeted beneficial spells: effects, duration, categories.*`, '');
+
+  if (groupBuffs.length === 0) {
+    lines.push('No group buffs found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total group buffs:** ${groupBuffs.length}`, '');
+
+  // Effect frequency
+  const effectCounts: Record<string, number> = {};
+  for (const s of groupBuffs) {
+    for (const e of s.effects) effectCounts[e] = (effectCounts[e] || 0) + 1;
+  }
+  lines.push('## Most Common Group Buff Effects', '');
+  for (const [effect, count] of Object.entries(effectCounts).sort((a, b) => b[1] - a[1]).slice(0, 20)) {
+    lines.push(`- **${effect}:** ${count} buffs`);
+  }
+
+  // Category distribution
+  const catCounts: Record<string, number> = {};
+  for (const s of groupBuffs) catCounts[s.category] = (catCounts[s.category] || 0) + 1;
+  lines.push('', '## Group Buff Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    lines.push(`- **${cat}:** ${count} buffs`);
+  }
+
+  // Highest level group buffs
+  const byLevel = [...groupBuffs].sort((a, b) => b.level - a.level || b.effects.length - a.effects.length);
+  lines.push('', '## Highest Level Group Buffs (Top 20)', '');
+  lines.push('| Buff | Level | Duration | Cast (s) | Effects | Category |');
+  lines.push('|:-----|------:|---------:|---------:|--------:|:---------|');
+  for (const s of byLevel.slice(0, 20)) {
+    const castSec = (s.castTime / 1000).toFixed(1);
+    lines.push(`| ${s.name} | ${s.level} | ${s.duration} | ${castSec} | ${s.effects.length} | ${s.category} |`);
+  }
+
+  // Most complex group buffs
+  const byEffects = [...groupBuffs].sort((a, b) => b.effects.length - a.effects.length);
+  lines.push('', '## Most Complex Group Buffs (Most Effects) (Top 15)', '');
+  lines.push('| Buff | Level | Effects | Key Effects |');
+  lines.push('|:-----|------:|--------:|:------------|');
+  for (const s of byEffects.slice(0, 15)) {
+    const keyEffects = s.effects.slice(0, 5).join(', ');
+    lines.push(`| ${s.name} | ${s.level} | ${s.effects.length} | ${keyEffects} |`);
+  }
+
+  // Longest duration group buffs
+  const byDuration = [...groupBuffs].filter(s => s.duration > 0).sort((a, b) => b.duration - a.duration);
+  if (byDuration.length > 0) {
+    lines.push('', '## Longest Duration Group Buffs (Top 10)', '');
+    lines.push('| Buff | Level | Duration (ticks) | Effects |');
+    lines.push('|:-----|------:|-----------------:|--------:|');
+    for (const s of byDuration.slice(0, 10)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.duration} | ${s.effects.length} |`);
+    }
+  }
+
+  lines.push('', `*${groupBuffs.length} group buffs analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ CLASS HEAL BREAKDOWN ============
+
+export async function getClassHealBreakdown(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const heals: { name: string; level: number; healValue: number; isHoT: boolean; duration: number; mana: number; castTime: number; targetType: string; category: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    let healValue = 0;
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          if (spaId === 0 && base > 0) healValue = Math.max(healValue, base); // SPA 0 = HP (positive = heal)
+        }
+      }
+    }
+    if (healValue === 0) continue;
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    heals.push({
+      name: spell.fields[SF.NAME],
+      level,
+      healValue,
+      isHoT: durationVal > 0,
+      duration: durationVal,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      category,
+    });
+  }
+
+  const lines = [`# ${classFullName} Heal Spell Breakdown`, ''];
+  lines.push(`*Detailed analysis of all healing spells: direct heals, HoTs, group heals, efficiency.*`, '');
+
+  if (heals.length === 0) {
+    lines.push('No healing spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const directHeals = heals.filter(h => !h.isHoT);
+  const hots = heals.filter(h => h.isHoT);
+  const groupHeals = heals.filter(h => h.targetType.includes('Group'));
+  const singleHeals = heals.filter(h => h.targetType === 'Single');
+  const selfHeals = heals.filter(h => h.targetType === 'Self');
+
+  lines.push(`**Total healing spells:** ${heals.length}`);
+  lines.push(`- Direct heals: ${directHeals.length}`);
+  lines.push(`- HoTs (heal over time): ${hots.length}`);
+  lines.push(`- Group heals: ${groupHeals.length}`);
+  lines.push(`- Single target: ${singleHeals.length}`);
+  lines.push(`- Self heals: ${selfHeals.length}`, '');
+
+  // Strongest direct heals
+  if (directHeals.length > 0) {
+    const byValue = [...directHeals].sort((a, b) => b.healValue - a.healValue);
+    lines.push('## Strongest Direct Heals (Top 15)', '');
+    lines.push('| Spell | Level | Heal | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|-----:|---------:|-----:|:-------|');
+    for (const h of byValue.slice(0, 15)) {
+      const castSec = (h.castTime / 1000).toFixed(1);
+      lines.push(`| ${h.name} | ${h.level} | ${h.healValue.toLocaleString()} | ${castSec} | ${h.mana || '—'} | ${h.targetType} |`);
+    }
+  }
+
+  // Strongest HoTs
+  if (hots.length > 0) {
+    const byTotal = [...hots].sort((a, b) => (b.healValue * b.duration) - (a.healValue * a.duration));
+    lines.push('', '## Strongest HoTs — Total Healing (Top 15)', '');
+    lines.push('| Spell | Level | Heal/Tick | Ticks | Total | Mana | Target |');
+    lines.push('|:------|------:|----------:|------:|------:|-----:|:-------|');
+    for (const h of byTotal.slice(0, 15)) {
+      const total = h.healValue * h.duration;
+      lines.push(`| ${h.name} | ${h.level} | ${h.healValue.toLocaleString()} | ${h.duration} | ${total.toLocaleString()} | ${h.mana || '—'} | ${h.targetType} |`);
+    }
+  }
+
+  // Most mana-efficient heals
+  const withMana = heals.filter(h => h.mana > 0);
+  if (withMana.length > 0) {
+    const byEfficiency = [...withMana].sort((a, b) => {
+      const aTotal = a.isHoT ? a.healValue * a.duration : a.healValue;
+      const bTotal = b.isHoT ? b.healValue * b.duration : b.healValue;
+      return (bTotal / b.mana) - (aTotal / a.mana);
+    });
+    lines.push('', '## Most Mana-Efficient Heals (Top 15)', '');
+    lines.push('| Spell | Level | Total Heal | Mana | Heal/Mana | Type |');
+    lines.push('|:------|------:|-----------:|-----:|----------:|:-----|');
+    for (const h of byEfficiency.slice(0, 15)) {
+      const total = h.isHoT ? h.healValue * h.duration : h.healValue;
+      const ratio = (total / h.mana).toFixed(1);
+      const type = h.isHoT ? 'HoT' : 'Direct';
+      lines.push(`| ${h.name} | ${h.level} | ${total.toLocaleString()} | ${h.mana} | ${ratio} | ${type} |`);
+    }
+  }
+
+  // Group heal analysis
+  if (groupHeals.length > 0) {
+    lines.push('', `## Group Heals (${groupHeals.length})`, '');
+    lines.push('| Spell | Level | Heal | Cast (s) | Duration | Mana |');
+    lines.push('|:------|------:|-----:|---------:|---------:|-----:|');
+    for (const h of groupHeals.sort((a, b) => b.healValue - a.healValue).slice(0, 15)) {
+      const castSec = (h.castTime / 1000).toFixed(1);
+      lines.push(`| ${h.name} | ${h.level} | ${h.healValue.toLocaleString()} | ${castSec} | ${h.duration || '—'} | ${h.mana || '—'} |`);
+    }
+  }
+
+  // Category breakdown
+  const catCounts: Record<string, number> = {};
+  for (const h of heals) catCounts[h.category] = (catCounts[h.category] || 0) + 1;
+  lines.push('', '## Heal Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 10)) {
+    lines.push(`- **${cat}:** ${count} heals`);
+  }
+
+  lines.push('', `*${heals.length} healing spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ CLASS MELEE DISCIPLINE PROFILE ============
+
+export async function getClassMeleeDisciplineProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // Disciplines use endurance (field 96) and are typically self-targeted combat abilities
+  const disciplines: { name: string; level: number; endurance: number; mana: number; castTime: number; recast: number; duration: number; timerId: number; effects: string[]; category: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    if (endurance <= 0) continue; // disciplines use endurance
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const effects: string[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (spaId > 0 && SPA_NAMES[spaId]) effects.push(SPA_NAMES[spaId]);
+        }
+      }
+    }
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const timerId = parseInt(spell.fields[SF.TIMER_ID]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    disciplines.push({
+      name: spell.fields[SF.NAME],
+      level,
+      endurance,
+      mana,
+      castTime,
+      recast,
+      duration: durationVal,
+      timerId,
+      effects: [...new Set(effects)],
+      category,
+    });
+  }
+
+  const lines = [`# ${classFullName} Melee Discipline Profile`, ''];
+  lines.push(`*Analyzes combat abilities that use endurance: disciplines, combat arts, and active abilities.*`, '');
+
+  if (disciplines.length === 0) {
+    lines.push('No melee disciplines found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total disciplines/abilities:** ${disciplines.length}`, '');
+
+  // Category distribution
+  const catCounts: Record<string, number> = {};
+  for (const d of disciplines) catCounts[d.category] = (catCounts[d.category] || 0) + 1;
+  lines.push('## Discipline Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    lines.push(`- **${cat}:** ${count} abilities`);
+  }
+
+  // Most expensive (endurance cost)
+  const byEndurance = [...disciplines].sort((a, b) => b.endurance - a.endurance);
+  lines.push('', '## Most Expensive Disciplines (Top 15)', '');
+  lines.push('| Discipline | Level | Endurance | Duration | Recast (s) | Category |');
+  lines.push('|:-----------|------:|----------:|---------:|-----------:|:---------|');
+  for (const d of byEndurance.slice(0, 15)) {
+    const recastSec = (d.recast / 1000).toFixed(0);
+    lines.push(`| ${d.name} | ${d.level} | ${d.endurance.toLocaleString()} | ${d.duration || '—'} | ${recastSec} | ${d.category} |`);
+  }
+
+  // Longest recast (cooldown-based)
+  const byRecast = [...disciplines].filter(d => d.recast > 0).sort((a, b) => b.recast - a.recast);
+  if (byRecast.length > 0) {
+    lines.push('', '## Longest Cooldown Disciplines (Top 15)', '');
+    lines.push('| Discipline | Level | Recast (s) | Duration | Timer | Category |');
+    lines.push('|:-----------|------:|-----------:|---------:|------:|:---------|');
+    for (const d of byRecast.slice(0, 15)) {
+      const recastSec = (d.recast / 1000).toFixed(0);
+      lines.push(`| ${d.name} | ${d.level} | ${recastSec} | ${d.duration || '—'} | ${d.timerId || '—'} | ${d.category} |`);
+    }
+  }
+
+  // Instant cast disciplines
+  const instants = disciplines.filter(d => d.castTime === 0);
+  lines.push('', `## Instant-Cast Disciplines (${instants.length})`, '');
+  lines.push(`${instants.length} of ${disciplines.length} disciplines are instant-cast (${((instants.length / disciplines.length) * 100).toFixed(1)}%).`);
+
+  // Timer group conflicts (shared timers)
+  const timerGroups: Record<number, string[]> = {};
+  for (const d of disciplines) {
+    if (d.timerId > 0) {
+      if (!timerGroups[d.timerId]) timerGroups[d.timerId] = [];
+      timerGroups[d.timerId].push(d.name);
+    }
+  }
+  const sharedTimers = Object.entries(timerGroups).filter(([, names]) => names.length > 1);
+  if (sharedTimers.length > 0) {
+    lines.push('', `## Shared Timer Groups (${sharedTimers.length})`, '');
+    for (const [timer, names] of sharedTimers.sort((a, b) => b[1].length - a[1].length).slice(0, 10)) {
+      lines.push(`- **Timer ${timer}** (${names.length} abilities): ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` +${names.length - 5} more` : ''}`);
+    }
+  }
+
+  // Effect frequency across disciplines
+  const effectCounts: Record<string, number> = {};
+  for (const d of disciplines) {
+    for (const e of d.effects) effectCounts[e] = (effectCounts[e] || 0) + 1;
+  }
+  lines.push('', '## Most Common Discipline Effects', '');
+  for (const [effect, count] of Object.entries(effectCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    lines.push(`- **${effect}:** ${count} abilities`);
+  }
+
+  lines.push('', `*${disciplines.length} melee disciplines analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

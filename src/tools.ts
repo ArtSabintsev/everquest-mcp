@@ -301,6 +301,9 @@ import {
   getClassResurrectionComparison,
   getSpellRuneAbsorbProfile,
   getClassSpellEffectDiversity,
+  getClassGroupBuffProfile,
+  getClassHealBreakdown,
+  getClassMeleeDisciplineProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -3720,6 +3723,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_group_buff_profile',
+    description: 'Group buff analysis for a class — most common effects, categories, highest level buffs, most complex buffs, longest duration group buffs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_heal_breakdown',
+    description: 'Detailed heal spell breakdown for a class — direct heals, HoTs, group heals, mana efficiency, strongest heals, category distribution.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_melee_discipline_profile',
+    description: 'Melee discipline profile for a class — endurance-based combat abilities, categories, cooldowns, shared timer groups, most common effects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Berserker")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5919,6 +5955,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellEffectDiversity(className);
+      }
+
+      case 'get_class_group_buff_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassGroupBuffProfile(className);
+      }
+
+      case 'get_class_heal_breakdown': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassHealBreakdown(className);
+      }
+
+      case 'get_class_melee_discipline_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassMeleeDisciplineProfile(className);
       }
 
       case 'search_help_topics': {
