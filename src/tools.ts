@@ -385,6 +385,9 @@ import {
   getClassOffensiveCooldownProfile,
   getClassSpellPowerCurve,
   getClassSpellsByExpansion,
+  getClassSpellTimerConflictAnalysis,
+  getClassSpellGlobalRanking,
+  getClassResourceCostComparison,
 } from './sources/index.js';
 
 export const tools = [
@@ -4726,6 +4729,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_timer_conflict_analysis',
+    description: 'Spell timer conflict analysis — groups spells sharing timer IDs (cannot be used simultaneously), with details.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_global_ranking',
+    description: 'Global class ranking — where this class ranks among all 16 classes on total spells, SPAs, damage, healing, and more.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_resource_cost_comparison',
+    description: 'Resource cost comparison — average and max mana/endurance costs by level bracket showing resource scaling.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Ranger")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7428,6 +7464,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellsByExpansion(className);
+      }
+
+      case 'get_class_spell_timer_conflict_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellTimerConflictAnalysis(className);
+      }
+
+      case 'get_class_spell_global_ranking': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellGlobalRanking(className);
+      }
+
+      case 'get_class_resource_cost_comparison': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassResourceCostComparison(className);
       }
 
       case 'search_help_topics': {

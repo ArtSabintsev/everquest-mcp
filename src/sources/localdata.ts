@@ -38281,3 +38281,232 @@ export async function getClassSpellsByExpansion(className: string): Promise<stri
   lines.push('', `*${totalSpellsExp} spells analyzed across expansion eras for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 378: Class spell timer conflict analysis
+export async function getClassSpellTimerConflictAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const timerSpells: Record<number, { name: string; level: number; recast: number }[]> = {};
+  let totalSpellsTC = 0;
+  let withTimer = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsTC++;
+
+    const timer = parseInt(spell.fields[SF.TIMER_ID]) || 0;
+    if (timer <= 0) continue;
+    withTimer++;
+
+    if (!timerSpells[timer]) timerSpells[timer] = [];
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    timerSpells[timer].push({ name: spell.fields[SF.NAME], level, recast });
+  }
+
+  // Sort timer groups by size (largest first)
+  const sortedTimers = Object.entries(timerSpells)
+    .map(([t, s]) => ({ timer: parseInt(t), spells: s }))
+    .sort((a, b) => b.spells.length - a.spells.length);
+
+  const lines = [`# ${classFullName} Spell Timer Conflict Analysis`, ''];
+  lines.push('*Groups spells sharing timer IDs — spells in the same group cannot be used simultaneously.*', '');
+  lines.push(`**Total spells:** ${totalSpellsTC}`);
+  lines.push(`**Spells with timer:** ${withTimer} (${((withTimer / totalSpellsTC) * 100).toFixed(1)}%)`);
+  lines.push(`**Unique timer groups:** ${sortedTimers.length}`, '');
+
+  lines.push('## Timer Group Sizes', '');
+  lines.push('| Timer ID | Spells | Avg Recast |');
+  lines.push('|---------:|-------:|-----------:|');
+  for (const { timer, spells: tSpells } of sortedTimers.slice(0, 25)) {
+    const avgRecast = tSpells.reduce((s, t) => s + t.recast, 0) / tSpells.length;
+    const recastStr = avgRecast >= 60000 ? `${(avgRecast / 60000).toFixed(1)}m` : `${(avgRecast / 1000).toFixed(0)}s`;
+    lines.push(`| ${timer} | ${tSpells.length} | ${recastStr} |`);
+  }
+
+  // Show details for top 5 largest groups
+  for (const { timer, spells: tSpells } of sortedTimers.slice(0, 5)) {
+    lines.push('', `## Timer ${timer} (${tSpells.length} spells)`, '');
+    lines.push('| Spell | Level | Recast |');
+    lines.push('|:------|------:|-------:|');
+    const sorted = [...tSpells].sort((a, b) => b.level - a.level);
+    for (const s of sorted.slice(0, 15)) {
+      const recastStr = s.recast >= 60000 ? `${(s.recast / 60000).toFixed(1)}m` : `${(s.recast / 1000).toFixed(0)}s`;
+      lines.push(`| ${s.name} | ${s.level} | ${recastStr} |`);
+    }
+    if (sorted.length > 15) lines.push(`| ...and ${sorted.length - 15} more | | |`);
+  }
+
+  lines.push('', `*${sortedTimers.length} timer groups across ${withTimer} spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 379: Class spell global ranking
+export async function getClassSpellGlobalRanking(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+
+  // Gather metrics for all classes
+  const metrics: Record<number, { name: string; total: number; beneficial: number; detrimental: number; uniqueSPAs: Set<number>; maxDmg: number; maxHeal: number }> = {};
+
+  for (let ci = 1; ci <= 16; ci++) {
+    const cName = CLASS_IDS[ci];
+    if (!cName) continue;
+    metrics[ci] = { name: cName, total: 0, beneficial: 0, detrimental: 0, uniqueSPAs: new Set(), maxDmg: 0, maxHeal: 0 };
+  }
+
+  for (const spell of spells.values()) {
+    for (let ci = 1; ci <= 16; ci++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + ci - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+      const m = metrics[ci];
+      if (!m) continue;
+      m.total++;
+      const beneficial = parseInt(spell.fields[SF.BENEFICIAL]) || 0;
+      if (beneficial === 1) m.beneficial++;
+      else m.detrimental++;
+
+      let effectField = '';
+      for (let i = spell.fields.length - 1; i >= 0; i--) {
+        if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+      }
+      if (effectField) {
+        for (const slot of effectField.split('$')) {
+          const parts = slot.split('|');
+          if (parts.length >= 3) {
+            const spaId = parseInt(parts[1]);
+            if (spaId > 0) m.uniqueSPAs.add(spaId);
+            if (spaId === 0) {
+              const base = parseInt(parts[2]) || 0;
+              if (base < 0 && Math.abs(base) > m.maxDmg) m.maxDmg = Math.abs(base);
+              if (base > 0 && beneficial === 1 && base > m.maxHeal) m.maxHeal = base;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Build rankings
+  const classes = Object.values(metrics).filter(m => m.total > 0);
+  const rankOf = (arr: typeof classes, key: keyof typeof classes[0], desc: boolean, cid: number) => {
+    const sorted = [...arr].sort((a, b) => {
+      const av = key === 'uniqueSPAs' ? (a[key] as Set<number>).size : (a[key] as number);
+      const bv = key === 'uniqueSPAs' ? (b[key] as Set<number>).size : (b[key] as number);
+      return desc ? (bv as number) - (av as number) : (av as number) - (bv as number);
+    });
+    return sorted.findIndex(c => c.name === CLASS_IDS[cid]) + 1;
+  };
+
+  const me = metrics[classId];
+  if (!me) return 'No data available for this class.';
+
+  const lines = [`# ${classFullName} Global Ranking`, ''];
+  lines.push('*How this class ranks among all 16 classes on key spell metrics.*', '');
+
+  lines.push('## Rankings', '');
+  lines.push('| Metric | Value | Rank |');
+  lines.push('|:-------|------:|-----:|');
+  lines.push(`| Total Spells | ${me.total} | #${rankOf(classes, 'total', true, classId)} of ${classes.length} |`);
+  lines.push(`| Beneficial Spells | ${me.beneficial} | #${rankOf(classes, 'beneficial', true, classId)} of ${classes.length} |`);
+  lines.push(`| Detrimental Spells | ${me.detrimental} | #${rankOf(classes, 'detrimental', true, classId)} of ${classes.length} |`);
+  lines.push(`| Unique SPAs | ${me.uniqueSPAs.size} | #${rankOf(classes, 'uniqueSPAs', true, classId)} of ${classes.length} |`);
+  lines.push(`| Max Single DD | ${me.maxDmg} | #${rankOf(classes, 'maxDmg', true, classId)} of ${classes.length} |`);
+  lines.push(`| Max Single Heal | ${me.maxHeal} | #${rankOf(classes, 'maxHeal', true, classId)} of ${classes.length} |`);
+
+  lines.push('', '## All Classes — Total Spells Leaderboard', '');
+  lines.push('| Rank | Class | Total |');
+  lines.push('|-----:|:------|------:|');
+  const sorted = [...classes].sort((a, b) => b.total - a.total);
+  sorted.forEach((c, i) => {
+    const marker = c.name === classFullName ? ' **<<**' : '';
+    lines.push(`| ${i + 1} | ${c.name}${marker} | ${c.total} |`);
+  });
+
+  lines.push('', `*${classFullName} ranked across ${classes.length} classes.*`);
+  return lines.join('\n');
+}
+
+// Tool 380: Class resource cost comparison
+export async function getClassResourceCostComparison(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const LEVEL_BRACKETS_RC = ['1-20', '21-40', '41-60', '61-80', '81-100', '101-120', '121+'];
+  function getBracketRC(lvl: number): string {
+    if (lvl <= 20) return '1-20';
+    if (lvl <= 40) return '21-40';
+    if (lvl <= 60) return '41-60';
+    if (lvl <= 80) return '61-80';
+    if (lvl <= 100) return '81-100';
+    if (lvl <= 120) return '101-120';
+    return '121+';
+  }
+
+  const bracketMana: Record<string, number[]> = {};
+  const bracketEndurance: Record<string, number[]> = {};
+  for (const b of LEVEL_BRACKETS_RC) {
+    bracketMana[b] = [];
+    bracketEndurance[b] = [];
+  }
+  let totalSpellsRC = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsRC++;
+
+    const bracket = getBracketRC(level);
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+
+    if (mana > 0) bracketMana[bracket].push(mana);
+    if (endurance > 0) bracketEndurance[bracket].push(endurance);
+  }
+
+  const lines = [`# ${classFullName} Resource Cost Comparison`, ''];
+  lines.push('*Average and max mana/endurance costs by level bracket — resource scaling analysis.*', '');
+  lines.push(`**Total spells:** ${totalSpellsRC}`, '');
+
+  lines.push('## Mana Cost by Level', '');
+  lines.push('| Bracket | Mana Spells | Avg Mana | Max Mana |');
+  lines.push('|:--------|------------:|---------:|---------:|');
+  for (const b of LEVEL_BRACKETS_RC) {
+    const arr = bracketMana[b];
+    if (arr.length > 0) {
+      const avg = Math.round(arr.reduce((s, v) => s + v, 0) / arr.length);
+      const max = Math.max(...arr);
+      lines.push(`| ${b} | ${arr.length} | ${avg} | ${max} |`);
+    }
+  }
+
+  lines.push('', '## Endurance Cost by Level', '');
+  lines.push('| Bracket | End. Abilities | Avg Endurance | Max Endurance |');
+  lines.push('|:--------|---------------:|--------------:|--------------:|');
+  for (const b of LEVEL_BRACKETS_RC) {
+    const arr = bracketEndurance[b];
+    if (arr.length > 0) {
+      const avg = Math.round(arr.reduce((s, v) => s + v, 0) / arr.length);
+      const max = Math.max(...arr);
+      lines.push(`| ${b} | ${arr.length} | ${avg} | ${max} |`);
+    }
+  }
+
+  lines.push('', `*Resource cost analysis for ${classFullName}.*`);
+  return lines.join('\n');
+}
