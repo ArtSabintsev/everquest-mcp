@@ -26607,3 +26607,384 @@ export async function getZoneLevelOverlapAnalysis(): Promise<string> {
   lines.push('', `*${zoneList.length} zones analyzed for level overlap.*`);
   return lines.join('\n');
 }
+
+// ============ CLASS CROWD CONTROL PROFILE ============
+
+export async function getClassCrowdControlProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const CC_SPAS: Record<number, string> = {
+    21: 'Stun', 22: 'Charm', 23: 'Fear', 31: 'Snare',
+    58: 'Spin Stun', 74: 'Mesmerize', 76: 'Calm/Pacify',
+    94: 'Spin Target', 99: 'Root',
+  };
+
+  const ccSpells: { name: string; level: number; types: string[]; targetType: string; resistType: string; duration: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const foundCCs: string[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (CC_SPAS[spaId]) foundCCs.push(CC_SPAS[spaId]);
+        }
+      }
+    }
+    if (foundCCs.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const resistTypeId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    ccSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...new Set(foundCCs)],
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      resistType: RESIST_TYPES[resistTypeId] || `Type ${resistTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Crowd Control Profile`, ''];
+  lines.push(`*Analyzes all CC spells: stun, mesmerize, charm, fear, root, snare, calm.*`, '');
+
+  if (ccSpells.length === 0) {
+    lines.push('No crowd control spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total CC spells:** ${ccSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of ccSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## CC Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const pct = ((count / ccSpells.length) * 100).toFixed(1);
+    lines.push(`- **${type}:** ${count} spells (${pct}%)`);
+  }
+
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const spellsOfType = ccSpells.filter(s => s.types.includes(type)).sort((a, b) => b.level - a.level);
+    lines.push('', `## ${type} Spells (${spellsOfType.length})`, '');
+    lines.push('| Spell | Level | Target | Resist | Duration |');
+    lines.push('|:------|------:|:-------|:-------|--------:|');
+    for (const s of spellsOfType.slice(0, 20)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.targetType} | ${s.resistType} | ${s.duration} |`);
+    }
+    if (spellsOfType.length > 20) lines.push(`| ... +${spellsOfType.length - 20} more | | | | |`);
+  }
+
+  lines.push('', '## CC Availability by Level Range', '');
+  const ranges = [
+    { label: '1-30', min: 1, max: 30 },
+    { label: '31-60', min: 31, max: 60 },
+    { label: '61-80', min: 61, max: 80 },
+    { label: '81-100', min: 81, max: 100 },
+    { label: '101-115', min: 101, max: 115 },
+    { label: '116+', min: 116, max: 999 },
+  ];
+  lines.push('| Level Range | Total CC | Types Available |');
+  lines.push('|:------------|--------:|:----------------|');
+  for (const r of ranges) {
+    const inRange = ccSpells.filter(s => s.level >= r.min && s.level <= r.max);
+    const types = [...new Set(inRange.flatMap(s => s.types))].sort();
+    lines.push(`| ${r.label} | ${inRange.length} | ${types.join(', ') || '—'} |`);
+  }
+
+  const aeCCs = ccSpells.filter(s => ['AE (PC v1)', 'AE (PC v2)', 'PB AE', 'Targeted AE', 'Directional AE', 'Beam', 'Target Ring AE'].includes(s.targetType));
+  const singleCCs = ccSpells.filter(s => s.targetType === 'Single');
+  lines.push('', '## AE vs Single Target CC', '');
+  lines.push(`- **AE CC spells:** ${aeCCs.length}`);
+  lines.push(`- **Single target CC:** ${singleCCs.length}`);
+  lines.push(`- **Other targeting:** ${ccSpells.length - aeCCs.length - singleCCs.length}`);
+
+  const resistCounts: Record<string, number> = {};
+  for (const s of ccSpells) resistCounts[s.resistType] = (resistCounts[s.resistType] || 0) + 1;
+  lines.push('', '## CC Resist Type Distribution', '');
+  for (const [resist, count] of Object.entries(resistCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${resist}:** ${count} spells`);
+  }
+
+  lines.push('', `*${ccSpells.length} crowd control spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ CLASS EMERGENCY ABILITY ANALYSIS ============
+
+export async function getClassEmergencyAbilityAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const EMERGENCY_CATEGORIES: Record<string, { spas: number[]; filter?: string }> = {
+    'Feign Death': { spas: [68] },
+    'Gate/Teleport': { spas: [26, 43, 82, 100] },
+    'Invisibility': { spas: [12] },
+    'Absorb/Rune': { spas: [54, 55, 170, 179] },
+    'Cure/Dispel': { spas: [36, 77, 145] },
+    'Fade/Aggro Drop': { spas: [92], filter: 'negative' },
+  };
+
+  const emergencySpells: { name: string; level: number; categories: string[]; mana: number; castTime: number; recast: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const foundCategories: Set<string> = new Set();
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          for (const [cat, cfg] of Object.entries(EMERGENCY_CATEGORIES)) {
+            if (cfg.filter === 'negative') {
+              if (cfg.spas.includes(spaId) && base < 0) foundCategories.add(cat);
+            } else {
+              if (cfg.spas.includes(spaId)) foundCategories.add(cat);
+            }
+          }
+        }
+      }
+    }
+    if (foundCategories.size === 0) continue;
+
+    emergencySpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      categories: [...foundCategories],
+      mana: parseInt(spell.fields[SF.MANA]) || 0,
+      castTime: parseInt(spell.fields[SF.CAST_TIME]) || 0,
+      recast: parseInt(spell.fields[SF.RECAST_TIME]) || 0,
+    });
+  }
+
+  const lines = [`# ${classFullName} Emergency Ability Analysis`, ''];
+  lines.push(`*Escape, survival, and emergency abilities: FD, gate, invis, runes, fades, cures.*`, '');
+
+  if (emergencySpells.length === 0) {
+    lines.push('No emergency abilities found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total emergency abilities:** ${emergencySpells.length}`, '');
+
+  const catCounts: Record<string, number> = {};
+  for (const s of emergencySpells) {
+    for (const c of s.categories) catCounts[c] = (catCounts[c] || 0) + 1;
+  }
+  lines.push('## Emergency Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${cat}:** ${count} abilities`);
+  }
+
+  for (const [cat] of Object.entries(catCounts).sort((a, b) => b[1] - a[1])) {
+    const catSpells = emergencySpells.filter(s => s.categories.includes(cat)).sort((a, b) => b.level - a.level);
+    lines.push('', `## ${cat} (${catSpells.length})`, '');
+    lines.push('| Ability | Level | Cast (s) | Recast (s) | Mana |');
+    lines.push('|:--------|------:|---------:|-----------:|-----:|');
+    for (const s of catSpells.slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const recastSec = (s.recast / 1000).toFixed(0);
+      lines.push(`| ${s.name} | ${s.level} | ${castSec} | ${recastSec} | ${s.mana || '—'} |`);
+    }
+    if (catSpells.length > 15) lines.push(`| ... +${catSpells.length - 15} more | | | | |`);
+  }
+
+  const instants = emergencySpells.filter(s => s.castTime === 0);
+  lines.push('', '## Instant-Cast Emergency Abilities', '');
+  if (instants.length > 0) {
+    lines.push(`**${instants.length} instant abilities:**`, '');
+    for (const s of instants.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      lines.push(`- Lv ${s.level}: **${s.name}** — ${s.categories.join(', ')}`);
+    }
+    if (instants.length > 15) lines.push(`- ... +${instants.length - 15} more`);
+  } else {
+    lines.push('No instant-cast emergency abilities found.');
+  }
+
+  lines.push('', '## First Available Emergency Abilities by Level', '');
+  const firstByCategory: Record<string, { name: string; level: number }> = {};
+  for (const s of emergencySpells.sort((a, b) => a.level - b.level)) {
+    for (const cat of s.categories) {
+      if (!firstByCategory[cat]) firstByCategory[cat] = { name: s.name, level: s.level };
+    }
+  }
+  lines.push('| Category | First Available | Level |');
+  lines.push('|:---------|:---------------|------:|');
+  for (const [cat, info] of Object.entries(firstByCategory).sort((a, b) => a[1].level - b[1].level)) {
+    lines.push(`| ${cat} | ${info.name} | ${info.level} |`);
+  }
+
+  lines.push('', `*${emergencySpells.length} emergency abilities analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ CLASS UTILITY SPELL COMPARISON ============
+
+export async function getClassUtilitySpellComparison(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const UTILITY_SPAS: Record<string, number[]> = {
+    'Resurrect': [80],
+    'Gate/Teleport': [26, 43, 82, 100],
+    'Summon Player': [81],
+    'Summon Corpse': [91],
+    'Bind Affinity': [25],
+    'Invisibility': [12],
+    'Levitate': [57],
+    'Water Breathing': [14],
+    'See Invisible': [13],
+    'Dispel Magic': [36],
+    'Cure': [77, 145],
+    'Illusion': [86],
+    'Feign Death': [68],
+    'Pacify/Calm': [18, 76],
+    'Identify': [30],
+    'Mana Regen': [35],
+    'HP Regen': [34],
+    'Damage Shield': [87],
+    'Haste': [11],
+  };
+
+  const classIds = Object.keys(CLASS_IDS).map(Number).sort((a, b) => a - b);
+  const classUtility: Record<number, Record<string, number>> = {};
+  for (const cid of classIds) classUtility[cid] = {};
+
+  for (const spell of spells.values()) {
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+    if (!effectField) continue;
+
+    const spellSPAs = new Set<number>();
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spaId = parseInt(parts[1]);
+        if (!isNaN(spaId) && spaId > 0) spellSPAs.add(spaId);
+      }
+    }
+
+    const matchedCategories: string[] = [];
+    for (const [cat, spas] of Object.entries(UTILITY_SPAS)) {
+      if (spas.some(spa => spellSPAs.has(spa))) matchedCategories.push(cat);
+    }
+    if (matchedCategories.length === 0) continue;
+
+    for (const cid of classIds) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+      for (const cat of matchedCategories) {
+        classUtility[cid][cat] = (classUtility[cid][cat] || 0) + 1;
+      }
+    }
+  }
+
+  const lines = ['# Cross-Class Utility Spell Comparison', ''];
+  lines.push('*Compares utility spell availability across all 16 classes.*', '');
+
+  const categories = Object.keys(UTILITY_SPAS).sort((a, b) => {
+    const aTotal = classIds.reduce((sum, cid) => sum + (classUtility[cid][a] || 0), 0);
+    const bTotal = classIds.reduce((sum, cid) => sum + (classUtility[cid][b] || 0), 0);
+    return bTotal - aTotal;
+  });
+
+  lines.push('## Utility Matrix (spell counts)', '');
+  const header = ['Utility', ...classIds.map(id => CLASS_SHORT[id])];
+  lines.push('| ' + header.join(' | ') + ' |');
+  lines.push('|' + header.map((_, i) => i === 0 ? ':---' : '---:').join('|') + '|');
+
+  for (const cat of categories) {
+    const cells = classIds.map(cid => {
+      const count = classUtility[cid][cat] || 0;
+      return count > 0 ? String(count) : '—';
+    });
+    lines.push(`| **${cat}** | ${cells.join(' | ')} |`);
+  }
+
+  const totals = classIds.map(cid => Object.values(classUtility[cid]).reduce((sum, n) => sum + n, 0));
+  lines.push(`| **TOTAL** | ${totals.join(' | ')} |`);
+
+  lines.push('', '## Utility Diversity Ranking', '');
+  lines.push('| Rank | Class | Categories | Total Spells |');
+  lines.push('|-----:|:------|----------:|-----------:|');
+  const diversity = classIds.map(cid => ({
+    name: CLASS_IDS[cid],
+    categories: Object.keys(classUtility[cid]).filter(cat => (classUtility[cid][cat] || 0) > 0).length,
+    total: Object.values(classUtility[cid]).reduce((sum, n) => sum + n, 0),
+  }));
+  diversity.sort((a, b) => b.categories - a.categories || b.total - a.total);
+  diversity.forEach((d, i) => {
+    lines.push(`| ${i + 1} | ${d.name} | ${d.categories}/${categories.length} | ${d.total} |`);
+  });
+
+  lines.push('', '## Rare Utilities (1-2 classes only)', '');
+  for (const cat of categories) {
+    const classesWithCat = classIds.filter(cid => (classUtility[cid][cat] || 0) > 0);
+    if (classesWithCat.length > 0 && classesWithCat.length <= 2) {
+      const names = classesWithCat.map(cid => CLASS_IDS[cid]).join(', ');
+      lines.push(`- **${cat}:** ${names}`);
+    }
+  }
+
+  lines.push('', '## Most Widely Available Utilities', '');
+  for (const cat of categories) {
+    const classesWithCat = classIds.filter(cid => (classUtility[cid][cat] || 0) > 0);
+    if (classesWithCat.length >= 12) {
+      lines.push(`- **${cat}:** ${classesWithCat.length}/16 classes`);
+    }
+  }
+
+  lines.push('', `*${categories.length} utility categories compared across 16 classes.*`);
+  return lines.join('\n');
+}

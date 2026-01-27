@@ -283,6 +283,9 @@ import {
   getSpellEnduranceCostAnalysis,
   getClassSpellBookSizeComparison,
   getZoneLevelOverlapAnalysis,
+  getClassCrowdControlProfile,
+  getClassEmergencyAbilityAnalysis,
+  getClassUtilitySpellComparison,
 } from './sources/index.js';
 
 export const tools = [
@@ -3522,6 +3525,33 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'get_class_crowd_control_profile',
+    description: 'Crowd control spell profile for a class — stun, mesmerize, charm, fear, root, snare, calm/pacify counts, AE vs single target CC, resist types, and level availability.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Bard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_emergency_ability_analysis',
+    description: 'Emergency and survival ability analysis for a class — feign death, gate/teleport, invisibility, runes/absorb, cures/dispels, aggro drops, instant-cast abilities, and first-available levels.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Monk", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_utility_spell_comparison',
+    description: 'Cross-class utility spell comparison matrix — resurrect, gate, summon, bind, invis, levitate, water breathing, dispel, cure, illusion, FD, pacify, regen, damage shield, haste availability across all 16 classes with diversity ranking.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5619,6 +5649,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_zone_level_overlap_analysis': {
         return getZoneLevelOverlapAnalysis();
+      }
+
+      case 'get_class_crowd_control_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassCrowdControlProfile(className);
+      }
+
+      case 'get_class_emergency_ability_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassEmergencyAbilityAnalysis(className);
+      }
+
+      case 'get_class_utility_spell_comparison': {
+        return getClassUtilitySpellComparison();
       }
 
       case 'search_help_topics': {
