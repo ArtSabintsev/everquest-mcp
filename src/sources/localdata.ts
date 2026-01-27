@@ -36221,3 +36221,249 @@ export async function getClassMultiEffectProfile(className: string): Promise<str
   lines.push('', `*${totalSpellsME} spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassSignatureSpells(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Find spells that ONLY this class can use (no other class has level < 255)
+  const signatureSpells: { name: string; level: number; target: string }[] = [];
+  let totalClassSpells = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalClassSpells++;
+
+    // Check if any other class has this spell
+    let otherClassHas = false;
+    for (let ci = 0; ci < 16; ci++) {
+      if (ci === classIndex) continue;
+      const otherLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + ci]) || 255;
+      if (otherLevel > 0 && otherLevel < 255) { otherClassHas = true; break; }
+    }
+
+    if (!otherClassHas) {
+      const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+      const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+      signatureSpells.push({ name: spell.fields[SF.NAME], level, target: targetName });
+    }
+  }
+
+  signatureSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+  const sigPct = ((signatureSpells.length / totalClassSpells) * 100).toFixed(1);
+
+  const lines = [`# ${classFullName} Signature Spells`, ''];
+  lines.push('*Spells exclusive to this class — not available to any other class.*', '');
+  lines.push(`**Total class spells:** ${totalClassSpells}`);
+  lines.push(`**Signature (exclusive) spells:** ${signatureSpells.length} (${sigPct}%)`);
+  lines.push(`**Shared with others:** ${totalClassSpells - signatureSpells.length}`, '');
+
+  // By level bracket
+  const bracketCounts: Record<string, number> = {};
+  for (const s of signatureSpells) {
+    const bl = s.level <= 50 ? '1-50' : s.level <= 60 ? '51-60' : s.level <= 70 ? '61-70' :
+      s.level <= 80 ? '71-80' : s.level <= 90 ? '81-90' : s.level <= 100 ? '91-100' :
+      s.level <= 110 ? '101-110' : s.level <= 120 ? '111-120' : '121+';
+    bracketCounts[bl] = (bracketCounts[bl] || 0) + 1;
+  }
+
+  lines.push('## Signature Spells by Level Bracket', '');
+  lines.push('| Bracket | Count |');
+  lines.push('|:--------|------:|');
+  for (const [bl, count] of Object.entries(bracketCounts)) {
+    lines.push(`| ${bl} | ${count} |`);
+  }
+
+  // Show classic-era (1-60) signature spells
+  const classicSig = signatureSpells.filter(s => s.level <= 60);
+  if (classicSig.length > 0) {
+    lines.push('', '## Classic Era Signature Spells (Lvl 1-60)', '');
+    lines.push('| Spell | Level | Target |');
+    lines.push('|:------|------:|:-------|');
+    for (const s of classicSig.slice(0, 30)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.target} |`);
+    }
+    if (classicSig.length > 30) lines.push(`| ...and ${classicSig.length - 30} more | | |`);
+  }
+
+  // Show recent signature spells (111+)
+  const recentSig = signatureSpells.filter(s => s.level >= 111 && s.level < 254);
+  if (recentSig.length > 0) {
+    lines.push('', '## Recent Signature Spells (Lvl 111+)', '');
+    lines.push('| Spell | Level | Target |');
+    lines.push('|:------|------:|:-------|');
+    for (const s of recentSig.slice(-30)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.target} |`);
+    }
+    if (recentSig.length > 30) lines.push(`| ...and ${recentSig.length - 30} more | | |`);
+  }
+
+  lines.push('', `*${signatureSpells.length} signature spells exclusive to ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSPABreadth(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const spaCounts: Record<number, number> = {};
+  const spaExamples: Record<number, string> = {};
+  let totalSpellsSB = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsSB++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (spaId > 0 || base !== 0) {
+        spaCounts[spaId] = (spaCounts[spaId] || 0) + 1;
+        if (!spaExamples[spaId]) spaExamples[spaId] = spell.fields[SF.NAME];
+      }
+    }
+  }
+
+  const sortedSPAs = Object.entries(spaCounts)
+    .map(([id, count]) => ({ id: parseInt(id), count, name: SPA_NAMES[parseInt(id)] || `SPA ${id}` }))
+    .sort((a, b) => b.count - a.count);
+
+  const uniqueSPAs = sortedSPAs.length;
+  const lines = [`# ${classFullName} SPA Breadth Analysis`, ''];
+  lines.push('*Analyzes the breadth of spell effect types (SPAs) accessible to this class.*', '');
+  lines.push(`**Total spells:** ${totalSpellsSB}`);
+  lines.push(`**Unique SPA types:** ${uniqueSPAs}`, '');
+
+  lines.push('## Most Common SPAs — Top 30', '');
+  lines.push('| SPA | Name | Spells | Example |');
+  lines.push('|----:|:-----|------:|:--------|');
+  for (const spa of sortedSPAs.slice(0, 30)) {
+    const example = spaExamples[spa.id] || '';
+    lines.push(`| ${spa.id} | ${spa.name} | ${spa.count} | ${example} |`);
+  }
+
+  // Rarest SPAs
+  const rarest = sortedSPAs.filter(s => s.count <= 3).sort((a, b) => a.count - b.count);
+  if (rarest.length > 0) {
+    lines.push('', '## Rarest SPAs (3 or fewer spells) — Top 20', '');
+    lines.push('| SPA | Name | Spells | Example |');
+    lines.push('|----:|:-----|------:|:--------|');
+    for (const spa of rarest.slice(0, 20)) {
+      const example = spaExamples[spa.id] || '';
+      lines.push(`| ${spa.id} | ${spa.name} | ${spa.count} | ${example} |`);
+    }
+  }
+
+  lines.push('', `*${uniqueSPAs} unique SPA types across ${totalSpellsSB} spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellScalingAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Track max base values for key SPAs by level bracket
+  const KEY_SPAS: Record<number, string> = {
+    0: 'HP Change', 79: 'HP Increase', 69: 'Max Mana Increase',
+    2: 'AC', 35: 'Disease Counter', 36: 'Poison Counter',
+    1: 'AC (Debuff)',
+  };
+
+  const bracketOrder = ['1-10','11-20','21-30','31-40','41-50','51-60','61-70','71-80','81-90','91-100','101-110','111-120','121+'];
+  const scalingData: Record<string, Record<string, { max: number; maxName: string; avg: number; count: number; total: number }>> = {};
+
+  for (const bl of bracketOrder) {
+    scalingData[bl] = {};
+  }
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const bl = level <= 10 ? '1-10' : level <= 20 ? '11-20' : level <= 30 ? '21-30' :
+      level <= 40 ? '31-40' : level <= 50 ? '41-50' : level <= 60 ? '51-60' :
+      level <= 70 ? '61-70' : level <= 80 ? '71-80' : level <= 90 ? '81-90' :
+      level <= 100 ? '91-100' : level <= 110 ? '101-110' : level <= 120 ? '111-120' : '121+';
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = Math.abs(parseInt(parts[2]) || 0);
+
+      if (KEY_SPAS[spaId] && base > 0) {
+        const spaLabel = KEY_SPAS[spaId];
+        if (!scalingData[bl][spaLabel]) scalingData[bl][spaLabel] = { max: 0, maxName: '', avg: 0, count: 0, total: 0 };
+        const entry = scalingData[bl][spaLabel];
+        entry.count++;
+        entry.total += base;
+        if (base > entry.max) {
+          entry.max = base;
+          entry.maxName = spell.fields[SF.NAME];
+        }
+      }
+    }
+  }
+
+  // Compute averages
+  for (const bl of bracketOrder) {
+    for (const entry of Object.values(scalingData[bl])) {
+      entry.avg = Math.round(entry.total / entry.count);
+    }
+  }
+
+  const lines = [`# ${classFullName} Spell Scaling Analysis`, ''];
+  lines.push('*Shows how key spell effect values scale across level brackets.*', '');
+
+  // Show HP Change scaling (most universal)
+  for (const spaLabel of Object.values(KEY_SPAS)) {
+    const hasData = bracketOrder.some(bl => scalingData[bl][spaLabel]?.count > 0);
+    if (!hasData) continue;
+
+    lines.push(`## ${spaLabel} Scaling`, '');
+    lines.push('| Bracket | Max Value | Avg Value | Spells | Top Spell |');
+    lines.push('|:--------|----------:|----------:|------:|:----------|');
+    for (const bl of bracketOrder) {
+      const entry = scalingData[bl][spaLabel];
+      if (!entry || entry.count === 0) continue;
+      lines.push(`| ${bl} | ${entry.max.toLocaleString()} | ${entry.avg.toLocaleString()} | ${entry.count} | ${entry.maxName} |`);
+    }
+    lines.push('');
+  }
+
+  lines.push(`*Scaling analysis for ${classFullName}.*`);
+  return lines.join('\n');
+}

@@ -358,6 +358,9 @@ import {
   getClassSpellUpgradeChains,
   getClassLevelCapProgression,
   getClassMultiEffectProfile,
+  getClassSignatureSpells,
+  getClassSPABreadth,
+  getClassSpellScalingAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -4405,6 +4408,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_signature_spells',
+    description: 'Signature spells exclusive to a class — spells that no other class has access to, by level bracket, classic and modern eras.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Necromancer", "Bard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spa_breadth',
+    description: 'SPA breadth analysis for a class — counts unique spell effect types (SPAs), most common and rarest effects, with example spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_scaling_analysis',
+    description: 'Spell scaling analysis for a class — shows how key effect values (HP, mana, AC) scale across level brackets with max/avg values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Magician")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6947,6 +6983,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassMultiEffectProfile(className);
+      }
+
+      case 'get_class_signature_spells': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSignatureSpells(className);
+      }
+
+      case 'get_class_spa_breadth': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSPABreadth(className);
+      }
+
+      case 'get_class_spell_scaling_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellScalingAnalysis(className);
       }
 
       case 'search_help_topics': {
