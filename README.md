@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 371 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 374 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **371 tools** for querying EverQuest data
+- **374 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -351,6 +351,9 @@ Then restart Claude Desktop.
 | `get_class_spell_slot_profile` | Spell effect slot profile — SPA slot count distribution and most complex spells |
 | `get_class_spell_rank_distribution` | Spell rank distribution — Rk. I/II/III vs non-ranked by level bracket |
 | `get_class_combat_ability_profile` | Combat ability profile — mana spells vs endurance abilities vs free-cost |
+| `get_class_ae_capacity_profile` | AE capacity — PB AE, targeted AE, directional, beam, ring AE with ranges |
+| `get_global_spell_statistics` | Global spell database stats — total spells, per-class counts, resist/target types |
+| `get_class_defensive_cooldown_profile` | Defensive cooldowns — 30s+ recast beneficial abilities, disciplines, emergencies |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -529,7 +532,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (371 tools)
+├── tools.ts          # Tool definitions and handlers (374 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

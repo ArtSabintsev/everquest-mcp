@@ -379,6 +379,9 @@ import {
   getClassSpellSlotProfile,
   getClassSpellRankDistribution,
   getClassCombatAbilityProfile,
+  getClassAECapacityProfile,
+  getGlobalSpellStatistics,
+  getClassDefensiveCooldownProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4657,6 +4660,36 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_ae_capacity_profile',
+    description: 'AE capacity profile — PB AE, targeted AE, directional AE, beam, and ring AE spell analysis with ranges and types.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Magician")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_global_spell_statistics',
+    description: 'Global spell database statistics — total spells, spells per class, resist types, target types, and unique SPA count across all spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'get_class_defensive_cooldown_profile',
+    description: 'Defensive cooldown profile — beneficial abilities with 30+ second recast timers, disciplines, and emergency cooldowns.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Paladin")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7325,6 +7358,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassCombatAbilityProfile(className);
+      }
+
+      case 'get_class_ae_capacity_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassAECapacityProfile(className);
+      }
+
+      case 'get_global_spell_statistics': {
+        return getGlobalSpellStatistics();
+      }
+
+      case 'get_class_defensive_cooldown_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDefensiveCooldownProfile(className);
       }
 
       case 'search_help_topics': {

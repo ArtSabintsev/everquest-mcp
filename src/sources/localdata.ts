@@ -37814,3 +37814,258 @@ export async function getClassCombatAbilityProfile(className: string): Promise<s
   lines.push('', `*${totalSpellsCA} spells/abilities analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 372: Class AE capacity profile
+export async function getClassAECapacityProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const AE_TARGET_TYPES: Record<number, string> = {
+    2: 'PB AE', 4: 'AE (PC v1)', 8: 'Targeted AE', 15: 'AE (PC v2)',
+    24: 'Target Ring AE', 40: 'Directional AE', 44: 'Beam',
+  };
+
+  const aeSpells: { name: string; level: number; aeType: string; aeRange: number; beneficial: boolean }[] = [];
+  let totalSpellsAEC = 0;
+  const typeCounts: Record<string, number> = {};
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsAEC++;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    if (!AE_TARGET_TYPES[targetId]) continue;
+
+    const aeType = AE_TARGET_TYPES[targetId];
+    const aeRange = parseInt(spell.fields[SF.AE_RANGE]) || 0;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    aeSpells.push({ name: spell.fields[SF.NAME], level, aeType, aeRange, beneficial });
+    typeCounts[aeType] = (typeCounts[aeType] || 0) + 1;
+  }
+
+  aeSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const beneficialCount = aeSpells.filter(s => s.beneficial).length;
+  const detrimentalCount = aeSpells.length - beneficialCount;
+
+  const lines = [`# ${classFullName} AE Capacity Profile`, ''];
+  lines.push('*Deep analysis of area-of-effect spells — PB AE, targeted AE, directional, beam, and ring AE.*', '');
+  lines.push(`**Total spells:** ${totalSpellsAEC}`);
+  lines.push(`**AE spells:** ${aeSpells.length} (${((aeSpells.length / totalSpellsAEC) * 100).toFixed(1)}%)`);
+  lines.push(`**Beneficial AE:** ${beneficialCount} | **Detrimental AE:** ${detrimentalCount}`, '');
+
+  lines.push('## AE Type Distribution', '');
+  lines.push('| AE Type | Count | % of AE |');
+  lines.push('|:--------|------:|--------:|');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${type} | ${count} | ${((count / aeSpells.length) * 100).toFixed(1)}% |`);
+  }
+
+  // AE Range distribution
+  const rangeBrackets: Record<string, number> = { '0-50': 0, '51-100': 0, '101-200': 0, '201+': 0 };
+  for (const s of aeSpells) {
+    if (s.aeRange <= 50) rangeBrackets['0-50']++;
+    else if (s.aeRange <= 100) rangeBrackets['51-100']++;
+    else if (s.aeRange <= 200) rangeBrackets['101-200']++;
+    else rangeBrackets['201+']++;
+  }
+  lines.push('', '## AE Range Distribution', '');
+  lines.push('| Range | Count |');
+  lines.push('|:------|------:|');
+  for (const [range, count] of Object.entries(rangeBrackets)) {
+    if (count > 0) lines.push(`| ${range} | ${count} |`);
+  }
+
+  if (aeSpells.length > 0) {
+    lines.push('', '## AE Spells — Top 40', '');
+    lines.push('| Spell | Level | AE Type | Range | Ben/Det |');
+    lines.push('|:------|------:|:--------|------:|:--------|');
+    for (const s of aeSpells.slice(-40)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.aeType} | ${s.aeRange} | ${s.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (aeSpells.length > 40) lines.push(`| ...and ${aeSpells.length - 40} more | | | | |`);
+  }
+
+  lines.push('', `*${aeSpells.length} AE spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 373: Global spell statistics
+export async function getGlobalSpellStatistics(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classSpellCounts: Record<string, number> = {};
+  const allSPAs = new Set<number>();
+  const resistTypeCounts: Record<string, number> = {};
+  const targetTypeCounts: Record<string, number> = {};
+  let beneficialCount = 0;
+  let detrimentalCount = 0;
+
+  for (const spell of spells.values()) {
+    // Count per class
+    for (let ci = 0; ci < 16; ci++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + ci]) || 255;
+      if (level > 0 && level < 255) {
+        const cName = CLASS_IDS[ci + 1] || `Class ${ci + 1}`;
+        classSpellCounts[cName] = (classSpellCounts[cName] || 0) + 1;
+      }
+    }
+
+    // Beneficial vs detrimental
+    const beneficial = parseInt(spell.fields[SF.BENEFICIAL]) || 0;
+    if (beneficial === 1) beneficialCount++;
+    else detrimentalCount++;
+
+    // Resist types
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const resistName = RESIST_TYPES[resistId] || `Resist ${resistId}`;
+    resistTypeCounts[resistName] = (resistTypeCounts[resistName] || 0) + 1;
+
+    // Target types
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    targetTypeCounts[targetName] = (targetTypeCounts[targetName] || 0) + 1;
+
+    // SPAs
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (spaId > 0) allSPAs.add(spaId);
+        }
+      }
+    }
+  }
+
+  const lines = [`# Global Spell Database Statistics`, ''];
+  lines.push('*Overall statistics for the entire EverQuest spell database.*', '');
+  lines.push(`**Total spells:** ${spells.size}`);
+  lines.push(`**Unique SPA types:** ${allSPAs.size}`);
+  lines.push(`**Beneficial:** ${beneficialCount} | **Detrimental:** ${detrimentalCount}`, '');
+
+  lines.push('## Spells per Class', '');
+  lines.push('| Class | Spells |');
+  lines.push('|:------|-------:|');
+  for (const [cls, count] of Object.entries(classSpellCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${cls} | ${count} |`);
+  }
+
+  lines.push('', '## Resist Type Distribution', '');
+  lines.push('| Resist Type | Count | % |');
+  lines.push('|:------------|------:|--:|');
+  for (const [resist, count] of Object.entries(resistTypeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${resist} | ${count} | ${((count / spells.size) * 100).toFixed(1)}% |`);
+  }
+
+  lines.push('', '## Target Type Distribution', '');
+  lines.push('| Target Type | Count | % |');
+  lines.push('|:------------|------:|--:|');
+  for (const [target, count] of Object.entries(targetTypeCounts).sort((a, b) => b[1] - a[1]).slice(0, 20)) {
+    lines.push(`| ${target} | ${count} | ${((count / spells.size) * 100).toFixed(1)}% |`);
+  }
+
+  lines.push('', `*${spells.size} spells across ${Object.keys(classSpellCounts).length} classes.*`);
+  return lines.join('\n');
+}
+
+// Tool 374: Class defensive cooldown profile
+export async function getClassDefensiveCooldownProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Beneficial spells with recast > 30 seconds (30000ms) = defensive cooldowns / disciplines
+  const cooldowns: { name: string; level: number; recast: number; target: string; timer: number }[] = [];
+  let totalSpellsDC = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsDC++;
+
+    const beneficial = parseInt(spell.fields[SF.BENEFICIAL]) || 0;
+    if (beneficial !== 1) continue;
+
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    if (recast < 30000) continue; // Less than 30 seconds
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const timer = parseInt(spell.fields[SF.TIMER_ID]) || 0;
+
+    cooldowns.push({ name: spell.fields[SF.NAME], level, recast, target: targetName, timer });
+  }
+
+  cooldowns.sort((a, b) => b.recast - a.recast || a.level - b.level);
+
+  // Group by timer
+  const timerGroups: Record<number, number> = {};
+  for (const cd of cooldowns) {
+    if (cd.timer > 0) timerGroups[cd.timer] = (timerGroups[cd.timer] || 0) + 1;
+  }
+
+  // Recast brackets
+  const recastBrackets: Record<string, number> = {
+    '30s-2m': 0, '2m-5m': 0, '5m-15m': 0, '15m-30m': 0, '30m+': 0,
+  };
+  for (const cd of cooldowns) {
+    const sec = cd.recast / 1000;
+    if (sec < 120) recastBrackets['30s-2m']++;
+    else if (sec < 300) recastBrackets['2m-5m']++;
+    else if (sec < 900) recastBrackets['5m-15m']++;
+    else if (sec < 1800) recastBrackets['15m-30m']++;
+    else recastBrackets['30m+']++;
+  }
+
+  const lines = [`# ${classFullName} Defensive Cooldown Profile`, ''];
+  lines.push('*Analyzes beneficial spells with 30+ second recast — defensive cooldowns, disciplines, and emergency abilities.*', '');
+  lines.push(`**Total spells:** ${totalSpellsDC}`);
+  lines.push(`**Cooldown abilities (30s+ recast):** ${cooldowns.length}`, '');
+
+  lines.push('## Recast Time Brackets', '');
+  lines.push('| Bracket | Count |');
+  lines.push('|:--------|------:|');
+  for (const [bracket, count] of Object.entries(recastBrackets)) {
+    if (count > 0) lines.push(`| ${bracket} | ${count} |`);
+  }
+
+  if (Object.keys(timerGroups).length > 0) {
+    lines.push('', '## Timer Groups (shared recast)', '');
+    lines.push('| Timer ID | Abilities |');
+    lines.push('|---------:|----------:|');
+    for (const [timer, count] of Object.entries(timerGroups).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+      lines.push(`| ${timer} | ${count} |`);
+    }
+  }
+
+  if (cooldowns.length > 0) {
+    lines.push('', '## Cooldown Abilities (longest recast first)', '');
+    lines.push('| Ability | Level | Recast | Target | Timer |');
+    lines.push('|:--------|------:|-------:|:-------|------:|');
+    for (const cd of cooldowns.slice(0, 35)) {
+      const recastStr = cd.recast >= 60000 ? `${(cd.recast / 60000).toFixed(1)}m` : `${(cd.recast / 1000).toFixed(0)}s`;
+      lines.push(`| ${cd.name} | ${cd.level} | ${recastStr} | ${cd.target} | ${cd.timer || '-'} |`);
+    }
+    if (cooldowns.length > 35) lines.push(`| ...and ${cooldowns.length - 35} more | | | | |`);
+  }
+
+  lines.push('', `*${cooldowns.length} cooldown abilities for ${classFullName}.*`);
+  return lines.join('\n');
+}
