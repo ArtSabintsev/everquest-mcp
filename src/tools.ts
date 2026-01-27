@@ -367,6 +367,9 @@ import {
   getClassHealPerMana,
   getClassIllusionProfile,
   getClassSummonProfile,
+  getClassSpellSharedMatrix,
+  getClassRootSnareProfile,
+  getClassDispelProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4513,6 +4516,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_shared_matrix',
+    description: 'Spell sharing matrix — shows which other classes share the most spells with this class, overlap percentages, and most/least similar classes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Ranger")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_root_snare_profile',
+    description: 'Root and snare profile — analyzes movement debuffs including root (immobilize) and snare (slow movement) spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_dispel_profile',
+    description: 'Dispel and cure profile — analyzes cancel magic, dispel, cure disease, cure poison, cure curse, and cure blind spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7109,6 +7145,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSummonProfile(className);
+      }
+
+      case 'get_class_spell_shared_matrix': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellSharedMatrix(className);
+      }
+
+      case 'get_class_root_snare_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassRootSnareProfile(className);
+      }
+
+      case 'get_class_dispel_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDispelProfile(className);
       }
 
       case 'search_help_topics': {

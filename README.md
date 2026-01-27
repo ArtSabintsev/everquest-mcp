@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 359 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 362 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **359 tools** for querying EverQuest data
+- **362 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -339,6 +339,9 @@ Then restart Claude Desktop.
 | `get_class_heal_per_mana` | Heal per mana efficiency — HPM rankings, most efficient heals by level |
 | `get_class_illusion_profile` | Illusion/form-change spells — disguise, polymorph, shape-shifting |
 | `get_class_summon_profile` | Summon abilities — items, pets, corpses, familiars, horses, transport |
+| `get_class_spell_shared_matrix` | Spell sharing matrix — overlap with all other classes, most/least similar |
+| `get_class_root_snare_profile` | Root and snare spells — immobilization and movement debuffs |
+| `get_class_dispel_profile` | Dispel and cure profile — cancel magic, cure disease/poison/curse |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -517,7 +520,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (359 tools)
+├── tools.ts          # Tool definitions and handlers (362 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

@@ -36897,3 +36897,221 @@ export async function getClassSummonProfile(className: string): Promise<string> 
   lines.push('', `*${summonSpells.length} summon spells for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassSpellSharedMatrix(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const sharedCounts: Record<number, number> = {};
+  let totalClassSpellsSM = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalClassSpellsSM++;
+
+    for (let ci = 0; ci < 16; ci++) {
+      if (ci === classIndex) continue;
+      const otherLevel = parseInt(spell.fields[SF.CLASS_LEVEL_START + ci]) || 255;
+      if (otherLevel > 0 && otherLevel < 255) {
+        const otherClassId = ci + 1;
+        sharedCounts[otherClassId] = (sharedCounts[otherClassId] || 0) + 1;
+      }
+    }
+  }
+
+  const sorted = Object.entries(sharedCounts)
+    .map(([id, count]) => ({ classId: parseInt(id), className: CLASS_IDS[parseInt(id)] || `Class ${id}`, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const maxShared = sorted.length > 0 ? sorted[0].count : 1;
+
+  const lines = [`# ${classFullName} Spell Sharing Matrix`, ''];
+  lines.push('*Shows which other classes share the most spells with this class.*', '');
+  lines.push(`**Total ${classFullName} spells:** ${totalClassSpellsSM}`, '');
+
+  lines.push('## Spells Shared with Each Class', '');
+  lines.push('| Class | Shared | % of Your Spells | Bar |');
+  lines.push('|:------|------:|-----------------:|:----|');
+  for (const entry of sorted) {
+    const pct = ((entry.count / totalClassSpellsSM) * 100).toFixed(1);
+    const bar = '█'.repeat(Math.round((entry.count / maxShared) * 15));
+    lines.push(`| ${entry.className} | ${entry.count} | ${pct}% | ${bar} |`);
+  }
+
+  // Most similar and most different
+  if (sorted.length >= 2) {
+    lines.push('', '## Summary');
+    lines.push(`- **Most similar:** ${sorted[0].className} (${sorted[0].count} shared, ${((sorted[0].count / totalClassSpellsSM) * 100).toFixed(1)}%)`);
+    lines.push(`- **Most different:** ${sorted[sorted.length - 1].className} (${sorted[sorted.length - 1].count} shared, ${((sorted[sorted.length - 1].count / totalClassSpellsSM) * 100).toFixed(1)}%)`);
+  }
+
+  lines.push('', `*${classFullName} spell sharing analysis across ${sorted.length} classes.*`);
+  return lines.join('\n');
+}
+
+export async function getClassRootSnareProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const ROOT_SNARE_SPAS: Record<number, string> = {
+    30: 'Root', 31: 'Snare', 99: 'Root (SPA 99)',
+  };
+
+  const rootSnareSpells: { name: string; level: number; types: string[]; values: Record<string, number>; target: string; duration: number }[] = [];
+  let totalSpellsRS = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsRS++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (ROOT_SNARE_SPAS[spaId]) {
+        const t = ROOT_SNARE_SPAS[spaId];
+        if (!types.includes(t)) types.push(t);
+        values[t] = base;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    rootSnareSpells.push({ name: spell.fields[SF.NAME], level, types, values, target: targetName, duration: durationVal });
+  }
+
+  rootSnareSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const typeCounts2: Record<string, number> = {};
+  for (const s of rootSnareSpells) {
+    for (const t of s.types) typeCounts2[t] = (typeCounts2[t] || 0) + 1;
+  }
+
+  const lines = [`# ${classFullName} Root & Snare Profile`, ''];
+  lines.push('*Analyzes root and snare (movement debuff) spells — immobilization and slow effects.*', '');
+  lines.push(`**Total spells:** ${totalSpellsRS}`);
+  lines.push(`**Root/snare spells:** ${rootSnareSpells.length} (${((rootSnareSpells.length / totalSpellsRS) * 100).toFixed(1)}%)`, '');
+
+  if (Object.keys(typeCounts2).length > 0) {
+    lines.push('## Effect Type Distribution', '');
+    lines.push('| Type | Count |');
+    lines.push('|:-----|------:|');
+    for (const [type, count] of Object.entries(typeCounts2).sort((a, b) => b[1] - a[1])) {
+      lines.push(`| ${type} | ${count} |`);
+    }
+  }
+
+  if (rootSnareSpells.length > 0) {
+    lines.push('', '## Root & Snare Spells', '');
+    lines.push('| Spell | Level | Effects | Value | Target |');
+    lines.push('|:------|------:|:--------|------:|:-------|');
+    for (const s of rootSnareSpells.slice(0, 40)) {
+      const val = Object.values(s.values)[0] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${s.types.join(', ')} | ${val} | ${s.target} |`);
+    }
+    if (rootSnareSpells.length > 40) lines.push(`| ...and ${rootSnareSpells.length - 40} more | | | | |`);
+  }
+
+  lines.push('', `*${rootSnareSpells.length} root/snare spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassDispelProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const DISPEL_SPAS: Record<number, string> = {
+    27: 'Cancel Magic', 36: 'Dispel Magic', 116: 'Cure Curse',
+    35: 'Cure Disease', 40: 'Cure Poison', 41: 'Cure Blind',
+  };
+
+  const dispelSpells: { name: string; level: number; types: string[]; target: string }[] = [];
+  const typeCountsD: Record<string, number> = {};
+  let totalSpellsDP = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsDP++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      if (DISPEL_SPAS[spaId]) {
+        const t = DISPEL_SPAS[spaId];
+        if (!types.includes(t)) types.push(t);
+        typeCountsD[t] = (typeCountsD[t] || 0) + 1;
+      }
+    }
+    if (types.length === 0) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    dispelSpells.push({ name: spell.fields[SF.NAME], level, types, target: targetName });
+  }
+
+  dispelSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} Dispel & Cure Profile`, ''];
+  lines.push('*Analyzes dispel, cancel magic, and cure spells — removing hostile and negative effects.*', '');
+  lines.push(`**Total spells:** ${totalSpellsDP}`);
+  lines.push(`**Dispel/cure spells:** ${dispelSpells.length} (${((dispelSpells.length / totalSpellsDP) * 100).toFixed(1)}%)`, '');
+
+  if (Object.keys(typeCountsD).length > 0) {
+    lines.push('## Dispel/Cure Type Distribution', '');
+    lines.push('| Type | Count |');
+    lines.push('|:-----|------:|');
+    for (const [type, count] of Object.entries(typeCountsD).sort((a, b) => b[1] - a[1])) {
+      lines.push(`| ${type} | ${count} |`);
+    }
+  }
+
+  if (dispelSpells.length > 0) {
+    lines.push('', '## Dispel/Cure Spells — Top 40', '');
+    lines.push('| Spell | Level | Types | Target |');
+    lines.push('|:------|------:|:------|:-------|');
+    for (const s of dispelSpells.slice(-40)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.types.join(', ')} | ${s.target} |`);
+    }
+    if (dispelSpells.length > 40) lines.push(`| ...and ${dispelSpells.length - 40} more | | | |`);
+  }
+
+  lines.push('', `*${dispelSpells.length} dispel/cure spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
