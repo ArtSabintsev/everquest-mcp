@@ -1,9 +1,10 @@
 // Local EverQuest game data parser
 // Reads data directly from installed EQ game files for authoritative, offline lookups
 
-import { readFile, readdir } from 'fs/promises';
+import { readFile, readdir, writeFile, stat } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { createHash } from 'crypto';
 import { SearchResult, SpellData, ZoneData, fuzzyMatch, normalizeQuery } from './base.js';
 
 // ============ CONFIGURATION ============
@@ -24125,5 +24126,675 @@ export async function getOverseerQuestDifficultyAnalysis(): Promise<string> {
   lines.push(`- **Job types demanded:** ${jobDemand.size}`);
 
   lines.push('', `*${overseerQuests.size} overseer quests analyzed.*`);
+  return lines.join('\n');
+}
+
+// ============ DATA SNAPSHOT / DIFF SYSTEM ============
+
+interface DataSnapshotSystem {
+  count: number;
+  names: Record<string, string>; // id → name
+}
+
+interface DataSnapshot {
+  version: number;
+  timestamp: string;
+  eqPath: string;
+  files: Record<string, { size: number; mtime: string }>;
+  systems: Record<string, DataSnapshotSystem>;
+}
+
+const SNAPSHOT_FILE = '.eq-mcp-snapshot.json';
+const SNAPSHOT_VERSION = 1;
+
+// Tracked game files (relative to EQ install dir)
+const TRACKED_FILES = [
+  'spells_us.txt',
+  'spells_us_str.txt',
+  'dbstr_us.txt',
+  'eqstr_us.txt',
+  join('Resources', 'ZoneNames.txt'),
+  join('Resources', 'skillcaps.txt'),
+  join('Resources', 'basedata.txt'),
+  join('Resources', 'ACMitigation.txt'),
+  join('Resources', 'SpellStackingGroups.txt'),
+  join('Resources', 'playercustomization.txt'),
+  join('Resources', 'Achievements', 'AchievementsClient.txt'),
+  join('Resources', 'Achievements', 'AchievementCategories.txt'),
+  join('Resources', 'Faction', 'FactionBaseData.txt'),
+  join('Resources', 'OvrMiniClient.txt'),
+  join('Resources', 'OvrQstClient.txt'),
+];
+
+function snapshotPath(): string {
+  return gamePath(SNAPSHOT_FILE);
+}
+
+async function getFileMetadata(relativePath: string): Promise<{ size: number; mtime: string } | null> {
+  try {
+    const fullPath = gamePath(relativePath);
+    const s = await stat(fullPath);
+    return { size: s.size, mtime: s.mtime.toISOString() };
+  } catch {
+    return null;
+  }
+}
+
+function simpleHash(data: string): string {
+  return createHash('md5').update(data).digest('hex').slice(0, 12);
+}
+
+async function gatherCurrentState(): Promise<{ files: Record<string, { size: number; mtime: string }>; systems: Record<string, DataSnapshotSystem> }> {
+  // Gather file metadata
+  const files: Record<string, { size: number; mtime: string }> = {};
+  for (const f of TRACKED_FILES) {
+    const meta = await getFileMetadata(f);
+    if (meta) files[f] = meta;
+  }
+
+  // Load all data systems
+  await loadSpells();
+  await loadZones();
+  await loadFactions();
+  await loadAchievements();
+  await loadAchievementCategories();
+  await loadAAAbilities();
+  await loadOverseerMinions();
+  await loadOverseerQuests();
+  await loadMercenaries();
+  await loadSkillCaps();
+  await loadBaseStats();
+  await loadGameStrings();
+  await loadGameEvents();
+  await loadTributes();
+  await loadLore();
+  await loadCombatAbilities();
+  await loadSpellDescriptions();
+  await loadPlayerCustomization();
+
+  const systems: Record<string, DataSnapshotSystem> = {};
+
+  // Spells
+  if (spells && spells.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, spell] of spells) names[String(id)] = spell.fields[SF.NAME];
+    systems['spells'] = { count: spells.size, names };
+  }
+
+  // Zones
+  if (zones && zones.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, zone] of zones) names[String(id)] = zone.name;
+    systems['zones'] = { count: zones.size, names };
+  }
+
+  // Factions
+  if (factions && factions.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, faction] of factions) names[String(id)] = faction.name;
+    systems['factions'] = { count: factions.size, names };
+  }
+
+  // Achievements
+  if (achievements && achievements.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, ach] of achievements) names[String(id)] = ach.name;
+    systems['achievements'] = { count: achievements.size, names };
+  }
+
+  // AA Abilities
+  if (aaAbilities && aaAbilities.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, aa] of aaAbilities) names[String(id)] = aa.name;
+    systems['aaAbilities'] = { count: aaAbilities.size, names };
+  }
+
+  // Overseer Minions
+  if (overseerMinions && overseerMinions.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, m] of overseerMinions) names[String(id)] = m.fullName || m.shortName;
+    systems['overseerMinions'] = { count: overseerMinions.size, names };
+  }
+
+  // Overseer Quests
+  if (overseerQuests && overseerQuests.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, q] of overseerQuests) names[String(id)] = q.name;
+    systems['overseerQuests'] = { count: overseerQuests.size, names };
+  }
+
+  // Mercenaries
+  if (mercenaries && mercenaries.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, m] of mercenaries) names[String(id)] = m.description || `Merc ${id}`;
+    systems['mercenaries'] = { count: mercenaries.size, names };
+  }
+
+  // Game Strings
+  if (gameStrings && gameStrings.size > 0) {
+    systems['gameStrings'] = { count: gameStrings.size, names: {} }; // Too large for name map
+  }
+
+  // Tributes
+  if (tributes && tributes.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, t] of tributes) names[String(id)] = t.name;
+    systems['tributes'] = { count: tributes.size, names };
+  }
+
+  // Lore
+  if (loreEntries) {
+    const names: Record<string, string> = {};
+    loreEntries.forEach((e, i) => { names[String(i)] = e.title; });
+    systems['lore'] = { count: loreEntries.length, names };
+  }
+
+  // Combat Abilities
+  if (combatAbilities && combatAbilities.size > 0) {
+    const names: Record<string, string> = {};
+    for (const [id, name] of combatAbilities) names[String(id)] = name;
+    systems['combatAbilities'] = { count: combatAbilities.size, names };
+  }
+
+  // Spell Categories
+  if (spellCategories && spellCategories.size > 0) {
+    systems['spellCategories'] = { count: spellCategories.size, names: {} };
+  }
+
+  // Player Customization
+  if (playerCustomization && playerCustomization.length > 0) {
+    systems['playerCustomization'] = { count: playerCustomization.length, names: {} };
+  }
+
+  return { files, systems };
+}
+
+async function loadSnapshot(): Promise<DataSnapshot | null> {
+  try {
+    const data = await readFile(snapshotPath(), 'utf-8');
+    return JSON.parse(data) as DataSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+// Tool 252: Save data snapshot
+export async function saveDataSnapshot(): Promise<string> {
+  if (!isGameDataAvailable()) return 'EQ game data not available.';
+
+  const { files, systems } = await gatherCurrentState();
+
+  const snapshot: DataSnapshot = {
+    version: SNAPSHOT_VERSION,
+    timestamp: new Date().toISOString(),
+    eqPath: EQ_GAME_PATH,
+    files,
+    systems,
+  };
+
+  const json = JSON.stringify(snapshot, null, 2);
+  await writeFile(snapshotPath(), json, 'utf-8');
+
+  const lines: string[] = ['# Data Snapshot Saved', ''];
+  lines.push(`**Timestamp:** ${snapshot.timestamp}`);
+  lines.push(`**Location:** ${snapshotPath()}`);
+  lines.push(`**Size:** ${(json.length / 1024).toFixed(1)} KB`);
+  lines.push('', '## Captured Systems', '');
+  lines.push('| System | Entries |');
+  lines.push('|:-------|-------:|');
+  for (const [name, sys] of Object.entries(systems).sort((a, b) => b[1].count - a[1].count)) {
+    lines.push(`| ${name} | ${sys.count.toLocaleString()} |`);
+  }
+  lines.push('', '## Tracked Files', '');
+  lines.push('| File | Size |');
+  lines.push('|:-----|-----:|');
+  for (const [name, meta] of Object.entries(files)) {
+    lines.push(`| ${name} | ${(meta.size / 1024).toFixed(0)} KB |`);
+  }
+  lines.push('', '*Snapshot saved. Run `get_data_update_summary` after a patch to see what changed.*');
+  return lines.join('\n');
+}
+
+// Tool 253: Get data update summary
+export async function getDataUpdateSummary(): Promise<string> {
+  if (!isGameDataAvailable()) return 'EQ game data not available.';
+
+  const saved = await loadSnapshot();
+  if (!saved) {
+    return 'No saved snapshot found. Run `save_data_snapshot` first to create a baseline, then run this tool after a game update to see what changed.';
+  }
+
+  const { files: currentFiles, systems: currentSystems } = await gatherCurrentState();
+
+  const lines: string[] = ['# Data Update Summary', ''];
+  lines.push(`**Baseline snapshot:** ${saved.timestamp}`);
+  lines.push(`**Current check:** ${new Date().toISOString()}`);
+
+  // File changes
+  lines.push('', '## File Changes', '');
+  lines.push('| File | Status | Old Size | New Size | Delta |');
+  lines.push('|:-----|:-------|--------:|---------:|------:|');
+  let fileChanges = 0;
+  const allFiles = new Set([...Object.keys(saved.files), ...Object.keys(currentFiles)]);
+  for (const f of [...allFiles].sort()) {
+    const old = saved.files[f];
+    const cur = currentFiles[f];
+    if (!old && cur) {
+      lines.push(`| ${f} | **NEW** | - | ${(cur.size / 1024).toFixed(0)} KB | - |`);
+      fileChanges++;
+    } else if (old && !cur) {
+      lines.push(`| ${f} | **REMOVED** | ${(old.size / 1024).toFixed(0)} KB | - | - |`);
+      fileChanges++;
+    } else if (old && cur && (old.size !== cur.size || old.mtime !== cur.mtime)) {
+      const delta = cur.size - old.size;
+      const sign = delta >= 0 ? '+' : '';
+      lines.push(`| ${f} | **CHANGED** | ${(old.size / 1024).toFixed(0)} KB | ${(cur.size / 1024).toFixed(0)} KB | ${sign}${(delta / 1024).toFixed(1)} KB |`);
+      fileChanges++;
+    } else {
+      lines.push(`| ${f} | unchanged | ${(old!.size / 1024).toFixed(0)} KB | ${(cur!.size / 1024).toFixed(0)} KB | 0 |`);
+    }
+  }
+
+  // System changes
+  lines.push('', '## System Entry Changes', '');
+  lines.push('| System | Old Count | New Count | Added | Removed | Changed |');
+  lines.push('|:-------|----------:|----------:|------:|--------:|--------:|');
+  let totalAdded = 0, totalRemoved = 0, totalChanged = 0;
+  const allSystems = new Set([...Object.keys(saved.systems), ...Object.keys(currentSystems)]);
+  for (const sys of [...allSystems].sort()) {
+    const old = saved.systems[sys];
+    const cur = currentSystems[sys];
+    if (!old && cur) {
+      lines.push(`| ${sys} | - | ${cur.count.toLocaleString()} | ${cur.count} | 0 | 0 |`);
+      totalAdded += cur.count;
+    } else if (old && !cur) {
+      lines.push(`| ${sys} | ${old.count.toLocaleString()} | - | 0 | ${old.count} | 0 |`);
+      totalRemoved += old.count;
+    } else if (old && cur) {
+      const oldIds = new Set(Object.keys(old.names));
+      const curIds = new Set(Object.keys(cur.names));
+      let added = 0, removed = 0, changed = 0;
+      for (const id of curIds) {
+        if (!oldIds.has(id)) added++;
+        else if (old.names[id] !== cur.names[id]) changed++;
+      }
+      for (const id of oldIds) {
+        if (!curIds.has(id)) removed++;
+      }
+      // For systems without name maps, just compare counts
+      if (oldIds.size === 0 && curIds.size === 0) {
+        added = Math.max(0, cur.count - old.count);
+        removed = Math.max(0, old.count - cur.count);
+      }
+      totalAdded += added;
+      totalRemoved += removed;
+      totalChanged += changed;
+      const status = (added + removed + changed > 0) ? '**' : '';
+      lines.push(`| ${status}${sys}${status} | ${old.count.toLocaleString()} | ${cur.count.toLocaleString()} | ${added} | ${removed} | ${changed} |`);
+    }
+  }
+
+  // Summary
+  lines.push('', '## Summary', '');
+  lines.push(`- **Files changed:** ${fileChanges} of ${allFiles.size}`);
+  lines.push(`- **Entries added:** ${totalAdded.toLocaleString()}`);
+  lines.push(`- **Entries removed:** ${totalRemoved.toLocaleString()}`);
+  lines.push(`- **Entries modified:** ${totalChanged.toLocaleString()}`);
+  if (fileChanges === 0 && totalAdded === 0 && totalRemoved === 0 && totalChanged === 0) {
+    lines.push('', '**No changes detected since last snapshot.**');
+  } else {
+    lines.push('', '*Use `get_data_update_detail` with a system name (e.g., "spells", "zones") to see specific changes.*');
+  }
+
+  return lines.join('\n');
+}
+
+// Tool 254: Get data update detail for a specific system
+export async function getDataUpdateDetail(systemName: string): Promise<string> {
+  if (!isGameDataAvailable()) return 'EQ game data not available.';
+
+  const saved = await loadSnapshot();
+  if (!saved) {
+    return 'No saved snapshot found. Run `save_data_snapshot` first.';
+  }
+
+  const { systems: currentSystems } = await gatherCurrentState();
+
+  const sysKey = Object.keys(saved.systems).find(k => k.toLowerCase() === systemName.toLowerCase())
+    || Object.keys(currentSystems).find(k => k.toLowerCase() === systemName.toLowerCase());
+
+  if (!sysKey) {
+    const available = [...new Set([...Object.keys(saved.systems), ...Object.keys(currentSystems)])].sort();
+    return `Unknown system "${systemName}". Available: ${available.join(', ')}`;
+  }
+
+  const old = saved.systems[sysKey];
+  const cur = currentSystems[sysKey];
+
+  const lines: string[] = [`# Data Update Detail: ${sysKey}`, ''];
+  lines.push(`**Baseline:** ${saved.timestamp}`);
+  lines.push(`**Current:** ${new Date().toISOString()}`);
+
+  if (!old) {
+    lines.push('', `**System "${sysKey}" is entirely new (not in baseline snapshot).**`);
+    lines.push(`- **New entries:** ${cur?.count || 0}`);
+    return lines.join('\n');
+  }
+  if (!cur) {
+    lines.push('', `**System "${sysKey}" no longer exists in current data.**`);
+    lines.push(`- **Removed entries:** ${old.count}`);
+    return lines.join('\n');
+  }
+
+  lines.push(`**Old count:** ${old.count.toLocaleString()}`);
+  lines.push(`**New count:** ${cur.count.toLocaleString()}`);
+
+  const oldIds = new Set(Object.keys(old.names));
+  const curIds = new Set(Object.keys(cur.names));
+
+  if (oldIds.size === 0 && curIds.size === 0) {
+    const delta = cur.count - old.count;
+    lines.push('', `*Name-level detail not available for this system. Count delta: ${delta >= 0 ? '+' : ''}${delta}*`);
+    return lines.join('\n');
+  }
+
+  // Added entries
+  const added: [string, string][] = [];
+  for (const id of curIds) {
+    if (!oldIds.has(id)) added.push([id, cur.names[id]]);
+  }
+
+  // Removed entries
+  const removed: [string, string][] = [];
+  for (const id of oldIds) {
+    if (!curIds.has(id)) removed.push([id, old.names[id]]);
+  }
+
+  // Changed entries (renamed)
+  const changed: [string, string, string][] = [];
+  for (const id of curIds) {
+    if (oldIds.has(id) && old.names[id] !== cur.names[id]) {
+      changed.push([id, old.names[id], cur.names[id]]);
+    }
+  }
+
+  if (added.length > 0) {
+    lines.push('', `## Added (${added.length})`, '');
+    lines.push('| ID | Name |');
+    lines.push('|---:|:-----|');
+    for (const [id, name] of added.slice(0, 100)) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+    if (added.length > 100) lines.push(`| ... | *${added.length - 100} more* |`);
+  }
+
+  if (removed.length > 0) {
+    lines.push('', `## Removed (${removed.length})`, '');
+    lines.push('| ID | Name |');
+    lines.push('|---:|:-----|');
+    for (const [id, name] of removed.slice(0, 100)) {
+      lines.push(`| ${id} | ${name} |`);
+    }
+    if (removed.length > 100) lines.push(`| ... | *${removed.length - 100} more* |`);
+  }
+
+  if (changed.length > 0) {
+    lines.push('', `## Modified (${changed.length})`, '');
+    lines.push('| ID | Old Name | New Name |');
+    lines.push('|---:|:---------|:---------|');
+    for (const [id, oldName, newName] of changed.slice(0, 100)) {
+      lines.push(`| ${id} | ${oldName} | ${newName} |`);
+    }
+    if (changed.length > 100) lines.push(`| ... | *${changed.length - 100} more* | |`);
+  }
+
+  if (added.length === 0 && removed.length === 0 && changed.length === 0) {
+    lines.push('', '**No changes detected for this system.**');
+  }
+
+  // Summary
+  lines.push('', '## Summary', '');
+  lines.push(`- **Added:** ${added.length}`);
+  lines.push(`- **Removed:** ${removed.length}`);
+  lines.push(`- **Modified:** ${changed.length}`);
+  lines.push(`- **Unchanged:** ${curIds.size - added.length - changed.length}`);
+
+  return lines.join('\n');
+}
+
+// ============ PLAYER CUSTOMIZATION PARSER ============
+
+interface PlayerCustomizationEntry {
+  raceId: number;
+  sex: number; // 0=male, 1=female
+  classes: number[];
+  colors: number[];
+  numFaces: number;
+  numHairStyles: number;
+  numEyes: number;
+  numBeards: number;
+  numTattoos: number;
+  numFacialAttachments: number;
+}
+
+let playerCustomization: PlayerCustomizationEntry[] | null = null;
+
+async function loadPlayerCustomization(): Promise<void> {
+  if (playerCustomization !== null) return;
+  if (!isGameDataAvailable()) {
+    playerCustomization = [];
+    return;
+  }
+
+  console.error('[LocalData] Loading playercustomization.txt...');
+  try {
+    const data = await readGameFile(join('Resources', 'playercustomization.txt'));
+    playerCustomization = [];
+    for (const line of data.split('\n')) {
+      if (line.startsWith('#') || !line.trim()) continue;
+      const f = line.split('^');
+      if (f.length < 13) continue;
+      const raceId = parseInt(f[0]);
+      if (isNaN(raceId)) continue;
+      const classesList = f[4] ? f[4].split(',').map(Number).filter(n => !isNaN(n) && n > 0) : [];
+      const colorsList = f[5] ? f[5].split(',').map(Number).filter(n => !isNaN(n)) : [];
+      playerCustomization.push({
+        raceId,
+        sex: parseInt(f[12]) || 0,
+        classes: classesList,
+        colors: colorsList,
+        numFaces: parseInt(f[6]) || 0,
+        numHairStyles: parseInt(f[7]) || 0,
+        numEyes: parseInt(f[8]) || 0,
+        numBeards: parseInt(f[9]) || 0,
+        numTattoos: parseInt(f[10]) || 0,
+        numFacialAttachments: parseInt(f[11]) || 0,
+      });
+    }
+    console.error(`[LocalData] Loaded ${playerCustomization.length} player customization entries`);
+  } catch {
+    playerCustomization = [];
+  }
+}
+
+// Tool 255: Player customization overview
+export async function getPlayerCustomizationOverview(): Promise<string> {
+  await loadPlayerCustomization();
+  if (!playerCustomization || playerCustomization.length === 0) return 'Player customization data not available.';
+
+  const lines: string[] = ['# Player Customization Overview', '', '*Character creation appearance options by race and sex.*'];
+
+  lines.push('', '## Appearance Options by Race', '');
+  lines.push('| Race | Sex | Faces | Hair | Eyes | Beards | Tattoos | Facial | Colors |');
+  lines.push('|:-----|:----|------:|-----:|-----:|-------:|--------:|-------:|-------:|');
+
+  for (const entry of playerCustomization) {
+    const raceName = RACE_IDS[entry.raceId] || `Race ${entry.raceId}`;
+    const sex = entry.sex === 0 ? 'Male' : 'Female';
+    const total = entry.numFaces + entry.numHairStyles + entry.numEyes + entry.numBeards + entry.numTattoos + entry.numFacialAttachments;
+    if (total === 0) continue; // Skip empty entries
+    lines.push(`| ${raceName} | ${sex} | ${entry.numFaces} | ${entry.numHairStyles} | ${entry.numEyes} | ${entry.numBeards} | ${entry.numTattoos} | ${entry.numFacialAttachments} | ${entry.colors.length} |`);
+  }
+
+  // Summary stats
+  const withOptions = playerCustomization.filter(e => e.numFaces + e.numHairStyles + e.numEyes > 0);
+  const totalFaces = withOptions.reduce((s, e) => s + e.numFaces, 0);
+  const totalHair = withOptions.reduce((s, e) => s + e.numHairStyles, 0);
+  const totalEyes = withOptions.reduce((s, e) => s + e.numEyes, 0);
+
+  lines.push('', '## Summary', '');
+  lines.push(`- **Races with customization:** ${withOptions.length}`);
+  lines.push(`- **Total face options:** ${totalFaces}`);
+  lines.push(`- **Total hair styles:** ${totalHair}`);
+  lines.push(`- **Total eye options:** ${totalEyes}`);
+
+  lines.push('', `*${playerCustomization.length} customization entries analyzed.*`);
+  return lines.join('\n');
+}
+
+// Tool 256: Race appearance options
+export async function getRaceAppearanceOptions(raceName: string): Promise<string> {
+  await loadPlayerCustomization();
+  if (!playerCustomization || playerCustomization.length === 0) return 'Player customization data not available.';
+
+  const raceEntry = Object.entries(RACE_IDS).find(([, name]) =>
+    name.toLowerCase() === raceName.toLowerCase()
+  );
+  if (!raceEntry) {
+    const validRaces = Object.values(RACE_IDS).join(', ');
+    return `Unknown race "${raceName}". Valid races: ${validRaces}`;
+  }
+  const raceId = parseInt(raceEntry[0]);
+  const raceFullName = raceEntry[1];
+
+  const entries = playerCustomization.filter(e => e.raceId === raceId);
+  if (entries.length === 0) return `No customization data found for ${raceFullName}.`;
+
+  const lines: string[] = [`# Race Appearance: ${raceFullName}`, '', `*Character creation appearance options for ${raceFullName}.*`];
+
+  for (const entry of entries) {
+    const sex = entry.sex === 0 ? 'Male' : 'Female';
+    lines.push('', `## ${sex}`, '');
+    lines.push(`- **Faces:** ${entry.numFaces}`);
+    lines.push(`- **Hair styles:** ${entry.numHairStyles}`);
+    lines.push(`- **Eye options:** ${entry.numEyes}`);
+    lines.push(`- **Beards:** ${entry.numBeards}`);
+    lines.push(`- **Tattoos:** ${entry.numTattoos}`);
+    lines.push(`- **Facial attachments:** ${entry.numFacialAttachments}`);
+    lines.push(`- **Color palette:** ${entry.colors.length} colors`);
+    if (entry.classes.length > 0) {
+      const classNames = entry.classes.map(c => CLASS_IDS[c] || `Class ${c}`).join(', ');
+      lines.push(`- **Available classes:** ${classNames}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// Tool 257: Combat ability class analysis
+export async function getCombatAbilityClassAnalysis(): Promise<string> {
+  await loadCombatAbilities();
+  await loadSpells();
+  if (!combatAbilities || combatAbilities.size === 0) return 'Combat ability data not available.';
+
+  const lines: string[] = ['# Combat Ability / Discipline Analysis', '', '*Analyze combat abilities (disciplines) and their relationship to classes.*'];
+
+  // Combat abilities are tracked by name in the dbstr system
+  // Cross-reference with spells that share names (disciplines are often spell-based)
+  const abilityNames = [...combatAbilities.values()];
+  const nameWords = new Map<string, number>();
+  const prefixes = new Map<string, number>();
+
+  for (const name of abilityNames) {
+    const words = name.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter((w: string) => w.length >= 3);
+    for (const w of words) nameWords.set(w, (nameWords.get(w) || 0) + 1);
+
+    // First word as prefix
+    const firstWord = name.split(/\s+/)[0];
+    if (firstWord) prefixes.set(firstWord, (prefixes.get(firstWord) || 0) + 1);
+  }
+
+  // Match abilities to spells by name
+  let matchedToSpells = 0;
+  const classAbilityCounts = new Map<number, number>();
+  if (spells && spells.size > 0) {
+    const spellNameMap = new Map<string, LocalSpell>();
+    for (const spell of spells.values()) {
+      spellNameMap.set(spell.fields[SF.NAME].toLowerCase(), spell);
+    }
+
+    for (const name of abilityNames) {
+      const spell = spellNameMap.get(name.toLowerCase());
+      if (spell) {
+        matchedToSpells++;
+        for (let c = 0; c < 16; c++) {
+          const lv = parseInt(spell.fields[SF.CLASS_LEVEL_START + c]) || 255;
+          if (lv > 0 && lv < 255) {
+            classAbilityCounts.set(c + 1, (classAbilityCounts.get(c + 1) || 0) + 1);
+          }
+        }
+      }
+    }
+  }
+
+  lines.push(`**Total combat abilities:** ${combatAbilities.size}`);
+  lines.push(`**Matched to spells:** ${matchedToSpells} (${((matchedToSpells / combatAbilities.size) * 100).toFixed(1)}%)`);
+
+  // Abilities per class (from spell matches)
+  if (classAbilityCounts.size > 0) {
+    lines.push('', '## Combat Abilities by Class', '');
+    lines.push('| Class | Abilities |');
+    lines.push('|:------|----------:|');
+    const sorted = [...classAbilityCounts.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [cid, count] of sorted) {
+      lines.push(`| ${CLASS_IDS[cid] || `Class ${cid}`} | ${count} |`);
+    }
+  }
+
+  // Most common name prefixes
+  lines.push('', '## Most Common Name Prefixes', '');
+  lines.push('| Prefix | Count |');
+  lines.push('|:-------|------:|');
+  const sortedPrefixes = [...prefixes.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [prefix, count] of sortedPrefixes.slice(0, 20)) {
+    lines.push(`| ${prefix} | ${count} |`);
+  }
+
+  // Keyword themes
+  const themes: Record<string, string[]> = {
+    'Melee': ['strike', 'slash', 'kick', 'bash', 'punch', 'frenzy', 'attack', 'cleave'],
+    'Defense': ['shield', 'block', 'parry', 'dodge', 'guard', 'fortify', 'deflect'],
+    'Buff/Stance': ['stance', 'aura', 'focus', 'discipline', 'form', 'rage'],
+    'Taunt/Aggro': ['taunt', 'provoke', 'aggro', 'hate', 'threat'],
+    'Heal/Recovery': ['heal', 'mend', 'recover', 'bandage', 'salve'],
+  };
+  lines.push('', '## Ability Themes', '');
+  lines.push('| Theme | Matching Abilities |');
+  lines.push('|:------|-------------------:|');
+  for (const [theme, keywords] of Object.entries(themes)) {
+    let count = 0;
+    for (const name of abilityNames) {
+      const lower = name.toLowerCase();
+      if (keywords.some(k => lower.includes(k))) count++;
+    }
+    lines.push(`| ${theme} | ${count} |`);
+  }
+
+  // Most common words
+  const stopWords = new Set(['the', 'of', 'and', 'for', 'rk', 'iii', 'ii']);
+  lines.push('', '## Most Common Words', '');
+  lines.push('| Word | Count |');
+  lines.push('|:-----|------:|');
+  const sortedWords = [...nameWords.entries()].filter(([w]) => !stopWords.has(w)).sort((a, b) => b[1] - a[1]);
+  for (const [word, count] of sortedWords.slice(0, 20)) {
+    lines.push(`| ${word} | ${count} |`);
+  }
+
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total abilities:** ${combatAbilities.size}`);
+  lines.push(`- **Spell-matched:** ${matchedToSpells}`);
+  lines.push(`- **Unique prefixes:** ${prefixes.size}`);
+
+  lines.push('', `*${combatAbilities.size} combat abilities analyzed.*`);
   return lines.join('\n');
 }

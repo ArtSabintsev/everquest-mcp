@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 251 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 257 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **251 tools** for querying EverQuest data
+- **257 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -12,6 +12,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that pr
 - **Creature encyclopedia** - 980+ NPC/monster race types searchable by name
 - **Overseer system** - Agents with archetypes/traits/jobs, quests with slot details and success/failure outcomes
 - **Zone maps** - 34K+ points of interest from Brewall map files, zone search by name/level, teleport spell lookup
+- **Patch diff detection** - Snapshot game data before a patch, then compare after to see exactly what changed (new spells, modified zones, added achievements, etc.)
 - **Quest guides** - Epic quest walkthroughs, leveling guides, farming guides
 
 ## Data Sources
@@ -233,6 +234,9 @@ Then restart Claude Desktop.
 | `get_class_offensive_profile` | Class offensive profile — nukes, DoTs, debuffs, AE damage, procs, crowd control with offensive rating summary |
 | `get_skill_cap_progression_analysis` | Skill cap progression analysis — all skills per class with max caps, growth curves, category breakdown (Combat, Casting, Utility, Tradeskill) |
 | `get_base_stat_growth_curve_analysis` | Base stat growth curves — HP, Mana, Endurance, Regen at milestone levels with growth rates and cross-class comparison |
+| `get_player_customization_overview` | Player customization overview — character creation appearance options (faces, hair, eyes, beards, tattoos, colors) by race and sex |
+| `get_race_appearance_options` | Race appearance options — detailed character creation customization for a specific race |
+| `get_combat_ability_class_analysis` | Combat ability / discipline analysis — abilities per class, name patterns, keyword themes, spell cross-references |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -375,6 +379,9 @@ Then restart Claude Desktop.
 | `get_game_string_category_analysis` | Game string category analysis — classify 7000+ game UI strings by topic (Combat, Spells, Items, Trading, Group, Guild, etc.) |
 | `get_help_topic_content_analysis` | Help topic content analysis — analyze 75+ in-game help topics by content length, cross-references between topics, and category distribution |
 | `get_cross_system_name_overlap` | Cross-system name overlap — find names appearing across 3+ game systems (zones, factions, achievements, AAs, lore, overseer agents) revealing lore connections |
+| `save_data_snapshot` | Save a snapshot of current game data state (file sizes, entry counts, ID→name maps) as a baseline for detecting changes after patches |
+| `get_data_update_summary` | Compare current game data against saved snapshot — shows file changes, entry count deltas, additions/removals/modifications per system |
+| `get_data_update_detail` | Detailed diff for a specific data system (spells, zones, factions, etc.) — lists exactly which entries were added, removed, or renamed |
 
 ## Example Queries
 
@@ -408,7 +415,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (251 tools)
+├── tools.ts          # Tool definitions and handlers (257 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

@@ -259,6 +259,12 @@ import {
   getSkillCapProgressionAnalysis,
   getBaseStatGrowthCurveAnalysis,
   getOverseerQuestDifficultyAnalysis,
+  saveDataSnapshot,
+  getDataUpdateSummary,
+  getDataUpdateDetail,
+  getPlayerCustomizationOverview,
+  getRaceAppearanceOptions,
+  getCombatAbilityClassAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -3330,6 +3336,54 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'save_data_snapshot',
+    description: 'Save a snapshot of current EQ game data state (file sizes, entry counts, names). Use before a game patch to establish a baseline for comparison.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_data_update_summary',
+    description: 'Compare current EQ game data against saved snapshot to detect changes after a patch — shows file changes, entry counts, additions, removals, and modifications per system.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_data_update_detail',
+    description: 'Detailed diff for a specific data system (spells, zones, factions, achievements, etc.) — shows exactly which entries were added, removed, or renamed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        system_name: {
+          type: 'string',
+          description: 'System name (e.g., "spells", "zones", "factions", "achievements", "aaAbilities", "overseerQuests", "mercenaries", "tributes", "combatAbilities")'
+        }
+      },
+      required: ['system_name']
+    }
+  },
+  {
+    name: 'get_player_customization_overview',
+    description: 'Player customization overview — character creation appearance options (faces, hair, eyes, beards, tattoos, colors) by race and sex.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_race_appearance_options',
+    description: 'Race appearance options — detailed character creation customization for a specific race (faces, hair, eyes, beards, tattoos, available classes).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        race_name: {
+          type: 'string',
+          description: 'Race name (e.g., "Human", "Dark Elf", "Drakkin", "Iksar")'
+        }
+      },
+      required: ['race_name']
+    }
+  },
+  {
+    name: 'get_combat_ability_class_analysis',
+    description: 'Combat ability / discipline analysis — abilities per class, name patterns, keyword themes (melee, defense, buffs), spell cross-references.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5317,6 +5371,34 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_overseer_quest_difficulty_analysis': {
         return getOverseerQuestDifficultyAnalysis();
+      }
+
+      case 'save_data_snapshot': {
+        return saveDataSnapshot();
+      }
+
+      case 'get_data_update_summary': {
+        return getDataUpdateSummary();
+      }
+
+      case 'get_data_update_detail': {
+        const systemName = typeof args.system_name === 'string' ? args.system_name.trim() : '';
+        if (!systemName) return 'Error: "system_name" parameter is required.';
+        return getDataUpdateDetail(systemName);
+      }
+
+      case 'get_player_customization_overview': {
+        return getPlayerCustomizationOverview();
+      }
+
+      case 'get_race_appearance_options': {
+        const raceName = typeof args.race_name === 'string' ? args.race_name.trim() : '';
+        if (!raceName) return 'Error: "race_name" parameter is required.';
+        return getRaceAppearanceOptions(raceName);
+      }
+
+      case 'get_combat_ability_class_analysis': {
+        return getCombatAbilityClassAnalysis();
       }
 
       case 'search_help_topics': {
