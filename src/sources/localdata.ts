@@ -27474,3 +27474,399 @@ export async function getSpellProcEffectAnalysis(className: string): Promise<str
   lines.push('', `*${procSpells.length} proc spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// ============ CLASS DEBUFF PROFILE ============
+
+export async function getClassDebuffProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // Debuff SPA categories (non-damage debuffs)
+  const DEBUFF_SPAS: Record<string, number[]> = {
+    'Slow (Attack Speed)': [147],
+    'Haste Reduction': [11], // negative haste
+    'AC Debuff': [1],
+    'ATK Debuff': [2],
+    'Stat Debuff (STR/DEX/AGI/STA/INT/WIS/CHA)': [4, 5, 6, 7, 8, 9, 10],
+    'Resist Debuff (Fire/Cold/Magic/Poison/Disease/Corruption)': [46, 47, 48, 49, 50, 146],
+    'Snare': [31],
+    'Blind': [20],
+    'Silence': [162],
+    'Aggro Increase': [114],
+    'Spell Casting Speed Debuff': [127],
+    'Fragile (Increase Dmg Taken)': [160, 117],
+  };
+
+  const debuffs: { name: string; level: number; categories: string[]; resistType: string; targetType: string; duration: number; mana: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] === '1') continue; // only detrimental
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const foundCategories: Set<string> = new Set();
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          for (const [cat, spas] of Object.entries(DEBUFF_SPAS)) {
+            if (cat === 'Haste Reduction') {
+              if (spaId === 11 && base < 0) foundCategories.add(cat);
+            } else if (cat.startsWith('AC Debuff')) {
+              if (spaId === 1 && base < 0) foundCategories.add(cat);
+            } else if (cat.startsWith('ATK Debuff')) {
+              if (spaId === 2 && base < 0) foundCategories.add(cat);
+            } else if (cat.startsWith('Stat Debuff')) {
+              if (spas.includes(spaId) && base < 0) foundCategories.add(cat);
+            } else if (cat.startsWith('Resist Debuff')) {
+              if (spas.includes(spaId) && base < 0) foundCategories.add(cat);
+            } else {
+              if (spas.includes(spaId)) foundCategories.add(cat);
+            }
+          }
+        }
+      }
+    }
+    if (foundCategories.size === 0) continue;
+
+    const resistTypeId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+
+    debuffs.push({
+      name: spell.fields[SF.NAME],
+      level,
+      categories: [...foundCategories],
+      resistType: RESIST_TYPES[resistTypeId] || `Type ${resistTypeId}`,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      mana,
+    });
+  }
+
+  const lines = [`# ${classFullName} Debuff Profile`, ''];
+  lines.push(`*Analyzes non-damage debuffs: slow, resist debuffs, stat debuffs, AC/ATK debuffs, snare, blind, silence.*`, '');
+
+  if (debuffs.length === 0) {
+    lines.push('No debuff spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total debuff spells:** ${debuffs.length}`, '');
+
+  const catCounts: Record<string, number> = {};
+  for (const s of debuffs) {
+    for (const c of s.categories) catCounts[c] = (catCounts[c] || 0) + 1;
+  }
+  lines.push('## Debuff Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1])) {
+    const pct = ((count / debuffs.length) * 100).toFixed(1);
+    lines.push(`- **${cat}:** ${count} spells (${pct}%)`);
+  }
+
+  for (const [cat] of Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 8)) {
+    const catSpells = debuffs.filter(s => s.categories.includes(cat)).sort((a, b) => b.level - a.level);
+    lines.push('', `## ${cat} (${catSpells.length})`, '');
+    lines.push('| Spell | Level | Duration | Resist | Target | Mana |');
+    lines.push('|:------|------:|---------:|:-------|:-------|-----:|');
+    for (const s of catSpells.slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.duration} | ${s.resistType} | ${s.targetType} | ${s.mana || '—'} |`);
+    }
+    if (catSpells.length > 15) lines.push(`| ... +${catSpells.length - 15} more | | | | | |`);
+  }
+
+  // Resist type distribution
+  const resistCounts: Record<string, number> = {};
+  for (const d of debuffs) resistCounts[d.resistType] = (resistCounts[d.resistType] || 0) + 1;
+  lines.push('', '## Debuff Resist Type Distribution', '');
+  for (const [resist, count] of Object.entries(resistCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${resist}:** ${count} debuffs`);
+  }
+
+  lines.push('', `*${debuffs.length} debuff spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ CLASS SELF-BUFF PROFILE ============
+
+export async function getClassSelfBuffProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const selfBuffs: { name: string; level: number; effects: string[]; duration: number; mana: number; category: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue; // only beneficial
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    if (targetTypeId !== 6) continue; // only Self-targeted (6 = Self)
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const effects: string[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          if (spaId > 0 && SPA_NAMES[spaId]) effects.push(SPA_NAMES[spaId]);
+        }
+      }
+    }
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    selfBuffs.push({
+      name: spell.fields[SF.NAME],
+      level,
+      effects: [...new Set(effects)],
+      duration: durationVal,
+      mana,
+      category,
+    });
+  }
+
+  const lines = [`# ${classFullName} Self-Buff Profile`, ''];
+  lines.push(`*Analyzes self-only beneficial spells: effects, duration, categories, most common buff types.*`, '');
+
+  if (selfBuffs.length === 0) {
+    lines.push('No self-buff spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total self-buffs:** ${selfBuffs.length}`, '');
+
+  // Effect frequency
+  const effectCounts: Record<string, number> = {};
+  for (const s of selfBuffs) {
+    for (const e of s.effects) effectCounts[e] = (effectCounts[e] || 0) + 1;
+  }
+  lines.push('## Most Common Self-Buff Effects', '');
+  const sortedEffects = Object.entries(effectCounts).sort((a, b) => b[1] - a[1]);
+  for (const [effect, count] of sortedEffects.slice(0, 20)) {
+    const pct = ((count / selfBuffs.length) * 100).toFixed(1);
+    lines.push(`- **${effect}:** ${count} buffs (${pct}%)`);
+  }
+
+  // Category distribution
+  const catCounts: Record<string, number> = {};
+  for (const s of selfBuffs) catCounts[s.category] = (catCounts[s.category] || 0) + 1;
+  lines.push('', '## Self-Buff Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    lines.push(`- **${cat}:** ${count} buffs`);
+  }
+
+  // Duration distribution
+  const durationBuckets: Record<string, number> = { 'Instant (0)': 0, '1-6 ticks': 0, '7-30 ticks': 0, '31-100 ticks': 0, '101+ ticks': 0 };
+  for (const s of selfBuffs) {
+    if (s.duration === 0) durationBuckets['Instant (0)']++;
+    else if (s.duration <= 6) durationBuckets['1-6 ticks']++;
+    else if (s.duration <= 30) durationBuckets['7-30 ticks']++;
+    else if (s.duration <= 100) durationBuckets['31-100 ticks']++;
+    else durationBuckets['101+ ticks']++;
+  }
+  lines.push('', '## Duration Distribution', '');
+  for (const [label, count] of Object.entries(durationBuckets)) {
+    if (count > 0) lines.push(`- **${label}:** ${count} buffs`);
+  }
+
+  // Highest level self-buffs
+  const byLevel = [...selfBuffs].sort((a, b) => b.level - a.level || b.effects.length - a.effects.length);
+  lines.push('', '## Highest Level Self-Buffs (Top 20)', '');
+  lines.push('| Buff | Level | Duration | Effects | Category |');
+  lines.push('|:-----|------:|---------:|--------:|:---------|');
+  for (const s of byLevel.slice(0, 20)) {
+    lines.push(`| ${s.name} | ${s.level} | ${s.duration} | ${s.effects.length} | ${s.category} |`);
+  }
+
+  // Most complex (most effects) self-buffs
+  const byEffects = [...selfBuffs].sort((a, b) => b.effects.length - a.effects.length);
+  lines.push('', '## Most Complex Self-Buffs (Most Effects) (Top 15)', '');
+  lines.push('| Buff | Level | Effects | Duration | Key Effects |');
+  lines.push('|:-----|------:|--------:|---------:|:------------|');
+  for (const s of byEffects.slice(0, 15)) {
+    const keyEffects = s.effects.slice(0, 4).join(', ');
+    lines.push(`| ${s.name} | ${s.level} | ${s.effects.length} | ${s.duration} | ${keyEffects} |`);
+  }
+
+  lines.push('', `*${selfBuffs.length} self-buff spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ SPELL SLOW/HASTE COMPARISON ============
+
+export async function getSpellSlowHasteComparison(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classIds = Object.keys(CLASS_IDS).map(Number).sort((a, b) => a - b);
+
+  const slowsByClass: Record<number, { name: string; level: number; value: number; resistType: string; targetType: string }[]> = {};
+  const hastesByClass: Record<number, { name: string; level: number; value: number; targetType: string }[]> = {};
+  for (const cid of classIds) {
+    slowsByClass[cid] = [];
+    hastesByClass[cid] = [];
+  }
+
+  for (const spell of spells.values()) {
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+    if (!effectField) continue;
+
+    let slowValue = 0;
+    let hasteValue = 0;
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length >= 3) {
+        const spaId = parseInt(parts[1]);
+        const base = parseInt(parts[2]) || 0;
+        if (spaId === 11 && base > 0) hasteValue = Math.max(hasteValue, base); // positive haste
+        if (spaId === 147 && base !== 0) slowValue = Math.max(slowValue, Math.abs(base)); // slow
+        if (spaId === 11 && base < 0) slowValue = Math.max(slowValue, Math.abs(base)); // negative haste = slow
+      }
+    }
+
+    for (const cid of classIds) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+
+      const resistTypeId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+      const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+
+      if (slowValue > 0 && spell.fields[SF.BENEFICIAL] !== '1') {
+        slowsByClass[cid].push({
+          name: spell.fields[SF.NAME],
+          level,
+          value: slowValue,
+          resistType: RESIST_TYPES[resistTypeId] || `Type ${resistTypeId}`,
+          targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+        });
+      }
+      if (hasteValue > 0 && spell.fields[SF.BENEFICIAL] === '1') {
+        hastesByClass[cid].push({
+          name: spell.fields[SF.NAME],
+          level,
+          value: hasteValue,
+          targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+        });
+      }
+    }
+  }
+
+  const lines = ['# Cross-Class Slow & Haste Comparison', ''];
+  lines.push('*Compares slow (attack speed reduction) and haste (attack speed increase) spells across all 16 classes.*', '');
+
+  // Summary matrix
+  lines.push('## Slow/Haste Summary', '');
+  lines.push('| Class | Slow Spells | Max Slow % | Haste Spells | Max Haste % |');
+  lines.push('|:------|----------:|----------:|-----------:|----------:|');
+  for (const cid of classIds) {
+    const slows = slowsByClass[cid];
+    const hastes = hastesByClass[cid];
+    const maxSlow = slows.length > 0 ? Math.max(...slows.map(s => s.value)) : 0;
+    const maxHaste = hastes.length > 0 ? Math.max(...hastes.map(s => s.value)) : 0;
+    lines.push(`| ${CLASS_IDS[cid]} | ${slows.length} | ${maxSlow || '—'} | ${hastes.length} | ${maxHaste || '—'} |`);
+  }
+
+  // Best slows across all classes
+  const allSlows: { name: string; level: number; value: number; className: string; resistType: string }[] = [];
+  for (const cid of classIds) {
+    for (const s of slowsByClass[cid]) {
+      allSlows.push({ ...s, className: CLASS_IDS[cid] });
+    }
+  }
+  const uniqueSlows = new Map<string, typeof allSlows[0]>();
+  for (const s of allSlows.sort((a, b) => b.value - a.value)) {
+    if (!uniqueSlows.has(s.name)) uniqueSlows.set(s.name, s);
+  }
+  lines.push('', '## Strongest Slow Spells (Top 20)', '');
+  lines.push('| Spell | Class | Level | Slow % | Resist |');
+  lines.push('|:------|:------|------:|-------:|:-------|');
+  let count = 0;
+  for (const [, s] of uniqueSlows) {
+    if (count >= 20) break;
+    lines.push(`| ${s.name} | ${s.className} | ${s.level} | ${s.value}% | ${s.resistType} |`);
+    count++;
+  }
+
+  // Best hastes across all classes
+  const allHastes: { name: string; level: number; value: number; className: string; targetType: string }[] = [];
+  for (const cid of classIds) {
+    for (const s of hastesByClass[cid]) {
+      allHastes.push({ ...s, className: CLASS_IDS[cid] });
+    }
+  }
+  const uniqueHastes = new Map<string, typeof allHastes[0]>();
+  for (const s of allHastes.sort((a, b) => b.value - a.value)) {
+    if (!uniqueHastes.has(s.name)) uniqueHastes.set(s.name, s);
+  }
+  lines.push('', '## Strongest Haste Spells (Top 20)', '');
+  lines.push('| Spell | Class | Level | Haste % | Target |');
+  lines.push('|:------|:------|------:|--------:|:-------|');
+  count = 0;
+  for (const [, s] of uniqueHastes) {
+    if (count >= 20) break;
+    lines.push(`| ${s.name} | ${s.className} | ${s.level} | ${s.value}% | ${s.targetType} |`);
+    count++;
+  }
+
+  // Classes without slow or haste
+  const noSlow = classIds.filter(cid => slowsByClass[cid].length === 0);
+  const noHaste = classIds.filter(cid => hastesByClass[cid].length === 0);
+  if (noSlow.length > 0) {
+    lines.push('', '## Classes Without Slows', '');
+    lines.push(noSlow.map(cid => CLASS_IDS[cid]).join(', '));
+  }
+  if (noHaste.length > 0) {
+    lines.push('', '## Classes Without Hastes', '');
+    lines.push(noHaste.map(cid => CLASS_IDS[cid]).join(', '));
+  }
+
+  lines.push('', `*Slow and haste spells compared across 16 classes.*`);
+  return lines.join('\n');
+}

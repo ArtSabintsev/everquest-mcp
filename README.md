@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 281 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 284 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **281 tools** for querying EverQuest data
+- **284 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -261,6 +261,9 @@ Then restart Claude Desktop.
 | `get_class_dot_profile` | DoT spell profile for a class — highest total damage, mana efficiency, duration distribution, resist types, target types, level scaling |
 | `get_class_direct_damage_profile` | Direct damage (nuke) profile for a class — highest damage, DPS, mana efficiency, AE nukes, resist types, level scaling |
 | `get_spell_proc_effect_analysis` | Proc effect analysis for a class — spell procs, melee procs, range procs, buff/debuff breakdown, referenced proc effects |
+| `get_class_debuff_profile` | Debuff profile for a class — slow, resist/stat/AC/ATK debuffs, snare, blind, silence, fragility with resist types and durations |
+| `get_class_self_buff_profile` | Self-only buff analysis for a class — most common effects, categories, duration breakdown, highest level and most complex self-buffs |
+| `get_spell_slow_haste_comparison` | Cross-class slow and haste comparison — spell counts, max slow/haste %, strongest spells across all 16 classes |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -439,7 +442,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (281 tools)
+├── tools.ts          # Tool definitions and handlers (284 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

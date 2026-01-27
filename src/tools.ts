@@ -289,6 +289,9 @@ import {
   getClassDoTProfile,
   getClassDirectDamageProfile,
   getSpellProcEffectAnalysis,
+  getClassDebuffProfile,
+  getClassSelfBuffProfile,
+  getSpellSlowHasteComparison,
 } from './sources/index.js';
 
 export const tools = [
@@ -3588,6 +3591,33 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_debuff_profile',
+    description: 'Debuff spell profile for a class — slow, resist debuffs, stat debuffs, AC/ATK debuffs, snare, blind, silence, fragility debuffs with resist types and durations.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_self_buff_profile',
+    description: 'Self-only buff analysis for a class — most common effects, category distribution, duration breakdown, highest level and most complex self-buffs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Monk", "Shadow Knight")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_spell_slow_haste_comparison',
+    description: 'Cross-class slow and haste spell comparison — spell counts, max slow/haste percentages, strongest slow/haste spells across all 16 classes.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5719,6 +5749,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getSpellProcEffectAnalysis(className);
+      }
+
+      case 'get_class_debuff_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDebuffProfile(className);
+      }
+
+      case 'get_class_self_buff_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSelfBuffProfile(className);
+      }
+
+      case 'get_spell_slow_haste_comparison': {
+        return getSpellSlowHasteComparison();
       }
 
       case 'search_help_topics': {
