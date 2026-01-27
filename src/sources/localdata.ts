@@ -37115,3 +37115,266 @@ export async function getClassDispelProfile(className: string): Promise<string> 
   lines.push('', `*${dispelSpells.length} dispel/cure spells for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 363: Class spell duration breakdown
+export async function getClassSpellDurationBreakdown(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Approximate duration in ticks at level 100
+  function calcTicks(formula: number, value: number): number {
+    const lvl = 100;
+    switch (formula) {
+      case 0: return 0;
+      case 1: return Math.min(Math.ceil(lvl / 2), value || 1);
+      case 2: return Math.min(Math.ceil(lvl * 3 / 5) + 1, value || 1);
+      case 3: return Math.min(lvl * 30, value || 1);
+      case 4: return value;
+      case 5: return 3;
+      case 6: return Math.min(Math.ceil(lvl / 2) + 2, value || 1);
+      case 7: return value;
+      case 8: return Math.min(lvl + 10, value || 1);
+      case 9: return Math.min(2 * lvl + 10, value || 1);
+      case 10: return Math.min(3 * lvl + 10, value || 1);
+      case 11: return Math.min(Math.ceil(lvl / 4), value || 1);
+      case 12: return value;
+      case 50: case 51: return 72000; // permanent
+      default: return value || 0;
+    }
+  }
+
+  const brackets: Record<string, number> = {
+    'Instant (0 ticks)': 0,
+    'Very Short (1-5 ticks, 6-30s)': 0,
+    'Short (6-20 ticks, 36s-2m)': 0,
+    'Medium (21-100 ticks, 2-10m)': 0,
+    'Long (101-600 ticks, 10-60m)': 0,
+    'Very Long (601-6000 ticks, 1-10h)': 0,
+    'Permanent (6000+ ticks)': 0,
+  };
+  const bracketKeys = Object.keys(brackets);
+  const formulaCounts: Record<number, number> = {};
+  let totalSpellsDur = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsDur++;
+
+    const formula = parseInt(spell.fields[SF.DURATION_FORMULA]) || 0;
+    const value = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    formulaCounts[formula] = (formulaCounts[formula] || 0) + 1;
+
+    const ticks = calcTicks(formula, value);
+    if (ticks === 0) brackets[bracketKeys[0]]++;
+    else if (ticks <= 5) brackets[bracketKeys[1]]++;
+    else if (ticks <= 20) brackets[bracketKeys[2]]++;
+    else if (ticks <= 100) brackets[bracketKeys[3]]++;
+    else if (ticks <= 600) brackets[bracketKeys[4]]++;
+    else if (ticks <= 6000) brackets[bracketKeys[5]]++;
+    else brackets[bracketKeys[6]]++;
+  }
+
+  const lines = [`# ${classFullName} Spell Duration Breakdown`, ''];
+  lines.push('*Analyzes spell durations at level 100 reference — instant, short, medium, long, and permanent.*', '');
+  lines.push(`**Total spells:** ${totalSpellsDur}`, '');
+
+  lines.push('## Duration Brackets', '');
+  lines.push('| Bracket | Count | % |');
+  lines.push('|:--------|------:|--:|');
+  for (const [bracket, count] of Object.entries(brackets)) {
+    if (count > 0) {
+      lines.push(`| ${bracket} | ${count} | ${((count / totalSpellsDur) * 100).toFixed(1)}% |`);
+    }
+  }
+
+  lines.push('', '## Duration Formula Distribution', '');
+  lines.push('| Formula | Count | Description |');
+  lines.push('|--------:|------:|:------------|');
+  const formulaDesc: Record<number, string> = {
+    0: 'Instant', 1: 'level/2 (max val)', 2: 'level*3/5+1 (max val)',
+    3: 'level*30 (max val)', 4: 'Fixed ticks', 5: 'Fixed 3 ticks',
+    6: 'level/2+2 (max val)', 7: 'Fixed ticks', 8: 'level+10 (max val)',
+    9: '2*level+10 (max val)', 10: '3*level+10 (max val)',
+    11: 'level/4 (max val)', 12: 'Fixed ticks', 50: 'Permanent', 51: 'Permanent',
+  };
+  for (const [formula, count] of Object.entries(formulaCounts).sort((a, b) => b[1] - a[1]).slice(0, 20)) {
+    const desc = formulaDesc[parseInt(formula)] || 'Other';
+    lines.push(`| ${formula} | ${count} | ${desc} |`);
+  }
+
+  lines.push('', `*${totalSpellsDur} spells analyzed for ${classFullName} duration breakdown.*`);
+  return lines.join('\n');
+}
+
+// Tool 364: Class beneficial target analysis
+export async function getClassBeneficialTargetAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const targetCounts: Record<string, number> = {};
+  const selfSpells: { name: string; level: number }[] = [];
+  const groupSpells: { name: string; level: number }[] = [];
+  const petSpells: { name: string; level: number }[] = [];
+  let totalBeneficial = 0;
+  let totalAll = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalAll++;
+
+    const beneficial = parseInt(spell.fields[SF.BENEFICIAL]) || 0;
+    if (beneficial !== 1) continue;
+    totalBeneficial++;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    targetCounts[targetName] = (targetCounts[targetName] || 0) + 1;
+
+    if (targetId === 6) selfSpells.push({ name: spell.fields[SF.NAME], level });
+    else if (targetId === 41 || targetId === 3) groupSpells.push({ name: spell.fields[SF.NAME], level });
+    else if (targetId === 14) petSpells.push({ name: spell.fields[SF.NAME], level });
+  }
+
+  selfSpells.sort((a, b) => a.level - b.level);
+  groupSpells.sort((a, b) => a.level - b.level);
+  petSpells.sort((a, b) => a.level - b.level);
+
+  const lines = [`# ${classFullName} Beneficial Target Analysis`, ''];
+  lines.push('*Analyzes beneficial spell targeting — self, group, pet, and other target types.*', '');
+  lines.push(`**Total spells:** ${totalAll}`);
+  lines.push(`**Beneficial spells:** ${totalBeneficial} (${((totalBeneficial / totalAll) * 100).toFixed(1)}%)`, '');
+
+  lines.push('## Beneficial Target Type Distribution', '');
+  lines.push('| Target Type | Count | % of Beneficial |');
+  lines.push('|:------------|------:|----------------:|');
+  for (const [target, count] of Object.entries(targetCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${target} | ${count} | ${((count / totalBeneficial) * 100).toFixed(1)}% |`);
+  }
+
+  if (selfSpells.length > 0) {
+    lines.push('', `## Self-Only Buffs (${selfSpells.length})`, '');
+    lines.push('| Spell | Level |');
+    lines.push('|:------|------:|');
+    for (const s of selfSpells.slice(-25)) {
+      lines.push(`| ${s.name} | ${s.level} |`);
+    }
+    if (selfSpells.length > 25) lines.push(`| ...and ${selfSpells.length - 25} more | |`);
+  }
+
+  if (groupSpells.length > 0) {
+    lines.push('', `## Group Spells (${groupSpells.length})`, '');
+    lines.push('| Spell | Level |');
+    lines.push('|:------|------:|');
+    for (const s of groupSpells.slice(-25)) {
+      lines.push(`| ${s.name} | ${s.level} |`);
+    }
+    if (groupSpells.length > 25) lines.push(`| ...and ${groupSpells.length - 25} more | |`);
+  }
+
+  if (petSpells.length > 0) {
+    lines.push('', `## Pet Spells (${petSpells.length})`, '');
+    lines.push('| Spell | Level |');
+    lines.push('|:------|------:|');
+    for (const s of petSpells.slice(-25)) {
+      lines.push(`| ${s.name} | ${s.level} |`);
+    }
+    if (petSpells.length > 25) lines.push(`| ...and ${petSpells.length - 25} more | |`);
+  }
+
+  lines.push('', `*${totalBeneficial} beneficial spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 365: Class detrimental analysis
+export async function getClassDetrimentalAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const resistCounts: Record<string, number> = {};
+  const targetCountsDet: Record<string, number> = {};
+  const spaCounts: Record<string, number> = {};
+  let totalDetrimental = 0;
+  let totalAllDet = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalAllDet++;
+
+    const beneficial = parseInt(spell.fields[SF.BENEFICIAL]) || 0;
+    if (beneficial === 1) continue;
+    totalDetrimental++;
+
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const resistName = RESIST_TYPES[resistId] || `Resist ${resistId}`;
+    resistCounts[resistName] = (resistCounts[resistName] || 0) + 1;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    targetCountsDet[targetName] = (targetCountsDet[targetName] || 0) + 1;
+
+    // Count SPA effects
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length < 3) continue;
+        const spaId = parseInt(parts[1]);
+        if (spaId > 0) {
+          const spaName = SPA_NAMES[spaId] || `SPA ${spaId}`;
+          spaCounts[spaName] = (spaCounts[spaName] || 0) + 1;
+        }
+      }
+    }
+  }
+
+  const lines = [`# ${classFullName} Detrimental Spell Analysis`, ''];
+  lines.push('*Comprehensive analysis of detrimental spells — resist types, targets, and effect categories.*', '');
+  lines.push(`**Total spells:** ${totalAllDet}`);
+  lines.push(`**Detrimental spells:** ${totalDetrimental} (${((totalDetrimental / totalAllDet) * 100).toFixed(1)}%)`, '');
+
+  lines.push('## Resist Type Distribution', '');
+  lines.push('| Resist Type | Count | % |');
+  lines.push('|:------------|------:|--:|');
+  for (const [resist, count] of Object.entries(resistCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${resist} | ${count} | ${((count / totalDetrimental) * 100).toFixed(1)}% |`);
+  }
+
+  lines.push('', '## Detrimental Target Types', '');
+  lines.push('| Target Type | Count | % |');
+  lines.push('|:------------|------:|--:|');
+  for (const [target, count] of Object.entries(targetCountsDet).sort((a, b) => b[1] - a[1])) {
+    lines.push(`| ${target} | ${count} | ${((count / totalDetrimental) * 100).toFixed(1)}% |`);
+  }
+
+  lines.push('', '## Top Detrimental Effects (SPAs)', '');
+  lines.push('| Effect | Count |');
+  lines.push('|:-------|------:|');
+  const topSpas = Object.entries(spaCounts).sort((a, b) => b[1] - a[1]).slice(0, 25);
+  for (const [spa, count] of topSpas) {
+    lines.push(`| ${spa} | ${count} |`);
+  }
+
+  lines.push('', `*${totalDetrimental} detrimental spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}

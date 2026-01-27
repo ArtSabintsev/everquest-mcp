@@ -370,6 +370,9 @@ import {
   getClassSpellSharedMatrix,
   getClassRootSnareProfile,
   getClassDispelProfile,
+  getClassSpellDurationBreakdown,
+  getClassBeneficialTargetAnalysis,
+  getClassDetrimentalAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -4549,6 +4552,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_duration_breakdown',
+    description: 'Spell duration breakdown — categorizes spells by duration (instant, short, medium, long, permanent) at level 100 reference with formula distribution.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Bard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_beneficial_target_analysis',
+    description: 'Beneficial spell targeting analysis — breaks down self-only buffs, group spells, pet spells, and other target types for beneficial spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_detrimental_analysis',
+    description: 'Comprehensive detrimental spell analysis — resist type distribution, target types, and top SPA effects for offensive/debuff spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Necromancer", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7163,6 +7199,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassDispelProfile(className);
+      }
+
+      case 'get_class_spell_duration_breakdown': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellDurationBreakdown(className);
+      }
+
+      case 'get_class_beneficial_target_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassBeneficialTargetAnalysis(className);
+      }
+
+      case 'get_class_detrimental_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDetrimentalAnalysis(className);
       }
 
       case 'search_help_topics': {
