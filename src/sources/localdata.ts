@@ -26333,3 +26333,277 @@ export async function getAchievementCompletionComplexity(): Promise<string> {
   lines.push('', `*${achievements.size} achievements analyzed for complexity.*`);
   return lines.join('\n');
 }
+
+// Tool 273: Spell endurance cost analysis
+export async function getSpellEnduranceCostAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells) return 'Spell data not available.';
+
+  const classId = Object.entries(CLASS_IDS).find(([, name]) => name.toLowerCase() === className.toLowerCase())?.[0];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+
+  const cid = parseInt(classId);
+  const lines = [`# Endurance Cost Analysis — ${CLASS_IDS[cid]}`, ''];
+  lines.push(`*Analyzes endurance costs for ${CLASS_IDS[cid]} combat abilities and disciplines.*`, '');
+
+  const endSpells: { id: number; name: string; level: number; endurance: number; mana: number; castTime: number; category: string }[] = [];
+  for (const [spellId, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + cid - 1]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const endurance = parseInt(spell.fields[SF.ENDURANCE]) || 0;
+    if (endurance <= 0) continue;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const cat = spellCategories?.get(catId) || 'Unknown';
+    endSpells.push({ id: spellId, name: spell.name, level, endurance, mana, castTime, category: cat });
+  }
+
+  if (endSpells.length === 0) return `No endurance-cost abilities found for ${CLASS_IDS[cid]}.`;
+
+  lines.push(`- **Abilities with endurance cost:** ${endSpells.length}`);
+  const avgEnd = Math.round(endSpells.reduce((s, sp) => s + sp.endurance, 0) / endSpells.length);
+  lines.push(`- **Average endurance cost:** ${avgEnd}`);
+
+  // Dual-resource abilities (both mana and endurance)
+  const dualResource = endSpells.filter(sp => sp.mana > 0);
+  lines.push(`- **Dual-resource (mana + endurance):** ${dualResource.length}`);
+
+  // Distribution
+  lines.push('', '## Endurance Cost Distribution', '');
+  const buckets: Record<string, number> = {};
+  for (const sp of endSpells) {
+    const bucket = sp.endurance <= 50 ? '1-50' : sp.endurance <= 200 ? '51-200' : sp.endurance <= 500 ? '201-500' :
+      sp.endurance <= 1000 ? '501-1000' : sp.endurance <= 5000 ? '1001-5000' : '5001+';
+    buckets[bucket] = (buckets[bucket] || 0) + 1;
+  }
+  const bucketOrder = ['1-50', '51-200', '201-500', '501-1000', '1001-5000', '5001+'];
+  for (const b of bucketOrder) {
+    if (buckets[b]) lines.push(`- **${b}:** ${buckets[b]} abilities (${((buckets[b] / endSpells.length) * 100).toFixed(1)}%)`);
+  }
+
+  // Most expensive
+  const byEnd = [...endSpells].sort((a, b) => b.endurance - a.endurance);
+  lines.push('', '## Most Expensive Abilities (Top 15)', '');
+  lines.push('| Ability | Level | Endurance | Mana | Category |');
+  lines.push('|:--------|------:|----------:|-----:|:---------|');
+  for (const sp of byEnd.slice(0, 15)) {
+    lines.push(`| ${sp.name} | ${sp.level} | ${sp.endurance} | ${sp.mana || '—'} | ${sp.category} |`);
+  }
+
+  // By level range
+  lines.push('', '## Average Endurance Cost by Level Range', '');
+  lines.push('| Level Range | Avg End | Count | Max End |');
+  lines.push('|:------------|--------:|------:|--------:|');
+  const ranges: [string, number, number][] = [
+    ['1-30', 1, 30], ['31-60', 31, 60], ['61-80', 61, 80],
+    ['81-100', 81, 100], ['101-115', 101, 115], ['116-130', 116, 130],
+  ];
+  for (const [label, lo, hi] of ranges) {
+    const inRange = endSpells.filter(sp => sp.level >= lo && sp.level <= hi);
+    if (inRange.length === 0) continue;
+    const avg = Math.round(inRange.reduce((s, sp) => s + sp.endurance, 0) / inRange.length);
+    const max = Math.max(...inRange.map(sp => sp.endurance));
+    lines.push(`| ${label} | ${avg} | ${inRange.length} | ${max} |`);
+  }
+
+  // By category
+  lines.push('', '## Endurance Cost by Category', '');
+  lines.push('| Category | Count | Avg End | Min | Max |');
+  lines.push('|:---------|------:|--------:|----:|----:|');
+  const byCat: Record<string, { count: number; total: number; min: number; max: number }> = {};
+  for (const sp of endSpells) {
+    if (!byCat[sp.category]) byCat[sp.category] = { count: 0, total: 0, min: Infinity, max: 0 };
+    byCat[sp.category].count++;
+    byCat[sp.category].total += sp.endurance;
+    if (sp.endurance < byCat[sp.category].min) byCat[sp.category].min = sp.endurance;
+    if (sp.endurance > byCat[sp.category].max) byCat[sp.category].max = sp.endurance;
+  }
+  for (const [cat, d] of Object.entries(byCat).sort((a, b) => b[1].count - a[1].count).slice(0, 12)) {
+    lines.push(`| ${cat} | ${d.count} | ${Math.round(d.total / d.count)} | ${d.min} | ${d.max} |`);
+  }
+
+  lines.push('', `*${endSpells.length} endurance-cost abilities analyzed for ${CLASS_IDS[cid]}.*`);
+  return lines.join('\n');
+}
+
+// Tool 274: Class spell book size comparison
+export async function getClassSpellBookSizeComparison(): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells) return 'Spell data not available.';
+
+  const lines = ['# Class Spell Book Size Comparison', ''];
+  lines.push('*Compares total spell counts, beneficial/detrimental ratios, and category diversity across all 16 classes.*', '');
+
+  const classData: Record<number, { total: number; beneficial: number; detrimental: number; categories: Set<string>; maxLevel: number; byLevel: Record<number, number> }> = {};
+  for (let i = 1; i <= 16; i++) classData[i] = { total: 0, beneficial: 0, detrimental: 0, categories: new Set(), maxLevel: 0, byLevel: {} };
+
+  for (const [, spell] of spells) {
+    if (spell.name === 'UNKNOWN DB STR' || spell.name.startsWith('*')) continue;
+    const catId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const cat = spellCategories?.get(catId) || 'Unknown';
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    for (let i = 1; i <= 16; i++) {
+      const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + i - 1]) || 255;
+      if (level <= 0 || level >= 255) continue;
+      classData[i].total++;
+      if (beneficial) classData[i].beneficial++;
+      else classData[i].detrimental++;
+      classData[i].categories.add(cat);
+      if (level > classData[i].maxLevel) classData[i].maxLevel = level;
+      classData[i].byLevel[level] = (classData[i].byLevel[level] || 0) + 1;
+    }
+  }
+
+  // Main comparison table
+  lines.push('## Spell Book Size by Class', '');
+  lines.push('| Rank | Class | Total | Beneficial | Detrimental | Categories | Max Level |');
+  lines.push('|-----:|:------|------:|-----------:|------------:|-----------:|----------:|');
+  const sorted = Object.entries(classData).sort((a, b) => b[1].total - a[1].total);
+  for (let i = 0; i < sorted.length; i++) {
+    const [cid, data] = sorted[i];
+    lines.push(`| ${i + 1} | ${CLASS_IDS[parseInt(cid)]} | ${data.total} | ${data.beneficial} | ${data.detrimental} | ${data.categories.size} | ${data.maxLevel} |`);
+  }
+
+  // Statistics
+  const totals = sorted.map(([, d]) => d.total);
+  const avg = Math.round(totals.reduce((s, t) => s + t, 0) / totals.length);
+  const max = totals[0];
+  const min = totals[totals.length - 1];
+  lines.push('', '## Statistics', '');
+  lines.push(`- **Largest spell book:** ${CLASS_IDS[parseInt(sorted[0][0])]} (${max})`);
+  lines.push(`- **Smallest spell book:** ${CLASS_IDS[parseInt(sorted[sorted.length - 1][0])]} (${min})`);
+  lines.push(`- **Average:** ${avg}`);
+  lines.push(`- **Spread:** ${max - min} spells (${((max / min - 1) * 100).toFixed(0)}% difference)`);
+
+  // Level with most new spells per class
+  lines.push('', '## Peak Spell Level per Class', '');
+  lines.push('| Class | Peak Level | Spells at Peak |');
+  lines.push('|:------|----------:|--------------:|');
+  for (const [cid, data] of sorted) {
+    let peakLevel = 0;
+    let peakCount = 0;
+    for (const [lvl, count] of Object.entries(data.byLevel)) {
+      if (count > peakCount) { peakCount = count; peakLevel = parseInt(lvl); }
+    }
+    lines.push(`| ${CLASS_IDS[parseInt(cid)]} | ${peakLevel} | ${peakCount} |`);
+  }
+
+  // Category diversity ranking
+  lines.push('', '## Category Diversity Ranking', '');
+  lines.push('| Class | Unique Categories | Spells/Category |');
+  lines.push('|:------|------------------:|----------------:|');
+  const byCatDiv = Object.entries(classData).sort((a, b) => b[1].categories.size - a[1].categories.size);
+  for (const [cid, data] of byCatDiv) {
+    const spellsPerCat = (data.total / data.categories.size).toFixed(1);
+    lines.push(`| ${CLASS_IDS[parseInt(cid)]} | ${data.categories.size} | ${spellsPerCat} |`);
+  }
+
+  lines.push('', '*Spell book sizes compared across all 16 classes.*');
+  return lines.join('\n');
+}
+
+// Tool 275: Zone level overlap analysis
+export async function getZoneLevelOverlapAnalysis(): Promise<string> {
+  await loadZones();
+  if (!zones || zones.size === 0) return 'Zone data not available.';
+
+  const lines = ['# Zone Level Overlap Analysis', ''];
+  lines.push('*Identifies level ranges with the most zone choices and finds zones that serve as alternatives to each other.*', '');
+
+  // Build level -> zones mapping
+  const levelZones: Record<number, { id: number; name: string; min: number; max: number }[]> = {};
+  const zoneList: { id: number; name: string; min: number; max: number; span: number }[] = [];
+
+  for (const [id, zone] of zones) {
+    if (zone.levelMin <= 0 || zone.levelMax <= 0) continue;
+    const effectiveMax = Math.min(zone.levelMax, 130);
+    const span = effectiveMax - zone.levelMin + 1;
+    zoneList.push({ id, name: zone.name, min: zone.levelMin, max: effectiveMax, span });
+    for (let lvl = zone.levelMin; lvl <= effectiveMax; lvl++) {
+      if (!levelZones[lvl]) levelZones[lvl] = [];
+      levelZones[lvl].push({ id, name: zone.name, min: zone.levelMin, max: effectiveMax });
+    }
+  }
+
+  if (zoneList.length === 0) return 'No zones with level ranges found.';
+
+  lines.push(`- **Zones with level ranges:** ${zoneList.length}`);
+  const levels = Object.keys(levelZones).map(Number).sort((a, b) => a - b);
+  lines.push(`- **Level coverage:** ${levels[0]}–${levels[levels.length - 1]}`);
+
+  // Zone choices per level
+  lines.push('', '## Zone Choices per Level (Sampled)', '');
+  lines.push('| Level | Zone Choices | Bar |');
+  lines.push('|------:|------------:|:----|');
+  let maxChoices = 0;
+  for (const lvl of levels) {
+    if (levelZones[lvl].length > maxChoices) maxChoices = levelZones[lvl].length;
+  }
+  for (let lvl = 1; lvl <= 130; lvl += 5) {
+    const choices = levelZones[lvl]?.length || 0;
+    const barLen = maxChoices > 0 ? Math.round((choices / maxChoices) * 30) : 0;
+    lines.push(`| ${lvl} | ${choices} | ${'█'.repeat(barLen)} |`);
+  }
+
+  // Levels with most choices
+  lines.push('', '## Levels with Most Zone Choices (Top 10)', '');
+  lines.push('| Level | Zones Available |');
+  lines.push('|------:|:----|');
+  const sortedLevels = levels.sort((a, b) => (levelZones[b]?.length || 0) - (levelZones[a]?.length || 0));
+  for (const lvl of sortedLevels.slice(0, 10)) {
+    const names = levelZones[lvl].map(z => z.name).slice(0, 8).join(', ');
+    const more = levelZones[lvl].length > 8 ? ` +${levelZones[lvl].length - 8} more` : '';
+    lines.push(`| ${lvl} | ${names}${more} |`);
+  }
+
+  // Levels with fewest choices (bottlenecks)
+  lines.push('', '## Leveling Bottlenecks (Fewest Choices)', '');
+  lines.push('| Level | Zones |');
+  lines.push('|------:|:------|');
+  const sortedAsc = levels.filter(l => l <= 130).sort((a, b) => (levelZones[a]?.length || 0) - (levelZones[b]?.length || 0));
+  for (const lvl of sortedAsc.slice(0, 10)) {
+    const names = levelZones[lvl].map(z => z.name).join(', ');
+    lines.push(`| ${lvl} | ${names} |`);
+  }
+
+  // Zone overlap analysis: find pairs of zones with most overlapping levels
+  lines.push('', '## Most Overlapping Zone Pairs (Top 15)', '');
+  lines.push('| Zone 1 | Zone 2 | Overlap Levels | Overlap % |');
+  lines.push('|:-------|:-------|---------------:|----------:|');
+  const overlaps: { z1: string; z2: string; overlap: number; pct: number }[] = [];
+  for (let i = 0; i < Math.min(zoneList.length, 200); i++) {
+    for (let j = i + 1; j < Math.min(zoneList.length, 200); j++) {
+      const z1 = zoneList[i];
+      const z2 = zoneList[j];
+      const overlapMin = Math.max(z1.min, z2.min);
+      const overlapMax = Math.min(z1.max, z2.max);
+      if (overlapMin <= overlapMax) {
+        const overlap = overlapMax - overlapMin + 1;
+        const smallerSpan = Math.min(z1.span, z2.span);
+        const pct = (overlap / smallerSpan) * 100;
+        if (overlap >= 5) overlaps.push({ z1: z1.name, z2: z2.name, overlap, pct });
+      }
+    }
+  }
+  overlaps.sort((a, b) => b.overlap - a.overlap);
+  for (const o of overlaps.slice(0, 15)) {
+    lines.push(`| ${o.z1} | ${o.z2} | ${o.overlap} | ${o.pct.toFixed(0)}% |`);
+  }
+
+  // Widest and narrowest zones
+  zoneList.sort((a, b) => b.span - a.span);
+  lines.push('', '## Widest Level Ranges (Top 10)', '');
+  lines.push('| Zone | Level Range | Span |');
+  lines.push('|:-----|:------------|-----:|');
+  for (const z of zoneList.slice(0, 10)) {
+    lines.push(`| ${z.name} | ${z.min}–${z.max} | ${z.span} |`);
+  }
+
+  lines.push('', `*${zoneList.length} zones analyzed for level overlap.*`);
+  return lines.join('\n');
+}

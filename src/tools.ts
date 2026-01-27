@@ -280,6 +280,9 @@ import {
   getClassBuffDebuffRatio,
   getSpellRecourseChainAnalysis,
   getAchievementCompletionComplexity,
+  getSpellEnduranceCostAnalysis,
+  getClassSpellBookSizeComparison,
+  getZoneLevelOverlapAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -3498,6 +3501,27 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'get_spell_endurance_cost_analysis',
+    description: 'Endurance cost analysis for a class — distribution, most expensive abilities, cost trends by level, category breakdown, and dual-resource (mana+endurance) abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Monk")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_book_size_comparison',
+    description: 'Cross-class spell book size comparison — total spells, beneficial/detrimental counts, category diversity, peak spell levels, and spell-per-category density.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_zone_level_overlap_analysis',
+    description: 'Zone level overlap analysis — zone choices per level, leveling bottlenecks (fewest choices), most overlapping zone pairs, and widest level ranges.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5581,6 +5605,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_achievement_completion_complexity': {
         return getAchievementCompletionComplexity();
+      }
+
+      case 'get_spell_endurance_cost_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellEnduranceCostAnalysis(className);
+      }
+
+      case 'get_class_spell_book_size_comparison': {
+        return getClassSpellBookSizeComparison();
+      }
+
+      case 'get_zone_level_overlap_analysis': {
+        return getZoneLevelOverlapAnalysis();
       }
 
       case 'search_help_topics': {

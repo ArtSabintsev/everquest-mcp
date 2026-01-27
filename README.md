@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 272 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 275 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **272 tools** for querying EverQuest data
+- **275 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -252,6 +252,9 @@ Then restart Claude Desktop.
 | `get_class_buff_debuff_ratio` | Cross-class beneficial vs detrimental spell ratio — buff/debuff balance, offensive vs supportive class tendencies, target type breakdown |
 | `get_spell_recourse_chain_analysis` | Spell recourse chain analysis — spells triggering secondary recourse spells, chain depths, class distribution, most common recourse targets |
 | `get_achievement_completion_complexity` | Achievement complexity analysis — component counts, highest requirements, simplest vs hardest achievements, component type distribution |
+| `get_spell_endurance_cost_analysis` | Endurance cost analysis for a class — distribution, most expensive abilities, cost trends by level, category breakdown, dual-resource abilities |
+| `get_class_spell_book_size_comparison` | Cross-class spell book size comparison — total spells, beneficial/detrimental counts, category diversity, peak spell levels |
+| `get_zone_level_overlap_analysis` | Zone level overlap analysis — zone choices per level, leveling bottlenecks, most overlapping zone pairs, widest level ranges |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -430,7 +433,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (272 tools)
+├── tools.ts          # Tool definitions and handlers (275 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
