@@ -364,6 +364,9 @@ import {
   getClassDamagePerMana,
   getClassEnduranceVsManaProfile,
   getClassSpellNamePatterns,
+  getClassHealPerMana,
+  getClassIllusionProfile,
+  getClassSummonProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4477,6 +4480,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_heal_per_mana',
+    description: 'Heal per mana analysis — ranks healing spells by mana efficiency (HPM), showing best HPM by level bracket and most efficient heals.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_illusion_profile',
+    description: 'Illusion profile for a class — analyzes illusion/form-change/polymorph spells and disguise abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_summon_profile',
+    description: 'Summon profile for a class — analyzes item summoning, pet summoning, corpse summoning, familiar summoning, and transport abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Magician", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7055,6 +7091,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellNamePatterns(className);
+      }
+
+      case 'get_class_heal_per_mana': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassHealPerMana(className);
+      }
+
+      case 'get_class_illusion_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassIllusionProfile(className);
+      }
+
+      case 'get_class_summon_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSummonProfile(className);
       }
 
       case 'search_help_topics': {

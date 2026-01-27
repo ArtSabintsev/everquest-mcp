@@ -36673,3 +36673,227 @@ export async function getClassSpellNamePatterns(className: string): Promise<stri
   lines.push('', `*${totalSpellsNP} spell names analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassHealPerMana(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const hpmSpells: { name: string; level: number; heal: number; mana: number; hpm: number; castSec: number; target: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    if (mana <= 0) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    let totalHeal = 0;
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (spaId === 0 && base > 0) totalHeal += base;
+    }
+    if (totalHeal === 0) continue;
+
+    const castMs = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+
+    hpmSpells.push({
+      name: spell.fields[SF.NAME], level, heal: totalHeal, mana,
+      hpm: totalHeal / mana, castSec: castMs / 1000, target: targetName
+    });
+  }
+
+  hpmSpells.sort((a, b) => b.hpm - a.hpm);
+
+  const lines = [`# ${classFullName} Heal Per Mana Analysis`, ''];
+  lines.push('*Analyzes mana efficiency of healing spells — heal per mana point (HPM) rankings.*', '');
+  lines.push(`**Healing spells with mana cost:** ${hpmSpells.length}`, '');
+
+  lines.push('## Most Mana-Efficient Heals — Top 25', '');
+  lines.push('| Spell | Level | Heal | Mana | HPM | Cast (s) | Target |');
+  lines.push('|:------|------:|-----:|-----:|----:|---------:|:-------|');
+  for (const s of hpmSpells.slice(0, 25)) {
+    lines.push(`| ${s.name} | ${s.level} | ${s.heal.toLocaleString()} | ${s.mana.toLocaleString()} | ${s.hpm.toFixed(2)} | ${s.castSec.toFixed(1)} | ${s.target} |`);
+  }
+
+  const bracketOrder3 = ['1-10','11-20','21-30','31-40','41-50','51-60','61-70','71-80','81-90','91-100','101-110','111-120','121+'];
+  const bracketHPM: Record<string, { totalHPM: number; count: number; best: string; bestHPM: number }> = {};
+  for (const s of hpmSpells) {
+    const bl = s.level <= 10 ? '1-10' : s.level <= 20 ? '11-20' : s.level <= 30 ? '21-30' :
+      s.level <= 40 ? '31-40' : s.level <= 50 ? '41-50' : s.level <= 60 ? '51-60' :
+      s.level <= 70 ? '61-70' : s.level <= 80 ? '71-80' : s.level <= 90 ? '81-90' :
+      s.level <= 100 ? '91-100' : s.level <= 110 ? '101-110' : s.level <= 120 ? '111-120' : '121+';
+    if (!bracketHPM[bl]) bracketHPM[bl] = { totalHPM: 0, count: 0, best: '', bestHPM: 0 };
+    bracketHPM[bl].totalHPM += s.hpm;
+    bracketHPM[bl].count++;
+    if (s.hpm > bracketHPM[bl].bestHPM) { bracketHPM[bl].bestHPM = s.hpm; bracketHPM[bl].best = s.name; }
+  }
+
+  lines.push('', '## HPM by Level Bracket', '');
+  lines.push('| Bracket | Avg HPM | Best HPM | Best Spell |');
+  lines.push('|:--------|--------:|---------:|:-----------|');
+  for (const bl of bracketOrder3) {
+    const data = bracketHPM[bl];
+    if (!data) continue;
+    lines.push(`| ${bl} | ${(data.totalHPM / data.count).toFixed(2)} | ${data.bestHPM.toFixed(2)} | ${data.best} |`);
+  }
+
+  lines.push('', `*${hpmSpells.length} healing spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassIllusionProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const ILLUSION_SPAS: Record<number, string> = {
+    58: 'Illusion',
+    85: 'Spell Proc (Illusion)',
+  };
+
+  const illusionSpells: { name: string; level: number; types: string[]; target: string }[] = [];
+  let totalSpellsIL = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsIL++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      if (spaId === 58) types.push('Illusion');
+    }
+
+    if (types.length === 0) continue;
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    illusionSpells.push({ name: spell.fields[SF.NAME], level, types, target: targetName });
+  }
+
+  illusionSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} Illusion Profile`, ''];
+  lines.push('*Analyzes illusion/form-change spells — disguise, polymorph, and shape-shifting abilities.*', '');
+  lines.push(`**Total spells:** ${totalSpellsIL}`);
+  lines.push(`**Illusion spells:** ${illusionSpells.length} (${((illusionSpells.length / totalSpellsIL) * 100).toFixed(1)}%)`, '');
+
+  if (illusionSpells.length > 0) {
+    lines.push('## All Illusion Spells', '');
+    lines.push('| Spell | Level | Target |');
+    lines.push('|:------|------:|:-------|');
+    for (const s of illusionSpells.slice(0, 50)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.target} |`);
+    }
+    if (illusionSpells.length > 50) lines.push(`| ...and ${illusionSpells.length - 50} more | | |`);
+  }
+
+  lines.push('', `*${illusionSpells.length} illusion spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSummonProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const SUMMON_SPAS: Record<number, string> = {
+    32: 'Summon Item', 33: 'Summon Pet', 38: 'Call of Hero',
+    106: 'Summon Corpse', 108: 'Summon to Bind', 109: 'Summon Companion',
+    150: 'Summon Target', 151: 'Summon Familiar', 152: 'Summon Horse',
+  };
+
+  const summonSpells: { name: string; level: number; types: string[]; target: string }[] = [];
+  const typeCounts: Record<string, number> = {};
+  let totalSpellsSU = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsSU++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const types: string[] = [];
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      if (SUMMON_SPAS[spaId]) {
+        const t = SUMMON_SPAS[spaId];
+        if (!types.includes(t)) types.push(t);
+        typeCounts[t] = (typeCounts[t] || 0) + 1;
+      }
+    }
+
+    if (types.length === 0) continue;
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    summonSpells.push({ name: spell.fields[SF.NAME], level, types, target: targetName });
+  }
+
+  summonSpells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
+  const lines = [`# ${classFullName} Summon Profile`, ''];
+  lines.push('*Analyzes summoning abilities — item summoning, pet summoning, corpse summoning, and transport effects.*', '');
+  lines.push(`**Total spells:** ${totalSpellsSU}`);
+  lines.push(`**Summon spells:** ${summonSpells.length} (${((summonSpells.length / totalSpellsSU) * 100).toFixed(1)}%)`, '');
+
+  if (Object.keys(typeCounts).length > 0) {
+    lines.push('## Summon Type Distribution', '');
+    lines.push('| Type | Count |');
+    lines.push('|:-----|------:|');
+    for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+      lines.push(`| ${type} | ${count} |`);
+    }
+  }
+
+  if (summonSpells.length > 0) {
+    lines.push('', '## Summon Spells — Top 40', '');
+    lines.push('| Spell | Level | Types | Target |');
+    lines.push('|:------|------:|:------|:-------|');
+    for (const s of summonSpells.slice(-40)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.types.join(', ')} | ${s.target} |`);
+    }
+    if (summonSpells.length > 40) lines.push(`| ...and ${summonSpells.length - 40} more | | | |`);
+  }
+
+  lines.push('', `*${summonSpells.length} summon spells for ${classFullName}.*`);
+  return lines.join('\n');
+}
