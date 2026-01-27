@@ -39801,3 +39801,230 @@ export async function getClassHealEfficiency(className: string): Promise<string>
   lines.push('', `*${heals.length} direct heals for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassDoTEfficiency(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const dots: { name: string; level: number; dmgPerTick: number; ticks: number; totalDmg: number; mana: number; dmgPerMana: number; castTime: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    if (beneficial) continue;
+
+    const durValue = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    if (durValue <= 0) continue;
+
+    // Find damage SPA 0 with negative base
+    let dmgPerTick = 0;
+    const fields = spell.fields;
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] && fields[i].includes('|')) {
+        const slots = fields[i].split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length >= 3 && parseInt(parts[1]) === 0) {
+            const base = parseInt(parts[2]) || 0;
+            if (base < 0) dmgPerTick += Math.abs(base);
+          }
+        }
+        break;
+      }
+    }
+    if (dmgPerTick === 0) continue;
+
+    const totalDmg = dmgPerTick * durValue;
+    const mana = parseInt(fields[SF.MANA]) || 0;
+    const dmgPerMana = mana > 0 ? totalDmg / mana : 0;
+    const castTime = (parseInt(fields[SF.CAST_TIME]) || 0) / 1000;
+
+    dots.push({ name: spell.fields[SF.NAME], level, dmgPerTick, ticks: durValue, totalDmg, mana, dmgPerMana, castTime });
+  }
+
+  dots.sort((a, b) => b.totalDmg - a.totalDmg);
+
+  const lines = [`# ${classFullName} — DoT Efficiency`, ''];
+  lines.push(`*Damage over time spells ranked by total damage and mana efficiency.*`, '');
+  lines.push(`**Total DoTs:** ${dots.length}`, '');
+
+  if (dots.length > 0) {
+    lines.push('### Top 40 by Total Damage');
+    lines.push('| Spell | Level | Dmg/Tick | Ticks | Total Dmg | Mana | Dmg/Mana |');
+    lines.push('|:------|------:|---------:|------:|----------:|-----:|---------:|');
+    for (const d of dots.slice(0, 40)) {
+      lines.push(`| ${d.name} | ${d.level} | ${d.dmgPerTick.toLocaleString()} | ${d.ticks} | ${d.totalDmg.toLocaleString()} | ${d.mana.toLocaleString()} | ${d.dmgPerMana.toFixed(1)} |`);
+    }
+    if (dots.length > 40) lines.push(`| ...and ${dots.length - 40} more | | | | | | |`);
+
+    const byDpm = [...dots].sort((a, b) => b.dmgPerMana - a.dmgPerMana);
+    lines.push('', '### Top 20 by Damage per Mana');
+    lines.push('| Spell | Level | Total Dmg | Mana | Dmg/Mana | Ticks |');
+    lines.push('|:------|------:|----------:|-----:|---------:|------:|');
+    for (const d of byDpm.slice(0, 20)) {
+      lines.push(`| ${d.name} | ${d.level} | ${d.totalDmg.toLocaleString()} | ${d.mana.toLocaleString()} | ${d.dmgPerMana.toFixed(1)} | ${d.ticks} |`);
+    }
+  }
+
+  lines.push('', `*${dots.length} DoTs for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassBurstDamageWindow(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Collect all DD nukes
+  const nukes: { name: string; level: number; damage: number; castTime: number; recast: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    if (beneficial) continue;
+    const durValue = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    if (durValue > 0) continue;
+
+    let damage = 0;
+    const fields = spell.fields;
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] && fields[i].includes('|')) {
+        const slots = fields[i].split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length >= 3 && parseInt(parts[1]) === 0) {
+            const base = parseInt(parts[2]) || 0;
+            if (base < 0) damage += Math.abs(base);
+          }
+        }
+        break;
+      }
+    }
+    if (damage === 0) continue;
+
+    const castTime = Math.max((parseInt(fields[SF.CAST_TIME]) || 0) / 1000, 0.5);
+    const recast = (parseInt(fields[SF.RECAST_TIME]) || 0) / 1000;
+    nukes.push({ name: spell.fields[SF.NAME], level, damage, castTime, recast });
+  }
+
+  // Sort by damage descending for greedy burst calculation
+  nukes.sort((a, b) => b.damage - a.damage);
+
+  const windows = [6, 12, 18];
+  const lines = [`# ${classFullName} — Burst Damage Windows`, ''];
+  lines.push(`*Maximum damage achievable in burst windows (greedy: highest damage first).*`, '');
+  lines.push(`**Available nukes:** ${nukes.length}`, '');
+
+  for (const windowSec of windows) {
+    let timeLeft = windowSec;
+    let totalDmg = 0;
+    const used: string[] = [];
+
+    for (const n of nukes) {
+      if (n.castTime <= timeLeft) {
+        totalDmg += n.damage;
+        used.push(`${n.name} (${n.damage.toLocaleString()})`);
+        timeLeft -= n.castTime;
+        if (used.length >= 10) break;
+      }
+    }
+
+    lines.push(`### ${windowSec}s Burst Window`);
+    lines.push(`**Total Damage:** ${totalDmg.toLocaleString()} | **Spells Cast:** ${used.length}`, '');
+    for (const u of used) {
+      lines.push(`- ${u}`);
+    }
+    lines.push('');
+  }
+
+  lines.push(`*Burst analysis for ${classFullName} across ${nukes.length} nukes.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSustainedDPSProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const nukes: { name: string; level: number; damage: number; castTime: number; recast: number; cycleTime: number; dps: number; mana: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    if (beneficial) continue;
+    const durValue = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    if (durValue > 0) continue;
+
+    let damage = 0;
+    const fields = spell.fields;
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] && fields[i].includes('|')) {
+        const slots = fields[i].split('$');
+        for (const slot of slots) {
+          const parts = slot.split('|');
+          if (parts.length >= 3 && parseInt(parts[1]) === 0) {
+            const base = parseInt(parts[2]) || 0;
+            if (base < 0) damage += Math.abs(base);
+          }
+        }
+        break;
+      }
+    }
+    if (damage === 0) continue;
+
+    const castTime = Math.max((parseInt(fields[SF.CAST_TIME]) || 0) / 1000, 0.5);
+    const recast = (parseInt(fields[SF.RECAST_TIME]) || 0) / 1000;
+    const cycleTime = Math.max(castTime, recast); // effective cycle = max(cast, recast)
+    const dps = damage / cycleTime;
+    const mana = parseInt(fields[SF.MANA]) || 0;
+
+    nukes.push({ name: spell.fields[SF.NAME], level, damage, castTime, recast, cycleTime, dps, mana });
+  }
+
+  nukes.sort((a, b) => b.dps - a.dps);
+
+  const lines = [`# ${classFullName} — Sustained DPS Profile`, ''];
+  lines.push(`*Direct damage spells ranked by sustained DPS (damage / max(cast_time, recast_time)).*`, '');
+  lines.push(`**Total nukes:** ${nukes.length}`, '');
+
+  if (nukes.length > 0) {
+    lines.push('### Top 40 by Sustained DPS');
+    lines.push('| Spell | Level | Damage | Cast (s) | Recast (s) | Cycle (s) | DPS | Mana |');
+    lines.push('|:------|------:|-------:|---------:|-----------:|----------:|----:|-----:|');
+    for (const n of nukes.slice(0, 40)) {
+      lines.push(`| ${n.name} | ${n.level} | ${n.damage.toLocaleString()} | ${n.castTime.toFixed(1)} | ${n.recast.toFixed(1)} | ${n.cycleTime.toFixed(1)} | ${n.dps.toFixed(0)} | ${n.mana.toLocaleString()} |`);
+    }
+    if (nukes.length > 40) lines.push(`| ...and ${nukes.length - 40} more | | | | | | | |`);
+
+    // Also show top by level brackets
+    const endgame = nukes.filter(n => n.level >= 100);
+    if (endgame.length > 0) {
+      const endSorted = [...endgame].sort((a, b) => b.dps - a.dps);
+      lines.push('', '### Top 20 Endgame (Level 100+) by Sustained DPS');
+      lines.push('| Spell | Level | Damage | Cycle (s) | DPS | Mana |');
+      lines.push('|:------|------:|-------:|----------:|----:|-----:|');
+      for (const n of endSorted.slice(0, 20)) {
+        lines.push(`| ${n.name} | ${n.level} | ${n.damage.toLocaleString()} | ${n.cycleTime.toFixed(1)} | ${n.dps.toFixed(0)} | ${n.mana.toLocaleString()} |`);
+      }
+    }
+  }
+
+  lines.push('', `*${nukes.length} nukes analyzed for sustained DPS for ${classFullName}.*`);
+  return lines.join('\n');
+}

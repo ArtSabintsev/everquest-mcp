@@ -1,6 +1,6 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 401 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 404 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
@@ -381,6 +381,9 @@ Then restart Claude Desktop.
 | `get_global_target_type_distribution` | Target type distribution across the entire spell database |
 | `get_class_nuke_efficiency` | Nuke efficiency — direct damage ranked by DPS and damage per mana |
 | `get_class_heal_efficiency` | Heal efficiency — direct heals ranked by HPS and heal per mana |
+| `get_class_dot_efficiency` | DoT efficiency — damage over time ranked by total damage and damage per mana |
+| `get_class_burst_damage_window` | Burst damage — max damage in 6s, 12s, and 18s burst windows |
+| `get_class_sustained_dps_profile` | Sustained DPS — nukes ranked by damage per cycle time (cast + recast) |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -559,7 +562,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (401 tools)
+├── tools.ts          # Tool definitions and handlers (404 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation

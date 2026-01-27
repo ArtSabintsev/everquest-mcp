@@ -409,6 +409,9 @@ import {
   getGlobalTargetTypeDistribution,
   getClassNukeEfficiency,
   getClassHealEfficiency,
+  getClassDoTEfficiency,
+  getClassBurstDamageWindow,
+  getClassSustainedDPSProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -5022,6 +5025,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_dot_efficiency',
+    description: 'DoT efficiency analysis — damage over time spells ranked by total damage and damage per mana.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Necromancer", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_burst_damage_window',
+    description: 'Burst damage analysis — maximum damage achievable in 6s, 12s, and 18s burst windows.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Berserker")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_sustained_dps_profile',
+    description: 'Sustained DPS analysis — nukes ranked by damage per cycle time (cast + recast), including endgame breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Ranger")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7890,6 +7926,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassHealEfficiency(className);
+      }
+
+      case 'get_class_dot_efficiency': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassDoTEfficiency(className);
+      }
+
+      case 'get_class_burst_damage_window': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassBurstDamageWindow(className);
+      }
+
+      case 'get_class_sustained_dps_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSustainedDPSProfile(className);
       }
 
       case 'search_help_topics': {
