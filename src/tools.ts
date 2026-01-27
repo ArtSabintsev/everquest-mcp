@@ -295,6 +295,9 @@ import {
   getClassTauntAggroProfile,
   getSpellIllusionAnalysis,
   getSpellCastTimeDistribution,
+  getSpellSummonAnalysis,
+  getClassRegenProfile,
+  getSpellDamageShieldProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -3654,6 +3657,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_spell_summon_analysis',
+    description: 'Summoning spell analysis for a class — pets, items, players, corpses, familiars with cast times, mana costs, and first-available levels.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Magician", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_regen_profile',
+    description: 'HP, mana, and endurance regen spell profile for a class — strongest regens, multi-regen spells, self vs group vs single targeting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Shaman")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_spell_damage_shield_profile',
+    description: 'Damage shield analysis for a class — regular and reverse DS, strongest shields, DS value scaling by level, target types.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Druid", "Magician")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5819,6 +5855,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getSpellCastTimeDistribution(className);
+      }
+
+      case 'get_spell_summon_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellSummonAnalysis(className);
+      }
+
+      case 'get_class_regen_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassRegenProfile(className);
+      }
+
+      case 'get_spell_damage_shield_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellDamageShieldProfile(className);
       }
 
       case 'search_help_topics': {

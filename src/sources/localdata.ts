@@ -28282,3 +28282,367 @@ export async function getSpellCastTimeDistribution(className: string): Promise<s
   lines.push('', `*${castTimes.length} spells analyzed for cast time distribution for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// ============ SPELL SUMMON ANALYSIS ============
+
+export async function getSpellSummonAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const SUMMON_SPAS: Record<string, number[]> = {
+    'Summon Pet': [33, 45, 72],
+    'Summon Item': [32],
+    'Summon Player': [81],
+    'Summon Corpse': [91],
+    'Summon Familiar': [109],
+  };
+
+  const summonSpells: { name: string; level: number; categories: string[]; mana: number; castTime: number; targetType: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const foundCategories: Set<string> = new Set();
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          for (const [cat, spas] of Object.entries(SUMMON_SPAS)) {
+            if (spas.includes(spaId)) foundCategories.add(cat);
+          }
+        }
+      }
+    }
+    if (foundCategories.size === 0) continue;
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+
+    summonSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      categories: [...foundCategories],
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+    });
+  }
+
+  const lines = [`# ${classFullName} Summoning Spell Analysis`, ''];
+  lines.push(`*Analyzes all summoning spells: pets, items, players, corpses, familiars.*`, '');
+
+  if (summonSpells.length === 0) {
+    lines.push('No summoning spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total summoning spells:** ${summonSpells.length}`, '');
+
+  const catCounts: Record<string, number> = {};
+  for (const s of summonSpells) {
+    for (const c of s.categories) catCounts[c] = (catCounts[c] || 0) + 1;
+  }
+  lines.push('## Summon Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${cat}:** ${count} spells`);
+  }
+
+  for (const [cat] of Object.entries(catCounts).sort((a, b) => b[1] - a[1])) {
+    const catSpells = summonSpells.filter(s => s.categories.includes(cat)).sort((a, b) => b.level - a.level);
+    lines.push('', `## ${cat} (${catSpells.length})`, '');
+    lines.push('| Spell | Level | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|---------:|-----:|:-------|');
+    for (const s of catSpells.slice(0, 20)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${castSec} | ${s.mana || '—'} | ${s.targetType} |`);
+    }
+    if (catSpells.length > 20) lines.push(`| ... +${catSpells.length - 20} more | | | | |`);
+  }
+
+  // Level availability
+  lines.push('', '## First Summon Ability by Category', '');
+  const firstByCategory: Record<string, { name: string; level: number }> = {};
+  for (const s of summonSpells.sort((a, b) => a.level - b.level)) {
+    for (const cat of s.categories) {
+      if (!firstByCategory[cat]) firstByCategory[cat] = { name: s.name, level: s.level };
+    }
+  }
+  lines.push('| Category | First Available | Level |');
+  lines.push('|:---------|:---------------|------:|');
+  for (const [cat, info] of Object.entries(firstByCategory).sort((a, b) => a[1].level - b[1].level)) {
+    lines.push(`| ${cat} | ${info.name} | ${info.level} |`);
+  }
+
+  lines.push('', `*${summonSpells.length} summoning spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ CLASS REGEN PROFILE ============
+
+export async function getClassRegenProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const REGEN_SPAS: Record<string, number[]> = {
+    'HP Regen': [34, 144],
+    'Mana Regen': [35],
+    'Endurance Regen': [108, 137],
+  };
+
+  const regenSpells: { name: string; level: number; types: string[]; values: Record<string, number>; duration: number; mana: number; targetType: string; beneficial: boolean }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const foundTypes: Set<string> = new Set();
+    const regenValues: Record<string, number> = {};
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          if (base <= 0) continue; // only positive regen
+          for (const [type, spas] of Object.entries(REGEN_SPAS)) {
+            if (spas.includes(spaId)) {
+              foundTypes.add(type);
+              regenValues[type] = Math.max(regenValues[type] || 0, base);
+            }
+          }
+        }
+      }
+    }
+    if (foundTypes.size === 0) continue;
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    regenSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      types: [...foundTypes],
+      values: regenValues,
+      duration: durationVal,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Regen Spell Profile`, ''];
+  lines.push(`*Analyzes HP, mana, and endurance regeneration spells.*`, '');
+
+  if (regenSpells.length === 0) {
+    lines.push('No regen spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total regen spells:** ${regenSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of regenSpells) {
+    for (const t of s.types) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Regen Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Multi-regen spells
+  const multiRegen = regenSpells.filter(s => s.types.length > 1);
+  if (multiRegen.length > 0) {
+    lines.push('', `## Multi-Regen Spells (${multiRegen.length})`, '');
+    lines.push('| Spell | Level | Types | Duration | Target |');
+    lines.push('|:------|------:|:------|--------:|:-------|');
+    for (const s of multiRegen.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.types.join(', ')} | ${s.duration} | ${s.targetType} |`);
+    }
+  }
+
+  for (const [type] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    const typeSpells = regenSpells.filter(s => s.types.includes(type)).sort((a, b) => (b.values[type] || 0) - (a.values[type] || 0));
+    lines.push('', `## Strongest ${type} Spells (Top 15)`, '');
+    lines.push('| Spell | Level | Regen/Tick | Duration | Target | Mana |');
+    lines.push('|:------|------:|-----------:|---------:|:-------|-----:|');
+    for (const s of typeSpells.slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${(s.values[type] || 0).toLocaleString()} | ${s.duration} | ${s.targetType} | ${s.mana || '—'} |`);
+    }
+  }
+
+  // Group vs self regen
+  const selfRegens = regenSpells.filter(s => s.targetType === 'Self');
+  const groupRegens = regenSpells.filter(s => s.targetType.includes('Group'));
+  const singleRegens = regenSpells.filter(s => s.targetType === 'Single');
+  lines.push('', '## Regen Target Type Breakdown', '');
+  lines.push(`- **Self-targeted:** ${selfRegens.length}`);
+  lines.push(`- **Group-targeted:** ${groupRegens.length}`);
+  lines.push(`- **Single-targeted:** ${singleRegens.length}`);
+  lines.push(`- **Other:** ${regenSpells.length - selfRegens.length - groupRegens.length - singleRegens.length}`);
+
+  lines.push('', `*${regenSpells.length} regen spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ SPELL DAMAGE SHIELD PROFILE ============
+
+export async function getSpellDamageShieldProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // DS SPAs: 87=Damage Shield, 89=Reverse DS, 111=Reverse Damage Shield
+  const DS_SPAS: Record<number, string> = {
+    87: 'Damage Shield', 89: 'Reverse DS', 111: 'Reverse Damage Shield',
+  };
+
+  const dsSpells: { name: string; level: number; dsType: string; value: number; duration: number; mana: number; targetType: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    let bestDSType = '';
+    let bestDSValue = 0;
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          if (DS_SPAS[spaId] && Math.abs(base) > Math.abs(bestDSValue)) {
+            bestDSType = DS_SPAS[spaId];
+            bestDSValue = base;
+          }
+        }
+      }
+    }
+    if (!bestDSType) continue;
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+
+    dsSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      dsType: bestDSType,
+      value: bestDSValue,
+      duration: durationVal,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+    });
+  }
+
+  const lines = [`# ${classFullName} Damage Shield Profile`, ''];
+  lines.push(`*Analyzes damage shields, reverse damage shields, and their scaling.*`, '');
+
+  if (dsSpells.length === 0) {
+    lines.push('No damage shield spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total damage shield spells:** ${dsSpells.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of dsSpells) typeCounts[s.dsType] = (typeCounts[s.dsType] || 0) + 1;
+  lines.push('## DS Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Strongest DS spells
+  const byValue = [...dsSpells].sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  lines.push('', '## Strongest Damage Shields (Top 20)', '');
+  lines.push('| Spell | Level | Type | DS Value | Duration | Target | Mana |');
+  lines.push('|:------|------:|:-----|--------:|---------:|:-------|-----:|');
+  for (const s of byValue.slice(0, 20)) {
+    lines.push(`| ${s.name} | ${s.level} | ${s.dsType} | ${s.value} | ${s.duration} | ${s.targetType} | ${s.mana || '—'} |`);
+  }
+
+  // Level progression of DS values
+  lines.push('', '## DS Value by Level Range', '');
+  const lvlRanges = [
+    { label: '1-30', min: 1, max: 30 },
+    { label: '31-60', min: 31, max: 60 },
+    { label: '61-80', min: 61, max: 80 },
+    { label: '81-100', min: 81, max: 100 },
+    { label: '101-115', min: 101, max: 115 },
+    { label: '116+', min: 116, max: 999 },
+  ];
+  lines.push('| Level Range | Count | Avg DS Value | Max DS Value |');
+  lines.push('|:------------|------:|-------------:|-------------:|');
+  for (const r of lvlRanges) {
+    const inRange = dsSpells.filter(d => d.level >= r.min && d.level <= r.max);
+    if (inRange.length === 0) continue;
+    const avg = Math.round(inRange.reduce((s, d) => s + Math.abs(d.value), 0) / inRange.length);
+    const max = Math.max(...inRange.map(d => Math.abs(d.value)));
+    lines.push(`| ${r.label} | ${inRange.length} | ${avg.toLocaleString()} | ${max.toLocaleString()} |`);
+  }
+
+  // Target type breakdown
+  const targetCounts: Record<string, number> = {};
+  for (const s of dsSpells) targetCounts[s.targetType] = (targetCounts[s.targetType] || 0) + 1;
+  lines.push('', '## DS Target Type Distribution', '');
+  for (const [target, count] of Object.entries(targetCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${target}:** ${count} spells`);
+  }
+
+  lines.push('', `*${dsSpells.length} damage shield spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
