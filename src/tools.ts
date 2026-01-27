@@ -382,6 +382,9 @@ import {
   getClassAECapacityProfile,
   getGlobalSpellStatistics,
   getClassDefensiveCooldownProfile,
+  getClassOffensiveCooldownProfile,
+  getClassSpellPowerCurve,
+  getClassSpellsByExpansion,
 } from './sources/index.js';
 
 export const tools = [
@@ -4690,6 +4693,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_offensive_cooldown_profile',
+    description: 'Offensive cooldown profile — detrimental spells with 30+ second recast, burns and high-cooldown attacks.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Berserker")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_power_curve',
+    description: 'Spell power curve — max damage, healing, and mana cost at each 10-level bracket showing power progression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Cleric")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spells_by_expansion',
+    description: 'Spells by expansion era — approximate spell count distribution from Classic through modern expansions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Necromancer", "Bard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7374,6 +7410,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassDefensiveCooldownProfile(className);
+      }
+
+      case 'get_class_offensive_cooldown_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassOffensiveCooldownProfile(className);
+      }
+
+      case 'get_class_spell_power_curve': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellPowerCurve(className);
+      }
+
+      case 'get_class_spells_by_expansion': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellsByExpansion(className);
       }
 
       case 'search_help_topics': {

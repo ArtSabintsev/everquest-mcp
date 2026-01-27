@@ -38069,3 +38069,215 @@ export async function getClassDefensiveCooldownProfile(className: string): Promi
   lines.push('', `*${cooldowns.length} cooldown abilities for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 375: Class offensive cooldown profile
+export async function getClassOffensiveCooldownProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Detrimental spells with recast > 30 seconds = offensive burns/cooldowns
+  const burns: { name: string; level: number; recast: number; target: string; resist: string; timer: number }[] = [];
+  let totalSpellsOC = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsOC++;
+
+    const beneficial = parseInt(spell.fields[SF.BENEFICIAL]) || 0;
+    if (beneficial === 1) continue;
+
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    if (recast < 30000) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const resistId = parseInt(spell.fields[SF.RESIST_TYPE]) || 0;
+    const resistName = RESIST_TYPES[resistId] || `Resist ${resistId}`;
+    const timer = parseInt(spell.fields[SF.TIMER_ID]) || 0;
+
+    burns.push({ name: spell.fields[SF.NAME], level, recast, target: targetName, resist: resistName, timer });
+  }
+
+  burns.sort((a, b) => b.recast - a.recast || a.level - b.level);
+
+  const recastBracketsOC: Record<string, number> = {
+    '30s-2m': 0, '2m-5m': 0, '5m-15m': 0, '15m-30m': 0, '30m+': 0,
+  };
+  for (const b of burns) {
+    const sec = b.recast / 1000;
+    if (sec < 120) recastBracketsOC['30s-2m']++;
+    else if (sec < 300) recastBracketsOC['2m-5m']++;
+    else if (sec < 900) recastBracketsOC['5m-15m']++;
+    else if (sec < 1800) recastBracketsOC['15m-30m']++;
+    else recastBracketsOC['30m+']++;
+  }
+
+  const lines = [`# ${classFullName} Offensive Cooldown Profile`, ''];
+  lines.push('*Analyzes detrimental spells with 30+ second recast — offensive burns, nukes, and high-cooldown attacks.*', '');
+  lines.push(`**Total spells:** ${totalSpellsOC}`);
+  lines.push(`**Offensive cooldowns (30s+ recast):** ${burns.length}`, '');
+
+  lines.push('## Recast Time Brackets', '');
+  lines.push('| Bracket | Count |');
+  lines.push('|:--------|------:|');
+  for (const [bracket, count] of Object.entries(recastBracketsOC)) {
+    if (count > 0) lines.push(`| ${bracket} | ${count} |`);
+  }
+
+  if (burns.length > 0) {
+    lines.push('', '## Offensive Cooldowns (longest recast first)', '');
+    lines.push('| Ability | Level | Recast | Resist | Target | Timer |');
+    lines.push('|:--------|------:|-------:|:-------|:-------|------:|');
+    for (const b of burns.slice(0, 35)) {
+      const recastStr = b.recast >= 60000 ? `${(b.recast / 60000).toFixed(1)}m` : `${(b.recast / 1000).toFixed(0)}s`;
+      lines.push(`| ${b.name} | ${b.level} | ${recastStr} | ${b.resist} | ${b.target} | ${b.timer || '-'} |`);
+    }
+    if (burns.length > 35) lines.push(`| ...and ${burns.length - 35} more | | | | | |`);
+  }
+
+  lines.push('', `*${burns.length} offensive cooldowns for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 376: Class spell power curve
+export async function getClassSpellPowerCurve(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const LEVEL_BRACKETS = ['1-10', '11-20', '21-30', '31-40', '41-50', '51-60', '61-70', '71-80', '81-90', '91-100', '101-110', '111-120', '121-130'];
+
+  function getBracket(lvl: number): string {
+    const idx = Math.min(Math.floor((lvl - 1) / 10), 12);
+    return LEVEL_BRACKETS[idx];
+  }
+
+  const bracketData: Record<string, { maxDmg: number; maxHeal: number; maxMana: number; spellCount: number; dmgSpell: string; healSpell: string }> = {};
+  for (const b of LEVEL_BRACKETS) {
+    bracketData[b] = { maxDmg: 0, maxHeal: 0, maxMana: 0, spellCount: 0, dmgSpell: '', healSpell: '' };
+  }
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const bracket = getBracket(level);
+    const bd = bracketData[bracket];
+    if (!bd) continue;
+    bd.spellCount++;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      if (spaId !== 0) continue;
+      const base = parseInt(parts[2]) || 0;
+      const beneficial = parseInt(spell.fields[SF.BENEFICIAL]) || 0;
+      if (base < 0 && beneficial !== 1) {
+        const dmg = Math.abs(base);
+        if (dmg > bd.maxDmg) { bd.maxDmg = dmg; bd.dmgSpell = spell.fields[SF.NAME]; }
+      }
+      if (base > 0 && beneficial === 1) {
+        if (base > bd.maxHeal) { bd.maxHeal = base; bd.healSpell = spell.fields[SF.NAME]; }
+      }
+      break;
+    }
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    if (mana > bd.maxMana) bd.maxMana = mana;
+  }
+
+  const lines = [`# ${classFullName} Spell Power Curve`, ''];
+  lines.push('*Max damage, healing, and mana cost at each level bracket — shows power progression over levels.*', '');
+
+  lines.push('## Power by Level Bracket', '');
+  lines.push('| Bracket | Spells | Max Damage | Best DD | Max Heal | Best Heal | Max Mana |');
+  lines.push('|:--------|-------:|-----------:|:--------|--------:|:----------|--------:|');
+  for (const bracket of LEVEL_BRACKETS) {
+    const bd = bracketData[bracket];
+    if (bd.spellCount === 0) continue;
+    lines.push(`| ${bracket} | ${bd.spellCount} | ${bd.maxDmg || '-'} | ${bd.dmgSpell || '-'} | ${bd.maxHeal || '-'} | ${bd.healSpell || '-'} | ${bd.maxMana || '-'} |`);
+  }
+
+  lines.push('', `*Power curve analysis for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 377: Class spells by expansion era
+export async function getClassSpellsByExpansion(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Approximate expansion eras by level range
+  const EXPANSIONS: [string, number, number][] = [
+    ['Classic/Kunark (1-60)', 1, 60],
+    ['Luclin/PoP (61-65)', 61, 65],
+    ['GoD/OoW/DoN (66-70)', 66, 70],
+    ['DoDH/PoR/TSS (71-75)', 71, 75],
+    ['TBS/SoF/SoD (76-85)', 76, 85],
+    ['UF/HoT/VoA (86-100)', 86, 100],
+    ['RoF/CotF/TDS/TBM (101-105)', 101, 105],
+    ['EoK/RoS/TBL (106-110)', 106, 110],
+    ['ToV/CoV/ToL (111-120)', 111, 120],
+    ['NoS/LS+ (121+)', 121, 254],
+  ];
+
+  const eraData: Record<string, { count: number; ranked: number; nonRanked: number }> = {};
+  for (const [era] of EXPANSIONS) eraData[era] = { count: 0, ranked: 0, nonRanked: 0 };
+
+  let totalSpellsExp = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsExp++;
+
+    for (const [era, min, max] of EXPANSIONS) {
+      if (level >= min && level <= max) {
+        eraData[era].count++;
+        const name = spell.fields[SF.NAME] || '';
+        if (name.includes('Rk.')) eraData[era].ranked++;
+        else eraData[era].nonRanked++;
+        break;
+      }
+    }
+  }
+
+  const lines = [`# ${classFullName} Spells by Expansion Era`, ''];
+  lines.push('*Approximate spell distribution by expansion era based on level ranges.*', '');
+  lines.push(`**Total spells:** ${totalSpellsExp}`, '');
+
+  lines.push('## Spells per Expansion Era', '');
+  lines.push('| Expansion Era | Spells | Ranked | Non-ranked | % of Total |');
+  lines.push('|:--------------|-------:|-------:|-----------:|-----------:|');
+  for (const [era] of EXPANSIONS) {
+    const d = eraData[era];
+    if (d.count > 0) {
+      lines.push(`| ${era} | ${d.count} | ${d.ranked} | ${d.nonRanked} | ${((d.count / totalSpellsExp) * 100).toFixed(1)}% |`);
+    }
+  }
+
+  lines.push('', `*${totalSpellsExp} spells analyzed across expansion eras for ${classFullName}.*`);
+  return lines.join('\n');
+}
