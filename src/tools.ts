@@ -394,6 +394,9 @@ import {
   getClassSpellSearch,
   getClassSpellByLevel,
   getClassSpellByCastTime,
+  getClassSpellByManaCost,
+  getClassSpellByDuration,
+  getClassSpellByRecastTime,
 } from './sources/index.js';
 
 export const tools = [
@@ -4840,6 +4843,42 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_spell_by_mana_cost',
+    description: 'Filter spells by minimum mana cost — find all spells costing at least the specified mana, sorted by cost.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Necromancer")' },
+        min_mana: { type: 'number', description: 'Minimum mana cost (e.g. 1000, 5000, 10000)' }
+      },
+      required: ['class_name', 'min_mana']
+    }
+  },
+  {
+    name: 'get_class_spell_by_duration',
+    description: 'Filter spells by minimum duration — find all spells lasting at least the specified ticks (1 tick = 6 seconds).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Druid")' },
+        min_duration_ticks: { type: 'number', description: 'Minimum duration in ticks (1 tick = 6s, 10 = 1min, 100 = 10min)' }
+      },
+      required: ['class_name', 'min_duration_ticks']
+    }
+  },
+  {
+    name: 'get_class_spell_by_recast_time',
+    description: 'Filter spells by minimum recast time — find all spells with recast at or above threshold in seconds.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Berserker", "Rogue")' },
+        min_recast_seconds: { type: 'number', description: 'Minimum recast time in seconds (e.g. 30, 60, 300, 600)' }
+      },
+      required: ['class_name', 'min_recast_seconds']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -7608,6 +7647,30 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         if (!className) return 'Error: "class_name" parameter is required.';
         if (isNaN(maxCastSeconds)) return 'Error: "max_cast_seconds" parameter is required (number).';
         return getClassSpellByCastTime(className, maxCastSeconds);
+      }
+
+      case 'get_class_spell_by_mana_cost': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const minMana = typeof args.min_mana === 'number' ? args.min_mana : parseInt(String(args.min_mana));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(minMana)) return 'Error: "min_mana" parameter is required (number).';
+        return getClassSpellByManaCost(className, minMana);
+      }
+
+      case 'get_class_spell_by_duration': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const minTicks = typeof args.min_duration_ticks === 'number' ? args.min_duration_ticks : parseInt(String(args.min_duration_ticks));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(minTicks)) return 'Error: "min_duration_ticks" parameter is required (number).';
+        return getClassSpellByDuration(className, minTicks);
+      }
+
+      case 'get_class_spell_by_recast_time': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        const minRecast = typeof args.min_recast_seconds === 'number' ? args.min_recast_seconds : parseFloat(String(args.min_recast_seconds));
+        if (!className) return 'Error: "class_name" parameter is required.';
+        if (isNaN(minRecast)) return 'Error: "min_recast_seconds" parameter is required (number).';
+        return getClassSpellByRecastTime(className, minRecast);
       }
 
       case 'search_help_topics': {

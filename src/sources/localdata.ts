@@ -38875,3 +38875,169 @@ export async function getClassSpellByCastTime(className: string, maxCastSeconds:
   lines.push('', `*${matches.length} spells with cast time ≤ ${maxCastSeconds}s for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+export async function getClassSpellByManaCost(className: string, minMana: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const matches: { name: string; level: number; mana: number; target: string; castTime: number; beneficial: boolean }[] = [];
+  let totalSpellsMC = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsMC++;
+
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    if (mana < minMana) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const castTime = (parseInt(spell.fields[SF.CAST_TIME]) || 0) / 1000;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    matches.push({ name: spell.fields[SF.NAME], level, mana, target: targetName, castTime, beneficial });
+  }
+
+  matches.sort((a, b) => b.mana - a.mana || a.level - b.level);
+
+  const lines = [`# ${classFullName} — Spells with Mana Cost ≥ ${minMana}`, ''];
+  lines.push(`*All spells costing ${minMana} or more mana.*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsMC}`);
+  lines.push(`**Matching spells:** ${matches.length} (${((matches.length / totalSpellsMC) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    const avgMana = Math.round(matches.reduce((s, m) => s + m.mana, 0) / matches.length);
+    const maxManaVal = matches[0].mana;
+    lines.push(`**Average mana:** ${avgMana} | **Max mana:** ${maxManaVal}`, '');
+
+    lines.push('| Spell | Level | Mana | Cast (s) | Target | Type |');
+    lines.push('|:------|------:|-----:|---------:|:-------|:-----|');
+    for (const m of matches.slice(0, 50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.mana} | ${m.castTime.toFixed(1)} | ${m.target} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells with mana ≥ ${minMana} for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellByDuration(className: string, minDurationTicks: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const matches: { name: string; level: number; durationValue: number; target: string; beneficial: boolean; mana: number }[] = [];
+  let totalSpellsDU = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsDU++;
+
+    const durVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    if (durVal < minDurationTicks) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    matches.push({ name: spell.fields[SF.NAME], level, durationValue: durVal, target: targetName, beneficial, mana });
+  }
+
+  matches.sort((a, b) => b.durationValue - a.durationValue || a.level - b.level);
+
+  const minSeconds = minDurationTicks * 6;
+  const minMinutes = (minSeconds / 60).toFixed(1);
+  const lines = [`# ${classFullName} — Spells with Duration ≥ ${minDurationTicks} Ticks`, ''];
+  lines.push(`*All spells with duration value ≥ ${minDurationTicks} ticks (~${minMinutes} min). 1 tick = 6 seconds.*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsDU}`);
+  lines.push(`**Matching spells:** ${matches.length} (${((matches.length / totalSpellsDU) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    lines.push('| Spell | Level | Duration (ticks) | ~Minutes | Target | Type |');
+    lines.push('|:------|------:|-----------------:|---------:|:-------|:-----|');
+    for (const m of matches.slice(0, 50)) {
+      const mins = ((m.durationValue * 6) / 60).toFixed(1);
+      lines.push(`| ${m.name} | ${m.level} | ${m.durationValue} | ${mins} | ${m.target} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells with duration ≥ ${minDurationTicks} ticks for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+export async function getClassSpellByRecastTime(className: string, minRecastSeconds: number): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const minMs = minRecastSeconds * 1000;
+  const matches: { name: string; level: number; recast: number; target: string; beneficial: boolean; mana: number }[] = [];
+  let totalSpellsRC = 0;
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    totalSpellsRC++;
+
+    const recastMs = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    if (recastMs < minMs) continue;
+
+    const targetId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const targetName = TARGET_TYPES[targetId] || `Type ${targetId}`;
+    const beneficial = (parseInt(spell.fields[SF.BENEFICIAL]) || 0) === 1;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    matches.push({ name: spell.fields[SF.NAME], level, recast: recastMs / 1000, target: targetName, beneficial, mana });
+  }
+
+  matches.sort((a, b) => b.recast - a.recast || a.level - b.level);
+
+  const lines = [`# ${classFullName} — Spells with Recast ≥ ${minRecastSeconds}s`, ''];
+  lines.push(`*All spells with recast time at or above ${minRecastSeconds} seconds.*`, '');
+  lines.push(`**Total class spells:** ${totalSpellsRC}`);
+  lines.push(`**Matching spells:** ${matches.length} (${((matches.length / totalSpellsRC) * 100).toFixed(1)}%)`, '');
+
+  if (matches.length > 0) {
+    // Recast bracket breakdown
+    const sub30 = matches.filter(m => m.recast < 30).length;
+    const sub60 = matches.filter(m => m.recast >= 30 && m.recast < 60).length;
+    const sub300 = matches.filter(m => m.recast >= 60 && m.recast < 300).length;
+    const sub600 = matches.filter(m => m.recast >= 300 && m.recast < 600).length;
+    const above = matches.filter(m => m.recast >= 600).length;
+
+    lines.push('### Recast Distribution');
+    lines.push('| Bracket | Count |');
+    lines.push('|:--------|------:|');
+    if (sub30 > 0) lines.push(`| ${minRecastSeconds}–29s | ${sub30} |`);
+    if (sub60 > 0) lines.push(`| 30–59s | ${sub60} |`);
+    if (sub300 > 0) lines.push(`| 1–4 min | ${sub300} |`);
+    if (sub600 > 0) lines.push(`| 5–9 min | ${sub600} |`);
+    if (above > 0) lines.push(`| 10+ min | ${above} |`);
+    lines.push('');
+
+    lines.push('| Spell | Level | Recast (s) | Target | Mana | Type |');
+    lines.push('|:------|------:|-----------:|:-------|-----:|:-----|');
+    for (const m of matches.slice(0, 50)) {
+      lines.push(`| ${m.name} | ${m.level} | ${m.recast} | ${m.target} | ${m.mana} | ${m.beneficial ? 'Beneficial' : 'Detrimental'} |`);
+    }
+    if (matches.length > 50) lines.push(`| ...and ${matches.length - 50} more | | | | | |`);
+  }
+
+  lines.push('', `*${matches.length} spells with recast ≥ ${minRecastSeconds}s for ${classFullName}.*`);
+  return lines.join('\n');
+}
