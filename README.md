@@ -17,9 +17,13 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that pr
 
 ## Data Sources
 
-### Local Game Data
+### Local Game Data (requires EverQuest installation)
 
-The primary data source, powering 386 of the 407 tools. The server parses EverQuest game files directly to provide authoritative, offline access to the full game database:
+The primary data source, powering 386 of the 407 tools. This server does not ship with game data — it reads and parses files directly from an EverQuest installation on your machine at runtime. The code contains the parsing and analysis logic; the actual data (70K+ spells, faction tables, map files, etc.) lives in the EQ game directory.
+
+This means you need a local EverQuest installation and must set the `EQ_GAME_PATH` environment variable pointing to it (see [Configuration](#configuration)). Without this, only the 21 online search tools are available.
+
+When configured, the server parses these game files on demand and caches them in memory:
 
 - **70K+ spells** with effects, classes, categories, stacking rules, and cast messages
 - **1600+ factions** with starting values by race, class, and deity
@@ -30,7 +34,7 @@ The primary data source, powering 386 of the 407 tools. The server parses EverQu
 - **980+ creature/NPC race types**, 550+ in-game events, 50+ lore stories
 - **Achievement system**, skill caps, base stats, AC mitigation tables, and more
 
-Data is parsed on demand and cached in memory. No external network calls required.
+No external network calls required. Data stays up to date automatically — when EQ patches, the server reads the updated files on next use.
 
 ### Online Databases
 
@@ -57,9 +61,9 @@ npm install
 npm run build
 ```
 
-### Local Game Data (Optional)
+## Configuration
 
-For offline access to comprehensive game data, set the `EQ_GAME_PATH` environment variable to your EverQuest installation directory. On macOS with CrossOver:
+Add to your MCP client config. For Claude Desktop, edit `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS:
 
 ```json
 {
@@ -68,31 +72,23 @@ For offline access to comprehensive game data, set the `EQ_GAME_PATH` environmen
       "command": "node",
       "args": ["/absolute/path/to/everquest-mcp/dist/index.js"],
       "env": {
-        "EQ_GAME_PATH": "/path/to/EverQuest"
+        "EQ_GAME_PATH": "/path/to/your/EverQuest/installation"
       }
     }
   }
 }
 ```
 
-Without this, only online database tools are available.
+`EQ_GAME_PATH` must point to the root of your EverQuest installation directory — the folder containing `spells_us.txt`, `dbstr_us.txt`, the `Resources/` folder, and the `maps/` folder. This is required for the 386 local data tools to function. Without it, only the 21 online search tools are available.
 
-## Configuration
+Common EQ installation paths:
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+| Platform | Typical Path |
+|----------|-------------|
+| Windows | `C:\Users\Public\Daybreak Game Company\Installed Games\EverQuest` |
+| macOS (CrossOver) | `~/Library/Application Support/CrossOver/Bottles/EverQuest/drive_c/users/Public/Daybreak Game Company/Installed Games/EverQuest` |
 
-```json
-{
-  "mcpServers": {
-    "everquest": {
-      "command": "node",
-      "args": ["/absolute/path/to/everquest-mcp/dist/index.js"]
-    }
-  }
-}
-```
-
-Then restart Claude Desktop.
+Then restart your MCP client.
 
 ## Available Tools (407)
 
@@ -159,9 +155,7 @@ src/
     └── tools.test.ts
 ```
 
-## Local Game Data Files Parsed
-
-When `EQ_GAME_PATH` is set, the server parses these game files on demand:
+## Game Files Parsed
 
 | File | Data |
 |------|------|
