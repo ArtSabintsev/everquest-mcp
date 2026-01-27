@@ -307,6 +307,9 @@ import {
   getClassPetSpellProfile,
   getClassCureSpellProfile,
   getClassTransportProfile,
+  getClassResistDebuffProfile,
+  getClassManaRecoveryProfile,
+  getClassSpellFocusProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -3792,6 +3795,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_resist_debuff_profile',
+    description: 'Resist debuff/buff profile for a class — fire/cold/poison/disease/magic/corruption resist modifiers, strongest debuffs and buffs, multi-resist spells.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_mana_recovery_profile',
+    description: 'Mana recovery profile for a class — regen buffs, mana drain/tap, mana transfer, max mana buffs, mana absorb.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Necromancer")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_focus_profile',
+    description: 'Spell focus profile for a class — twincast, spell crit chance/damage, spell haste, nuke/DoT damage, heal amount modifiers.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6027,6 +6063,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassTransportProfile(className);
+      }
+
+      case 'get_class_resist_debuff_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassResistDebuffProfile(className);
+      }
+
+      case 'get_class_mana_recovery_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassManaRecoveryProfile(className);
+      }
+
+      case 'get_class_spell_focus_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellFocusProfile(className);
       }
 
       case 'search_help_topics': {

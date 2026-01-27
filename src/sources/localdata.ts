@@ -29920,3 +29920,495 @@ export async function getClassTransportProfile(className: string): Promise<strin
   lines.push('', `*${travelSpells.length} travel spells analyzed for ${classFullName}.*`);
   return lines.join('\n');
 }
+
+// Tool 300: Resist debuff profile per class
+export async function getClassResistDebuffProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  // Resist-lowering SPAs (negative base = debuff)
+  const RESIST_SPAS: Record<number, string> = {
+    46: 'Fire Resist',
+    47: 'Cold Resist',
+    48: 'Poison Resist',
+    49: 'Disease Resist',
+    50: 'Magic Resist',
+    146: 'Corruption Resist',
+    349: 'Resist All',
+  };
+
+  interface ResistDebuff {
+    name: string;
+    level: number;
+    resistTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const debuffs: ResistDebuff[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const resistTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (RESIST_SPAS[spaId]) {
+        resistTypes.push(RESIST_SPAS[spaId]);
+        values[RESIST_SPAS[spaId]] = base;
+      }
+    }
+    if (resistTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    debuffs.push({
+      name: spell.fields[SF.NAME],
+      level,
+      resistTypes: [...new Set(resistTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial: isBeneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Resist Debuff Profile`, ''];
+  lines.push('*Analyzes spells that modify target resistances: fire, cold, poison, disease, magic, corruption.*', '');
+
+  if (debuffs.length === 0) {
+    lines.push('No resist-modifying spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const resistDebuffs = debuffs.filter(d => !d.beneficial || Object.values(d.values).some(v => v < 0));
+  const resistBuffs = debuffs.filter(d => d.beneficial && Object.values(d.values).every(v => v >= 0));
+
+  lines.push(`**Total resist spells:** ${debuffs.length}`);
+  lines.push(`- Resist debuffs (lower enemy resists): ${resistDebuffs.length}`);
+  lines.push(`- Resist buffs (raise ally resists): ${resistBuffs.length}`);
+
+  // Resist type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const d of debuffs) {
+    for (const t of d.resistTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('', '## Resist Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Strongest resist debuffs
+  if (resistDebuffs.length > 0) {
+    const sorted = resistDebuffs.sort((a, b) => {
+      const aMin = Math.min(...Object.values(a.values));
+      const bMin = Math.min(...Object.values(b.values));
+      return aMin - bMin; // Most negative first
+    });
+    lines.push('', '## Strongest Resist Debuffs (Top 15)', '');
+    lines.push('| Spell | Level | Resist Changes | Duration | Target |');
+    lines.push('|:------|------:|:---------------|:---------|:-------|');
+    for (const d of sorted.slice(0, 15)) {
+      const changes = Object.entries(d.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`| ${d.name} | ${d.level} | ${changes} | ${d.duration || '—'} | ${d.targetType} |`);
+    }
+  }
+
+  // Strongest resist buffs
+  if (resistBuffs.length > 0) {
+    const sorted = resistBuffs.sort((a, b) => {
+      const aMax = Math.max(...Object.values(a.values));
+      const bMax = Math.max(...Object.values(b.values));
+      return bMax - aMax;
+    });
+    lines.push('', '## Strongest Resist Buffs (Top 15)', '');
+    lines.push('| Spell | Level | Resist Changes | Duration | Target |');
+    lines.push('|:------|------:|:---------------|:---------|:-------|');
+    for (const d of sorted.slice(0, 15)) {
+      const changes = Object.entries(d.values).map(([t, v]) => `${t}: +${v}`).join(', ');
+      lines.push(`| ${d.name} | ${d.level} | ${changes} | ${d.duration || '—'} | ${d.targetType} |`);
+    }
+  }
+
+  // Multi-resist spells (affect multiple resist types)
+  const multiResist = debuffs.filter(d => d.resistTypes.length >= 2);
+  if (multiResist.length > 0) {
+    lines.push('', `## Multi-Resist Spells (${multiResist.length})`, '');
+    for (const d of multiResist.sort((a, b) => b.resistTypes.length - a.resistTypes.length || b.level - a.level).slice(0, 15)) {
+      const changes = Object.entries(d.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`- **${d.name}** (Level ${d.level}) — ${changes}`);
+    }
+  }
+
+  lines.push('', `*${debuffs.length} resist spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 301: Mana recovery profile per class
+export async function getClassManaRecoveryProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const MANA_SPAS: Record<number, string> = {
+    15: 'Mana',
+    35: 'Mana Regen',
+    88: 'Transfer Mana',
+    115: 'Mana/HP Return',
+    163: 'Max Mana',
+    267: 'Mana Regen from Spells',
+    270: 'Max Mana Mod',
+    274: 'Max Mana',
+    336: 'Max Mana Increase',
+    404: 'Mana Drain',
+    412: 'Mana2',
+    469: 'Mana Absorb',
+  };
+
+  interface ManaSpell {
+    name: string;
+    level: number;
+    manaTypes: string[];
+    values: Record<string, number>;
+    manaCost: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const manaSpells: ManaSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const manaTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (MANA_SPAS[spaId]) {
+        manaTypes.push(MANA_SPAS[spaId]);
+        values[MANA_SPAS[spaId]] = base;
+      }
+    }
+    if (manaTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const manaCost = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const isBeneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    manaSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      manaTypes: [...new Set(manaTypes)],
+      values,
+      manaCost,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial: isBeneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Mana Recovery Profile`, ''];
+  lines.push('*Analyzes mana-related spells: regen, drain, transfer, max mana, absorb.*', '');
+
+  if (manaSpells.length === 0) {
+    lines.push('No mana-related spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total mana spells:** ${manaSpells.length}`);
+  const beneficial = manaSpells.filter(s => s.beneficial);
+  const detrimental = manaSpells.filter(s => !s.beneficial);
+  lines.push(`- Beneficial (buffs/regen): ${beneficial.length}`);
+  lines.push(`- Detrimental (drain/tap): ${detrimental.length}`);
+
+  // Mana type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of manaSpells) {
+    for (const t of s.manaTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('', '## Mana Spell Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Strongest mana regen buffs
+  const regenBuffs = manaSpells.filter(s => s.beneficial && (s.manaTypes.includes('Mana Regen') || s.manaTypes.includes('Mana Regen from Spells')));
+  if (regenBuffs.length > 0) {
+    const sorted = regenBuffs.sort((a, b) => {
+      const aVal = a.values['Mana Regen'] || a.values['Mana Regen from Spells'] || 0;
+      const bVal = b.values['Mana Regen'] || b.values['Mana Regen from Spells'] || 0;
+      return bVal - aVal;
+    });
+    lines.push('', '## Strongest Mana Regen Buffs (Top 15)', '');
+    lines.push('| Spell | Level | Regen Value | Duration | Target |');
+    lines.push('|:------|------:|------------:|---------:|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const val = s.values['Mana Regen'] || s.values['Mana Regen from Spells'] || 0;
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Mana drain/tap spells
+  const drains = manaSpells.filter(s => !s.beneficial && (s.manaTypes.includes('Mana') || s.manaTypes.includes('Mana Drain') || s.manaTypes.includes('Mana Absorb')));
+  if (drains.length > 0) {
+    const sorted = drains.sort((a, b) => {
+      const aVal = Math.abs(a.values['Mana'] || a.values['Mana Drain'] || 0);
+      const bVal = Math.abs(b.values['Mana'] || b.values['Mana Drain'] || 0);
+      return bVal - aVal;
+    });
+    lines.push('', `## Mana Drain Spells (Top 15)`, '');
+    lines.push('| Spell | Level | Drain | Cast (s) | Mana Cost | Target |');
+    lines.push('|:------|------:|------:|---------:|----------:|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const val = s.values['Mana'] || s.values['Mana Drain'] || 0;
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${val} | ${castSec} | ${s.manaCost.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // Max mana buffs
+  const maxMana = manaSpells.filter(s => s.beneficial && (s.manaTypes.includes('Max Mana') || s.manaTypes.includes('Max Mana Mod') || s.manaTypes.includes('Max Mana Increase')));
+  if (maxMana.length > 0) {
+    lines.push('', `## Max Mana Buffs (${maxMana.length})`, '');
+    for (const s of maxMana.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      const changes = Object.entries(s.values).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+      lines.push(`- **${s.name}** (Level ${s.level}) — ${changes} — ${s.targetType}`);
+    }
+  }
+
+  // Mana transfer spells
+  const transfers = manaSpells.filter(s => s.manaTypes.includes('Transfer Mana') || s.manaTypes.includes('Mana/HP Return'));
+  if (transfers.length > 0) {
+    lines.push('', `## Mana Transfer Spells (${transfers.length})`, '');
+    for (const s of transfers.sort((a, b) => b.level - a.level).slice(0, 10)) {
+      const changes = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`- **${s.name}** (Level ${s.level}) — ${changes} — ${s.targetType}`);
+    }
+  }
+
+  // Target type breakdown
+  const targetCounts: Record<string, number> = {};
+  for (const s of manaSpells) targetCounts[s.targetType] = (targetCounts[s.targetType] || 0) + 1;
+  lines.push('', '## Target Type Distribution', '');
+  for (const [target, count] of Object.entries(targetCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${target}:** ${count} spells`);
+  }
+
+  lines.push('', `*${manaSpells.length} mana spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 302: Spell focus profile per class
+export async function getClassSpellFocusProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const FOCUS_SPAS: Record<number, string> = {
+    127: 'Spell Haste',
+    128: 'Spell Duration Increase',
+    129: 'Spell Duration Decrease',
+    140: 'Twincast Chance',
+    200: 'Spell Crit Chance',
+    203: 'Spell Crit Damage',
+    218: 'DoT Damage',
+    219: 'Heal Amount',
+    220: 'Heal Amount2',
+    221: 'Nuke Damage',
+    250: 'Increase Damage',
+    341: 'Crit DoT Damage',
+    342: 'Crit Heal',
+    373: 'Crit Spell Damage',
+    374: 'Critical Heal Chance',
+    376: 'Crit HoT Chance',
+    377: 'Crit HoT Amount',
+    384: 'Crit Spell2',
+    413: 'Spell Damage',
+    414: 'Increase Healing',
+  };
+
+  interface FocusSpell {
+    name: string;
+    level: number;
+    focusTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+  }
+
+  const focusSpells: FocusSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+    if (spell.fields[SF.BENEFICIAL] !== '1') continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const focusTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (FOCUS_SPAS[spaId]) {
+        focusTypes.push(FOCUS_SPAS[spaId]);
+        values[FOCUS_SPAS[spaId]] = base;
+      }
+    }
+    if (focusTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+
+    focusSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      focusTypes: [...new Set(focusTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+    });
+  }
+
+  const lines = [`# ${classFullName} Spell Focus Profile`, ''];
+  lines.push('*Analyzes spell focus effects: crit chance, crit damage, twincast, spell haste, damage/heal modifiers.*', '');
+
+  if (focusSpells.length === 0) {
+    lines.push('No spell focus effects found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total focus spells:** ${focusSpells.length}`, '');
+
+  // Focus type distribution
+  const typeCounts: Record<string, number> = {};
+  for (const s of focusSpells) {
+    for (const t of s.focusTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Focus Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Twincast spells
+  const twincasts = focusSpells.filter(s => s.focusTypes.includes('Twincast Chance'));
+  if (twincasts.length > 0) {
+    lines.push('', `## Twincast Spells (${twincasts.length})`, '');
+    lines.push('| Spell | Level | Twincast % | Duration | Target |');
+    lines.push('|:------|------:|-----------:|---------:|:-------|');
+    for (const s of twincasts.sort((a, b) => (b.values['Twincast Chance'] || 0) - (a.values['Twincast Chance'] || 0)).slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | ${s.values['Twincast Chance'] || 0}% | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Spell crit buffs
+  const critSpells = focusSpells.filter(s => s.focusTypes.some(t => t.includes('Crit')));
+  if (critSpells.length > 0) {
+    const sorted = critSpells.sort((a, b) => b.level - a.level);
+    lines.push('', `## Spell Crit Buffs (${critSpells.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Focus Effects | Target |');
+    lines.push('|:------|------:|:--------------|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const fx = Object.entries(s.values).filter(([t]) => t.includes('Crit')).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${s.targetType} |`);
+    }
+  }
+
+  // Spell haste buffs
+  const hasteSpells = focusSpells.filter(s => s.focusTypes.includes('Spell Haste'));
+  if (hasteSpells.length > 0) {
+    lines.push('', `## Spell Haste Buffs (${hasteSpells.length})`, '');
+    for (const s of hasteSpells.sort((a, b) => (b.values['Spell Haste'] || 0) - (a.values['Spell Haste'] || 0)).slice(0, 10)) {
+      lines.push(`- **${s.name}** (Level ${s.level}) — Haste: ${s.values['Spell Haste']}% — ${s.targetType}`);
+    }
+  }
+
+  // Damage/heal modifier spells
+  const dmgHeal = focusSpells.filter(s => s.focusTypes.some(t => ['Nuke Damage', 'DoT Damage', 'Heal Amount', 'Spell Damage', 'Increase Healing', 'Increase Damage'].includes(t)));
+  if (dmgHeal.length > 0) {
+    const sorted = dmgHeal.sort((a, b) => b.level - a.level);
+    lines.push('', `## Damage/Heal Modifiers (${dmgHeal.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Modifiers | Target |');
+    lines.push('|:------|------:|:----------|:-------|');
+    for (const s of sorted.slice(0, 15)) {
+      const fx = Object.entries(s.values).filter(([t]) => ['Nuke Damage', 'DoT Damage', 'Heal Amount', 'Heal Amount2', 'Spell Damage', 'Increase Healing', 'Increase Damage'].includes(t)).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx || 'See focus types'} | ${s.targetType} |`);
+    }
+  }
+
+  // Most complex focus spells (multiple focus types)
+  const complex = focusSpells.filter(s => s.focusTypes.length >= 3);
+  if (complex.length > 0) {
+    lines.push('', `## Multi-Focus Spells (${complex.length})`, '');
+    for (const s of complex.sort((a, b) => b.focusTypes.length - a.focusTypes.length || b.level - a.level).slice(0, 10)) {
+      lines.push(`- **${s.name}** (Level ${s.level}, ${s.focusTypes.length} focus effects) — ${s.focusTypes.join(', ')}`);
+    }
+  }
+
+  lines.push('', `*${focusSpells.length} focus spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
