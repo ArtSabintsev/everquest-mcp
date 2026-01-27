@@ -325,6 +325,9 @@ import {
   getClassSpellResistTypeProfile,
   getClassDeathSaveProfile,
   getClassSpellLineProgression,
+  getClassResistBuffProfile,
+  getClassHPRegenProfile,
+  getClassSpellRangeProfile,
 } from './sources/index.js';
 
 export const tools = [
@@ -4008,6 +4011,39 @@ export const tools = [
     }
   },
   {
+    name: 'get_class_resist_buff_profile',
+    description: 'Resist buff/debuff profile for a class — analyzes spells that modify Magic, Fire, Cold, Poison, Disease, Chromatic, Prismatic, Physical, and Corruption resistances, categorized by resist type with buff vs debuff breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Shaman", "Enchanter")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_hp_regen_profile',
+    description: 'HP regeneration profile for a class — analyzes spells that provide HP regeneration, enhanced regen, out-of-combat regen, and regen caps, categorized by regen type with level progression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Druid")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_class_spell_range_profile',
+    description: 'Spell range profile for a class — analyzes spell range distributions, range extension effects, and AE range patterns showing how far class abilities can reach.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Wizard", "Ranger")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -6351,6 +6387,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
         if (!className) return 'Error: "class_name" parameter is required.';
         return getClassSpellLineProgression(className);
+      }
+
+      case 'get_class_resist_buff_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassResistBuffProfile(className);
+      }
+
+      case 'get_class_hp_regen_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassHPRegenProfile(className);
+      }
+
+      case 'get_class_spell_range_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassSpellRangeProfile(className);
       }
 
       case 'search_help_topics': {

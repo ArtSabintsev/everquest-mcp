@@ -32623,3 +32623,454 @@ export async function getClassSpellLineProgression(className: string): Promise<s
   return lines.join('\n');
 }
 
+// Tool 318: Resist buff profile per class
+export async function getClassResistBuffProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const RESIST_SPAS: Record<number, string> = {
+    42: 'Fire Resist (Mirrored)',
+    46: 'Fire Resist',
+    47: 'Cold Resist',
+    48: 'Poison Resist',
+    49: 'Disease Resist',
+    50: 'Magic Resist',
+    93: 'Resist Adj',
+    146: 'Corruption Resist',
+    349: 'Resist All',
+  };
+
+  interface ResistBuffSpell {
+    name: string;
+    level: number;
+    resistTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const resistSpells: ResistBuffSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const resistTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (RESIST_SPAS[spaId]) {
+        resistTypes.push(RESIST_SPAS[spaId]);
+        values[RESIST_SPAS[spaId]] = base;
+      }
+    }
+    if (resistTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    resistSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      resistTypes: [...new Set(resistTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Resist Buff Profile`, ''];
+  lines.push('*Analyzes resistance-modifying spells: fire, cold, poison, disease, magic, corruption, resist all buffs and debuffs.*', '');
+
+  if (resistSpells.length === 0) {
+    lines.push('No resist modification spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const buffs = resistSpells.filter(s => s.beneficial);
+  const debuffs = resistSpells.filter(s => !s.beneficial);
+  lines.push(`**Total resist spells:** ${resistSpells.length}`);
+  lines.push(`- Resist buffs: ${buffs.length}`);
+  lines.push(`- Resist debuffs: ${debuffs.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of resistSpells) {
+    for (const t of s.resistTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## Resist Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Strongest resist buffs
+  if (buffs.length > 0) {
+    lines.push('', `## Strongest Resist Buffs (${buffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Resist Values | Duration | Target |');
+    lines.push('|:------|------:|:-------------|:---------|:-------|');
+    for (const s of buffs.sort((a, b) => {
+      const aMax = Math.max(...Object.values(a.values).map(Math.abs));
+      const bMax = Math.max(...Object.values(b.values).map(Math.abs));
+      return bMax - aMax;
+    }).slice(0, 15)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Strongest resist debuffs
+  if (debuffs.length > 0) {
+    lines.push('', `## Strongest Resist Debuffs (${debuffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Resist Values | Cast (s) | Duration | Target |');
+    lines.push('|:------|------:|:-------------|:---------|:---------|:-------|');
+    for (const s of debuffs.sort((a, b) => {
+      const aMin = Math.min(...Object.values(a.values));
+      const bMin = Math.min(...Object.values(b.values));
+      return aMin - bMin;
+    }).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v > 0 ? '+' : ''}${v}`).join(', ');
+      lines.push(`| ${s.name} | ${s.level} | ${fx} | ${castSec} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Multi-resist spells
+  const multiResist = resistSpells.filter(s => s.resistTypes.length >= 2);
+  if (multiResist.length > 0) {
+    lines.push('', `## Multi-Resist Spells (${multiResist.length}) — Top 15`, '');
+    for (const s of multiResist.sort((a, b) => b.resistTypes.length - a.resistTypes.length || b.level - a.level).slice(0, 15)) {
+      const fx = Object.entries(s.values).map(([t, v]) => `${t}: ${v}`).join(', ');
+      lines.push(`- **${s.name}** (Level ${s.level}, ${s.resistTypes.length} resists) — ${fx}`);
+    }
+  }
+
+  lines.push('', `*${resistSpells.length} resist spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 319: HP Regen profile per class
+export async function getClassHPRegenProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  const REGEN_SPAS: Record<number, string> = {
+    34: 'HP Regen',
+    144: 'HP Regen Per Tick',
+    266: 'HP Regen from Spells',
+    356: 'Worn Regen',
+    399: 'Worn HP Regen Cap',
+  };
+
+  interface RegenSpell {
+    name: string;
+    level: number;
+    regenTypes: string[];
+    values: Record<string, number>;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    duration: number;
+    beneficial: boolean;
+  }
+
+  const regenSpells: RegenSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (!effectField) continue;
+
+    const regenTypes: string[] = [];
+    const values: Record<string, number> = {};
+    for (const slot of effectField.split('$')) {
+      const parts = slot.split('|');
+      if (parts.length < 3) continue;
+      const spaId = parseInt(parts[1]);
+      const base = parseInt(parts[2]) || 0;
+      if (REGEN_SPAS[spaId]) {
+        regenTypes.push(REGEN_SPAS[spaId]);
+        values[REGEN_SPAS[spaId]] = base;
+      }
+    }
+    if (regenTypes.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    regenSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      regenTypes: [...new Set(regenTypes)],
+      values,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      duration: durationVal,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} HP Regen Profile`, ''];
+  lines.push('*Analyzes HP regeneration spells: HP regen, HP regen per tick, HP regen from spells, worn regen, worn HP regen cap.*', '');
+
+  if (regenSpells.length === 0) {
+    lines.push('No HP regen spells found for this class.');
+    return lines.join('\n');
+  }
+
+  const regenBuffs = regenSpells.filter(s => s.beneficial);
+  const regenDebuffs = regenSpells.filter(s => !s.beneficial);
+  lines.push(`**Total HP regen spells:** ${regenSpells.length}`);
+  lines.push(`- Regen buffs: ${regenBuffs.length}`);
+  lines.push(`- Regen debuffs: ${regenDebuffs.length}`, '');
+
+  const typeCounts: Record<string, number> = {};
+  for (const s of regenSpells) {
+    for (const t of s.regenTypes) typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+  lines.push('## HP Regen Type Distribution', '');
+  for (const [type, count] of Object.entries(typeCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${type}:** ${count} spells`);
+  }
+
+  // Strongest regen buffs
+  if (regenBuffs.length > 0) {
+    lines.push('', `## Strongest HP Regen Buffs (${regenBuffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Regen Value | Duration | Target |');
+    lines.push('|:------|------:|------------:|:---------|:-------|');
+    for (const s of regenBuffs.sort((a, b) => {
+      const aMax = Math.max(...Object.values(a.values));
+      const bMax = Math.max(...Object.values(b.values));
+      return bMax - aMax;
+    }).slice(0, 15)) {
+      const maxVal = Math.max(...Object.values(s.values));
+      lines.push(`| ${s.name} | ${s.level} | +${maxVal.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Regen debuffs (HP regen reduction)
+  if (regenDebuffs.length > 0) {
+    lines.push('', `## HP Regen Debuffs (${regenDebuffs.length}) — Top 15`, '');
+    lines.push('| Spell | Level | Regen Reduction | Cast (s) | Duration | Target |');
+    lines.push('|:------|------:|----------------:|:---------|:---------|:-------|');
+    for (const s of regenDebuffs.sort((a, b) => {
+      const aMin = Math.min(...Object.values(a.values));
+      const bMin = Math.min(...Object.values(b.values));
+      return aMin - bMin;
+    }).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      const minVal = Math.min(...Object.values(s.values));
+      lines.push(`| ${s.name} | ${s.level} | ${minVal.toLocaleString()} | ${castSec} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  // Group regen
+  const groupRegen = regenBuffs.filter(s => s.targetType.includes('Group') || s.targetType.includes('AE'));
+  if (groupRegen.length > 0) {
+    lines.push('', `## Group HP Regen (${groupRegen.length}) — Top 10`, '');
+    lines.push('| Spell | Level | Regen Value | Duration | Target |');
+    lines.push('|:------|------:|------------:|:---------|:-------|');
+    for (const s of groupRegen.sort((a, b) => {
+      const aMax = Math.max(...Object.values(a.values));
+      const bMax = Math.max(...Object.values(b.values));
+      return bMax - aMax;
+    }).slice(0, 10)) {
+      const maxVal = Math.max(...Object.values(s.values));
+      lines.push(`| ${s.name} | ${s.level} | +${maxVal.toLocaleString()} | ${s.duration || '—'} | ${s.targetType} |`);
+    }
+  }
+
+  lines.push('', `*${regenSpells.length} HP regen spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 320: Spell range profile per class
+export async function getClassSpellRangeProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  const classFullName = CLASS_IDS[classId];
+  const classIndex = classId - 1;
+
+  interface RangeSpell {
+    name: string;
+    level: number;
+    range: number;
+    aeRange: number;
+    mana: number;
+    castTime: number;
+    targetType: string;
+    beneficial: boolean;
+    hasRangeBoost: boolean;
+    rangeBoost: number;
+  }
+
+  const rangeSpells: RangeSpell[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const range = parseInt(spell.fields[SF.RANGE]) || 0;
+    const aeRange = parseInt(spell.fields[SF.AE_RANGE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    // Check for SPA 113 (Improved Spell Range)
+    let hasRangeBoost = false;
+    let rangeBoost = 0;
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) { effectField = spell.fields[i]; break; }
+    }
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3 && parseInt(parts[1]) === 113) {
+          hasRangeBoost = true;
+          rangeBoost = parseInt(parts[2]) || 0;
+        }
+      }
+    }
+
+    if (range === 0 && aeRange === 0 && !hasRangeBoost) continue;
+
+    rangeSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      range,
+      aeRange,
+      mana,
+      castTime,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      beneficial,
+      hasRangeBoost,
+      rangeBoost,
+    });
+  }
+
+  const lines = [`# ${classFullName} Spell Range Profile`, ''];
+  lines.push('*Analyzes spell ranges: longest range spells, AE radius, range boost effects, range distribution.*', '');
+
+  if (rangeSpells.length === 0) {
+    lines.push('No ranged spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total ranged spells:** ${rangeSpells.length}`, '');
+
+  // Range distribution
+  const rangeBrackets: Record<string, number> = {};
+  for (const s of rangeSpells) {
+    let bracket: string;
+    if (s.range === 0) bracket = 'Self/Touch';
+    else if (s.range <= 50) bracket = '1-50';
+    else if (s.range <= 100) bracket = '51-100';
+    else if (s.range <= 150) bracket = '101-150';
+    else if (s.range <= 200) bracket = '151-200';
+    else if (s.range <= 300) bracket = '201-300';
+    else bracket = '300+';
+    rangeBrackets[bracket] = (rangeBrackets[bracket] || 0) + 1;
+  }
+  lines.push('## Range Distribution', '');
+  lines.push('| Range | Count |');
+  lines.push('|:------|------:|');
+  for (const [bracket, count] of Object.entries(rangeBrackets)) {
+    lines.push(`| ${bracket} | ${count} |`);
+  }
+
+  // Longest range spells
+  const longRange = rangeSpells.filter(s => s.range > 0);
+  if (longRange.length > 0) {
+    lines.push('', `## Longest Range Spells — Top 15`, '');
+    lines.push('| Spell | Level | Range | AE Range | Cast (s) | Mana | Target |');
+    lines.push('|:------|------:|------:|---------:|:---------|-----:|:-------|');
+    for (const s of longRange.sort((a, b) => b.range - a.range).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.range} | ${s.aeRange || '—'} | ${castSec} | ${s.mana.toLocaleString()} | ${s.targetType} |`);
+    }
+  }
+
+  // Largest AE radius spells
+  const aeSpells = rangeSpells.filter(s => s.aeRange > 0);
+  if (aeSpells.length > 0) {
+    lines.push('', `## Largest AE Radius Spells — Top 15`, '');
+    lines.push('| Spell | Level | AE Radius | Range | Cast (s) | Target |');
+    lines.push('|:------|------:|----------:|------:|:---------|:-------|');
+    for (const s of aeSpells.sort((a, b) => b.aeRange - a.aeRange).slice(0, 15)) {
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${s.aeRange} | ${s.range || '—'} | ${castSec} | ${s.targetType} |`);
+    }
+  }
+
+  // Range boost spells
+  const boostSpells = rangeSpells.filter(s => s.hasRangeBoost);
+  if (boostSpells.length > 0) {
+    lines.push('', `## Spell Range Boost Effects (${boostSpells.length})`, '');
+    lines.push('| Spell | Level | Range Boost | Target |');
+    lines.push('|:------|------:|------------:|:-------|');
+    for (const s of boostSpells.sort((a, b) => b.rangeBoost - a.rangeBoost).slice(0, 15)) {
+      lines.push(`| ${s.name} | ${s.level} | +${s.rangeBoost} | ${s.targetType} |`);
+    }
+  }
+
+  // Average range by target type
+  const targetRanges: Record<string, { total: number; count: number }> = {};
+  for (const s of rangeSpells.filter(r => r.range > 0)) {
+    if (!targetRanges[s.targetType]) targetRanges[s.targetType] = { total: 0, count: 0 };
+    targetRanges[s.targetType].total += s.range;
+    targetRanges[s.targetType].count += 1;
+  }
+  lines.push('', '## Average Range by Target Type', '');
+  lines.push('| Target Type | Avg Range | Spell Count |');
+  lines.push('|:------------|----------:|------------:|');
+  for (const [type, data] of Object.entries(targetRanges).sort((a, b) => (b[1].total / b[1].count) - (a[1].total / a[1].count))) {
+    lines.push(`| ${type} | ${(data.total / data.count).toFixed(0)} | ${data.count} |`);
+  }
+
+  lines.push('', `*${rangeSpells.length} ranged spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
