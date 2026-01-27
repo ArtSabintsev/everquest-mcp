@@ -256,6 +256,9 @@ import {
   getSpellDurationAnalysis,
   getAAAbilityRankAnalysis,
   getSpellRecastTimerAnalysis,
+  getSkillCapProgressionAnalysis,
+  getBaseStatGrowthCurveAnalysis,
+  getOverseerQuestDifficultyAnalysis,
 } from './sources/index.js';
 
 export const tools = [
@@ -3294,6 +3297,39 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'get_skill_cap_progression_analysis',
+    description: 'Skill cap progression analysis — all skills available to a class with max caps, growth curves, and category breakdown (Combat, Casting, Utility, Tradeskill).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class name (e.g., "Warrior", "Wizard", "Bard")'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_base_stat_growth_curve_analysis',
+    description: 'Base stat growth curve analysis — HP, Mana, Endurance, and Regen growth by level for a class with milestone tables and cross-class comparison.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: {
+          type: 'string',
+          description: 'Class name (e.g., "Cleric", "Monk", "Necromancer")'
+        }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_overseer_quest_difficulty_analysis',
+    description: 'Overseer quest difficulty analysis — difficulty distribution, duration patterns, slot requirements by difficulty, most demanded job types, category breakdown.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5265,6 +5301,22 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_spell_recast_timer_analysis': {
         return getSpellRecastTimerAnalysis();
+      }
+
+      case 'get_skill_cap_progression_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSkillCapProgressionAnalysis(className);
+      }
+
+      case 'get_base_stat_growth_curve_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getBaseStatGrowthCurveAnalysis(className);
+      }
+
+      case 'get_overseer_quest_difficulty_analysis': {
+        return getOverseerQuestDifficultyAnalysis();
       }
 
       case 'search_help_topics': {

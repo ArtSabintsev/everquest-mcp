@@ -23803,3 +23803,327 @@ export async function getSpellRecastTimerAnalysis(): Promise<string> {
   lines.push('', `*${total.toLocaleString()} spells analyzed for recast patterns.*`);
   return lines.join('\n');
 }
+
+// Tool 249: Skill cap progression analysis
+export async function getSkillCapProgressionAnalysis(className: string): Promise<string> {
+  await loadSkillCaps();
+  if (!skillCaps || skillCaps.length === 0) return 'Skill cap data not available.';
+
+  const classId = Object.entries(CLASS_IDS).find(([, name]) =>
+    name.toLowerCase() === className.toLowerCase()
+  )?.[0];
+  if (!classId) {
+    const validClasses = Object.values(CLASS_IDS).join(', ');
+    return `Unknown class "${className}". Valid classes: ${validClasses}`;
+  }
+  const cid = parseInt(classId);
+  const classShort = CLASS_SHORT[cid] || className;
+  const classFullName = CLASS_IDS[cid];
+
+  const lines: string[] = [`# Skill Cap Progression: ${classFullName} (${classShort})`, '', '*Skill cap growth, available skills, and max caps.*'];
+
+  // Filter class skills
+  const classSkills = skillCaps.filter(e => e.classId === cid);
+  if (classSkills.length === 0) return `No skill cap data found for ${classFullName}.`;
+
+  // Group by skill
+  const bySkill = new Map<number, { level: number; cap: number }[]>();
+  for (const entry of classSkills) {
+    if (!bySkill.has(entry.skillId)) bySkill.set(entry.skillId, []);
+    bySkill.get(entry.skillId)!.push({ level: entry.level, cap: entry.cap });
+  }
+
+  // Categorize skills
+  const combatSkills = [0, 1, 2, 3, 7, 8, 10, 11, 15, 16, 19, 20, 21, 22, 23, 26, 28, 30, 33, 34, 36, 37, 38, 51, 52, 73, 74, 76, 77];
+  const casterSkills = [4, 5, 13, 14, 18, 24, 31, 43, 44, 45, 46, 47];
+  const utilitySkills = [6, 9, 17, 25, 27, 29, 35, 39, 40, 42, 48, 50, 53, 55, 62, 66, 67, 71, 75];
+  const tradeskills = [56, 57, 58, 59, 60, 61, 63, 64, 65, 68, 69];
+  const instrumentSkills = [12, 41, 49, 54, 70];
+
+  const categorize = (skillId: number): string => {
+    if (combatSkills.includes(skillId)) return 'Combat';
+    if (casterSkills.includes(skillId)) return 'Casting';
+    if (utilitySkills.includes(skillId)) return 'Utility';
+    if (tradeskills.includes(skillId)) return 'Tradeskill';
+    if (instrumentSkills.includes(skillId)) return 'Instrument';
+    return 'Other';
+  };
+
+  // Max cap per skill
+  const skillMaxCaps: { skillId: number; name: string; maxCap: number; category: string; startLevel: number }[] = [];
+  for (const [skillId, entries] of bySkill) {
+    entries.sort((a, b) => a.level - b.level);
+    const maxCap = Math.max(...entries.map(e => e.cap));
+    const startLevel = entries.find(e => e.cap > 0)?.level || entries[0].level;
+    skillMaxCaps.push({
+      skillId,
+      name: SKILL_NAMES[skillId] || `Skill ${skillId}`,
+      maxCap,
+      category: categorize(skillId),
+      startLevel
+    });
+  }
+  skillMaxCaps.sort((a, b) => a.category.localeCompare(b.category) || b.maxCap - a.maxCap);
+
+  // Skills by category
+  const catGroups = new Map<string, typeof skillMaxCaps>();
+  for (const s of skillMaxCaps) {
+    if (!catGroups.has(s.category)) catGroups.set(s.category, []);
+    catGroups.get(s.category)!.push(s);
+  }
+
+  lines.push('', '## Category Summary', '');
+  lines.push('| Category | Skills | Avg Max Cap | Highest |');
+  lines.push('|:---------|-------:|------------:|:--------|');
+  for (const [cat, skills] of catGroups) {
+    const avg = skills.reduce((s, sk) => s + sk.maxCap, 0) / skills.length;
+    const best = skills.reduce((a, b) => a.maxCap > b.maxCap ? a : b);
+    lines.push(`| ${cat} | ${skills.length} | ${avg.toFixed(0)} | ${best.name} (${best.maxCap}) |`);
+  }
+
+  // Full skill list
+  lines.push('', '## All Skills', '');
+  lines.push('| Skill | Category | Start Level | Max Cap |');
+  lines.push('|:------|:---------|------------:|--------:|');
+  for (const s of skillMaxCaps) {
+    lines.push(`| ${s.name} | ${s.category} | ${s.startLevel} | ${s.maxCap} |`);
+  }
+
+  // Growth milestones for top 5 combat skills
+  const topCombat = skillMaxCaps.filter(s => s.category === 'Combat').slice(0, 5);
+  if (topCombat.length > 0) {
+    lines.push('', '## Top Combat Skill Growth', '');
+    const levels = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
+    const header = ['Level', ...topCombat.map(s => s.name)];
+    lines.push(`| ${header.join(' | ')} |`);
+    lines.push(`|${header.map(() => '------:').join('|')}|`);
+    for (const lv of levels) {
+      const row = [String(lv)];
+      for (const s of topCombat) {
+        const entries = bySkill.get(s.skillId) || [];
+        const capAtLevel = entries.filter(e => e.level <= lv).reduce((max, e) => Math.max(max, e.cap), 0);
+        row.push(String(capAtLevel));
+      }
+      lines.push(`| ${row.join(' | ')} |`);
+    }
+  }
+
+  // Summary
+  lines.push('', '## Summary', '');
+  lines.push(`- **Class:** ${classFullName}`);
+  lines.push(`- **Total skills:** ${bySkill.size}`);
+  lines.push(`- **Combat skills:** ${catGroups.get('Combat')?.length || 0}`);
+  lines.push(`- **Casting skills:** ${catGroups.get('Casting')?.length || 0}`);
+  lines.push(`- **Highest skill cap:** ${Math.max(...skillMaxCaps.map(s => s.maxCap))}`);
+
+  lines.push('', `*${bySkill.size} skills analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 250: Base stat growth curve analysis
+export async function getBaseStatGrowthCurveAnalysis(className: string): Promise<string> {
+  await loadBaseStats();
+  if (!baseStats || baseStats.length === 0) return 'Base stat data not available.';
+
+  const classId = Object.entries(CLASS_IDS).find(([, name]) =>
+    name.toLowerCase() === className.toLowerCase()
+  )?.[0];
+  if (!classId) {
+    const validClasses = Object.values(CLASS_IDS).join(', ');
+    return `Unknown class "${className}". Valid classes: ${validClasses}`;
+  }
+  const cid = parseInt(classId);
+  const classShort = CLASS_SHORT[cid] || className;
+  const classFullName = CLASS_IDS[cid];
+
+  const lines: string[] = [`# Base Stat Growth Curves: ${classFullName} (${classShort})`, '', '*HP, Mana, Endurance, and Regen growth by level.*'];
+
+  // Filter class stats
+  const classStats = baseStats.filter(e => e.classId === cid);
+  if (classStats.length === 0) return `No base stat data found for ${classFullName}.`;
+
+  classStats.sort((a, b) => a.level - b.level);
+
+  // Milestone levels
+  const milestones = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125];
+  const getStatAtLevel = (level: number): BaseStatEntry | undefined =>
+    classStats.find(e => e.level === level) || classStats.filter(e => e.level <= level).pop();
+
+  lines.push('', '## Pool Growth', '');
+  lines.push('| Level | HP | Mana | Endurance |');
+  lines.push('|------:|---:|-----:|----------:|');
+  for (const lv of milestones) {
+    const stat = getStatAtLevel(lv);
+    if (stat) {
+      lines.push(`| ${lv} | ${stat.hp.toLocaleString()} | ${stat.mana.toLocaleString()} | ${stat.endurance.toLocaleString()} |`);
+    }
+  }
+
+  // Regen growth
+  lines.push('', '## Regen Growth', '');
+  lines.push('| Level | HP Regen | Mana Regen | End Regen |');
+  lines.push('|------:|---------:|-----------:|----------:|');
+  for (const lv of milestones) {
+    const stat = getStatAtLevel(lv);
+    if (stat) {
+      lines.push(`| ${lv} | ${stat.hpRegen} | ${stat.manaRegen} | ${stat.enduranceRegen} |`);
+    }
+  }
+
+  // Growth rates (deltas between milestones)
+  lines.push('', '## Growth Rates (Per 10 Levels)', '');
+  lines.push('| Range | HP Growth | Mana Growth | End Growth |');
+  lines.push('|:------|----------:|------------:|-----------:|');
+  const growthLevels = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
+  for (let i = 1; i < growthLevels.length; i++) {
+    const prev = getStatAtLevel(growthLevels[i - 1]);
+    const curr = getStatAtLevel(growthLevels[i]);
+    if (prev && curr) {
+      const hpGrowth = curr.hp - prev.hp;
+      const manaGrowth = curr.mana - prev.mana;
+      const endGrowth = curr.endurance - prev.endurance;
+      lines.push(`| ${growthLevels[i - 1]}-${growthLevels[i]} | +${hpGrowth.toLocaleString()} | +${manaGrowth.toLocaleString()} | +${endGrowth.toLocaleString()} |`);
+    }
+  }
+
+  // Class comparison at level 100
+  lines.push('', '## Class Comparison at Level 100', '');
+  lines.push('| Class | HP | Mana | Endurance | HP Regen |');
+  lines.push('|:------|---:|-----:|----------:|---------:|');
+  const allClasses: { classId: number; name: string; hp: number; mana: number; end: number; hpRegen: number }[] = [];
+  for (let c = 1; c <= 16; c++) {
+    const stat = baseStats.find(e => e.classId === c && e.level === 100);
+    if (stat) {
+      allClasses.push({ classId: c, name: CLASS_IDS[c] || `Class ${c}`, hp: stat.hp, mana: stat.mana, end: stat.endurance, hpRegen: stat.hpRegen });
+    }
+  }
+  allClasses.sort((a, b) => b.hp - a.hp);
+  for (const c of allClasses) {
+    const marker = c.classId === cid ? ' **' : '';
+    lines.push(`| ${c.name}${marker} | ${c.hp.toLocaleString()} | ${c.mana.toLocaleString()} | ${c.end.toLocaleString()} | ${c.hpRegen} |`);
+  }
+
+  // Peak stats
+  const maxStat = classStats[classStats.length - 1];
+  lines.push('', '## Summary', '');
+  lines.push(`- **Class:** ${classFullName}`);
+  lines.push(`- **Level range:** ${classStats[0].level}-${maxStat.level}`);
+  lines.push(`- **Max HP:** ${maxStat.hp.toLocaleString()} (level ${maxStat.level})`);
+  lines.push(`- **Max Mana:** ${maxStat.mana.toLocaleString()}`);
+  lines.push(`- **Max Endurance:** ${maxStat.endurance.toLocaleString()}`);
+  lines.push(`- **HP/Mana ratio:** ${maxStat.mana > 0 ? (maxStat.hp / maxStat.mana).toFixed(2) : 'N/A'}`);
+
+  lines.push('', `*${classStats.length} level entries analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// Tool 251: Overseer quest difficulty analysis
+export async function getOverseerQuestDifficultyAnalysis(): Promise<string> {
+  await loadOverseerQuests();
+  await loadOverseerMinions();
+  await loadOverseerEnhancements();
+  if (!overseerQuests || overseerQuests.size === 0) return 'Overseer quest data not available.';
+
+  const lines: string[] = ['# Overseer Quest Difficulty Analysis', '', '*Analyze quest difficulty distributions, duration patterns, slot requirements, and category breakdowns.*'];
+
+  const difficultyDist = new Map<number, number>();
+  const durationDist = new Map<number, number>();
+  const categoryDist = new Map<string, number>();
+  const slotsPerDifficulty = new Map<number, { required: number[]; optional: number[] }>();
+  const jobDemand = new Map<number, number>();
+  const questsByDifficulty: { name: string; difficulty: number; duration: number; category: string; slots: number }[] = [];
+
+  for (const quest of overseerQuests.values()) {
+    const diff = quest.difficulty;
+    difficultyDist.set(diff, (difficultyDist.get(diff) || 0) + 1);
+    durationDist.set(quest.duration, (durationDist.get(quest.duration) || 0) + 1);
+
+    const catName = overseerCategories?.get(quest.categoryId) || `Category ${quest.categoryId}`;
+    categoryDist.set(catName, (categoryDist.get(catName) || 0) + 1);
+
+    if (!slotsPerDifficulty.has(diff)) slotsPerDifficulty.set(diff, { required: [], optional: [] });
+    slotsPerDifficulty.get(diff)!.required.push(quest.requiredSlots);
+    slotsPerDifficulty.get(diff)!.optional.push(quest.optionalSlots);
+
+    for (const slot of quest.slotDetails) {
+      jobDemand.set(slot.jobTypeId, (jobDemand.get(slot.jobTypeId) || 0) + 1);
+    }
+
+    questsByDifficulty.push({
+      name: quest.name,
+      difficulty: diff,
+      duration: quest.duration,
+      category: catName,
+      slots: quest.requiredSlots + quest.optionalSlots
+    });
+  }
+
+  // Difficulty distribution
+  lines.push('', '## Difficulty Distribution', '');
+  lines.push('| Difficulty | Name | Quests | % |');
+  lines.push('|-----------:|:-----|-------:|---:|');
+  const sortedDiffs = [...difficultyDist.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [diff, count] of sortedDiffs) {
+    const name = overseerDifficulties?.get(diff) || `Level ${diff}`;
+    lines.push(`| ${diff} | ${name} | ${count} | ${((count / overseerQuests.size) * 100).toFixed(1)}% |`);
+  }
+
+  // Duration distribution
+  lines.push('', '## Duration Distribution', '');
+  lines.push('| Duration | Quests | % |');
+  lines.push('|:---------|-------:|---:|');
+  const sortedDurations = [...durationDist.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [dur, count] of sortedDurations) {
+    lines.push(`| ${dur}h | ${count} | ${((count / overseerQuests.size) * 100).toFixed(1)}% |`);
+  }
+
+  // Category breakdown
+  lines.push('', '## Quest Categories', '');
+  lines.push('| Category | Quests | % |');
+  lines.push('|:---------|-------:|---:|');
+  const sortedCats = [...categoryDist.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [cat, count] of sortedCats) {
+    lines.push(`| ${cat} | ${count} | ${((count / overseerQuests.size) * 100).toFixed(1)}% |`);
+  }
+
+  // Slots by difficulty
+  lines.push('', '## Average Slots by Difficulty', '');
+  lines.push('| Difficulty | Avg Required | Avg Optional | Avg Total |');
+  lines.push('|-----------:|-------------:|-------------:|----------:|');
+  for (const [diff] of sortedDiffs) {
+    const data = slotsPerDifficulty.get(diff)!;
+    const avgReq = data.required.reduce((s, v) => s + v, 0) / data.required.length;
+    const avgOpt = data.optional.reduce((s, v) => s + v, 0) / data.optional.length;
+    lines.push(`| ${diff} | ${avgReq.toFixed(1)} | ${avgOpt.toFixed(1)} | ${(avgReq + avgOpt).toFixed(1)} |`);
+  }
+
+  // Most demanded job types
+  lines.push('', '## Most Demanded Job Types', '');
+  lines.push('| Job Type | Demand (Slots) |');
+  lines.push('|:---------|---------------:|');
+  const sortedJobs = [...jobDemand.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [jobId, count] of sortedJobs.slice(0, 20)) {
+    const jobName = overseerJobNames?.get(jobId) || `Job ${jobId}`;
+    lines.push(`| ${jobName} | ${count} |`);
+  }
+
+  // Highest slot quests
+  questsByDifficulty.sort((a, b) => b.slots - a.slots);
+  lines.push('', '## Quests with Most Slots', '');
+  lines.push('| Quest | Category | Difficulty | Slots | Duration |');
+  lines.push('|:------|:---------|----------:|------:|:---------|');
+  for (const q of questsByDifficulty.slice(0, 15)) {
+    lines.push(`| ${q.name} | ${q.category} | ${q.difficulty} | ${q.slots} | ${q.duration}h |`);
+  }
+
+  // Summary
+  lines.push('', '## Summary', '');
+  lines.push(`- **Total quests:** ${overseerQuests.size}`);
+  lines.push(`- **Difficulty levels:** ${difficultyDist.size}`);
+  lines.push(`- **Categories:** ${categoryDist.size}`);
+  lines.push(`- **Unique durations:** ${durationDist.size}`);
+  lines.push(`- **Job types demanded:** ${jobDemand.size}`);
+
+  lines.push('', `*${overseerQuests.size} overseer quests analyzed.*`);
+  return lines.join('\n');
+}

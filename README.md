@@ -1,10 +1,10 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 248 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with 251 tools covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
 
 ## Features
 
-- **248 tools** for querying EverQuest data
+- **251 tools** for querying EverQuest data
 - **Multi-source search** - Query 9 online EQ databases in parallel
 - **Local game data** - Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Spell analysis** - Effects, categories, stacking groups, class lists, effect/resist/target/description search, recourse links, teleport zones, cast messages, endurance costs, timer groups, and resolved descriptions
@@ -231,6 +231,8 @@ Then restart Claude Desktop.
 | `get_class_defensive_profile` | Class defensive profile — runes, heals, AC buffs, resist buffs, damage shields, crowd control, aggro management with defensive rating summary |
 | `get_class_mana_profile` | Class mana/endurance profile — resource cost vs pool at various levels, most expensive spells, cost by category, resource milestones |
 | `get_class_offensive_profile` | Class offensive profile — nukes, DoTs, debuffs, AE damage, procs, crowd control with offensive rating summary |
+| `get_skill_cap_progression_analysis` | Skill cap progression analysis — all skills per class with max caps, growth curves, category breakdown (Combat, Casting, Utility, Tradeskill) |
+| `get_base_stat_growth_curve_analysis` | Base stat growth curves — HP, Mana, Endurance, Regen at milestone levels with growth rates and cross-class comparison |
 
 ### Local Data - Zones & Maps
 | Tool | Description |
@@ -316,6 +318,7 @@ Then restart Claude Desktop.
 | `get_overseer_agent_trait_job_matrix` | Overseer agent trait-job matrix — cross-reference traits with jobs, trait+job rarity, most versatile agents, and optimal selection |
 | `get_overseer_quest_category_guide` | Overseer quest category guide — practical guide for each category with difficulty, top jobs needed, slot requirements, and sample quests |
 | `get_overseer_agent_job_coverage_optimizer` | Overseer agent job coverage optimizer — rank agents by quest slot coverage, job demand analysis, coverage gaps, most versatile agents |
+| `get_overseer_quest_difficulty_analysis` | Overseer quest difficulty analysis — difficulty distribution, duration patterns, slot requirements by difficulty, most demanded job types |
 
 ### Local Data - Mercenaries
 | Tool | Description |
@@ -405,7 +408,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (248 tools)
+├── tools.ts          # Tool definitions and handlers (251 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
