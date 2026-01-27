@@ -27870,3 +27870,415 @@ export async function getSpellSlowHasteComparison(): Promise<string> {
   lines.push('', `*Slow and haste spells compared across 16 classes.*`);
   return lines.join('\n');
 }
+
+// ============ CLASS TAUNT/AGGRO PROFILE ============
+
+export async function getClassTauntAggroProfile(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // Aggro-related SPAs
+  const AGGRO_SPAS: Record<number, string> = {
+    92: 'Adjust Aggro', 114: 'Aggro Lock', 125: 'AE Taunt',
+    138: 'Taunt', 158: 'Hate',
+  };
+
+  const aggroSpells: { name: string; level: number; effects: { spa: string; value: number }[]; castTime: number; recast: number; mana: number; targetType: string; beneficial: boolean }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    const aggroEffects: { spa: string; value: number }[] = [];
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          if (AGGRO_SPAS[spaId]) {
+            aggroEffects.push({ spa: AGGRO_SPAS[spaId], value: base });
+          }
+        }
+      }
+    }
+    if (aggroEffects.length === 0) continue;
+
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+
+    aggroSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      effects: aggroEffects,
+      castTime,
+      recast,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      beneficial,
+    });
+  }
+
+  const lines = [`# ${classFullName} Taunt & Aggro Management Profile`, ''];
+  lines.push(`*Analyzes aggro generation, hate manipulation, taunts, and AE aggro abilities.*`, '');
+
+  if (aggroSpells.length === 0) {
+    lines.push('No taunt/aggro spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total aggro-related abilities:** ${aggroSpells.length}`, '');
+
+  // Effect type distribution
+  const effectCounts: Record<string, number> = {};
+  for (const s of aggroSpells) {
+    for (const e of s.effects) effectCounts[e.spa] = (effectCounts[e.spa] || 0) + 1;
+  }
+  lines.push('## Aggro Effect Type Distribution', '');
+  for (const [effect, count] of Object.entries(effectCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${effect}:** ${count} abilities`);
+  }
+
+  // Aggro generators (positive hate)
+  const generators = aggroSpells.filter(s => s.effects.some(e => e.value > 0));
+  if (generators.length > 0) {
+    generators.sort((a, b) => {
+      const aMax = Math.max(...a.effects.filter(e => e.value > 0).map(e => e.value));
+      const bMax = Math.max(...b.effects.filter(e => e.value > 0).map(e => e.value));
+      return bMax - aMax;
+    });
+    lines.push('', `## Aggro Generators (${generators.length})`, '');
+    lines.push('| Ability | Level | Hate Value | Cast (s) | Target | Mana |');
+    lines.push('|:--------|------:|-----------:|---------:|:-------|-----:|');
+    for (const s of generators.slice(0, 20)) {
+      const maxHate = Math.max(...s.effects.filter(e => e.value > 0).map(e => e.value));
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | +${maxHate.toLocaleString()} | ${castSec} | ${s.targetType} | ${s.mana || '—'} |`);
+    }
+  }
+
+  // Aggro reducers (negative hate)
+  const reducers = aggroSpells.filter(s => s.effects.some(e => e.value < 0));
+  if (reducers.length > 0) {
+    reducers.sort((a, b) => {
+      const aMin = Math.min(...a.effects.filter(e => e.value < 0).map(e => e.value));
+      const bMin = Math.min(...b.effects.filter(e => e.value < 0).map(e => e.value));
+      return aMin - bMin; // most negative first
+    });
+    lines.push('', `## Aggro Reducers (${reducers.length})`, '');
+    lines.push('| Ability | Level | Hate Value | Cast (s) | Target | Mana |');
+    lines.push('|:--------|------:|-----------:|---------:|:-------|-----:|');
+    for (const s of reducers.slice(0, 20)) {
+      const minHate = Math.min(...s.effects.filter(e => e.value < 0).map(e => e.value));
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${minHate.toLocaleString()} | ${castSec} | ${s.targetType} | ${s.mana || '—'} |`);
+    }
+  }
+
+  // AE aggro abilities
+  const aeAggro = aggroSpells.filter(s => ['AE (PC v1)', 'AE (PC v2)', 'PB AE', 'Targeted AE'].includes(s.targetType));
+  if (aeAggro.length > 0) {
+    lines.push('', `## AE Aggro Abilities (${aeAggro.length})`, '');
+    lines.push('| Ability | Level | Hate | Cast (s) | Target |');
+    lines.push('|:--------|------:|-----:|---------:|:-------|');
+    for (const s of aeAggro.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const maxVal = Math.max(...s.effects.map(e => Math.abs(e.value)));
+      const castSec = (s.castTime / 1000).toFixed(1);
+      lines.push(`| ${s.name} | ${s.level} | ${maxVal.toLocaleString()} | ${castSec} | ${s.targetType} |`);
+    }
+  }
+
+  // Instant cast aggro tools
+  const instants = aggroSpells.filter(s => s.castTime === 0);
+  if (instants.length > 0) {
+    lines.push('', `## Instant-Cast Aggro Abilities (${instants.length})`, '');
+    for (const s of instants.sort((a, b) => b.level - a.level).slice(0, 15)) {
+      const effectStr = s.effects.map(e => `${e.spa} ${e.value > 0 ? '+' : ''}${e.value}`).join(', ');
+      lines.push(`- Lv ${s.level}: **${s.name}** — ${effectStr}`);
+    }
+  }
+
+  lines.push('', `*${aggroSpells.length} aggro abilities analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ SPELL ILLUSION ANALYSIS ============
+
+export async function getSpellIllusionAnalysis(className: string): Promise<string> {
+  await loadSpells();
+  await loadSpellDescriptions();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  // SPA 86 = Illusion, SPA 121 = Illusion: Other
+  const illusionSpells: { name: string; level: number; illusionId: number; duration: number; mana: number; targetType: string; category: string }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    let effectField = '';
+    for (let i = spell.fields.length - 1; i >= 0; i--) {
+      if (spell.fields[i] && spell.fields[i].includes('|')) {
+        effectField = spell.fields[i];
+        break;
+      }
+    }
+
+    let hasIllusion = false;
+    let illusionId = 0;
+    if (effectField) {
+      for (const slot of effectField.split('$')) {
+        const parts = slot.split('|');
+        if (parts.length >= 3) {
+          const spaId = parseInt(parts[1]);
+          const base = parseInt(parts[2]) || 0;
+          if (spaId === 86 || spaId === 121) {
+            hasIllusion = true;
+            if (base > 0) illusionId = base;
+          }
+        }
+      }
+    }
+    if (!hasIllusion) continue;
+
+    const durationVal = parseInt(spell.fields[SF.DURATION_VALUE]) || 0;
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+    const targetTypeId = parseInt(spell.fields[SF.TARGET_TYPE]) || 0;
+    const categoryId = parseInt(spell.fields[SF.CATEGORY]) || 0;
+    const category = spellCategories?.get(categoryId) || 'Unknown';
+
+    illusionSpells.push({
+      name: spell.fields[SF.NAME],
+      level,
+      illusionId,
+      duration: durationVal,
+      mana,
+      targetType: TARGET_TYPES[targetTypeId] || `Type ${targetTypeId}`,
+      category,
+    });
+  }
+
+  const lines = [`# ${classFullName} Illusion Spell Analysis`, ''];
+  lines.push(`*Analyzes all illusion spells: race/form IDs, duration, target types, self vs other.*`, '');
+
+  if (illusionSpells.length === 0) {
+    lines.push('No illusion spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total illusion spells:** ${illusionSpells.length}`, '');
+
+  // By target type (self vs other)
+  const selfIllusions = illusionSpells.filter(s => s.targetType === 'Self');
+  const otherIllusions = illusionSpells.filter(s => s.targetType !== 'Self');
+  lines.push('## Self vs Other Targeting', '');
+  lines.push(`- **Self-targeted:** ${selfIllusions.length}`);
+  lines.push(`- **Other-targeted:** ${otherIllusions.length}`);
+
+  // Unique illusion forms
+  const formCounts: Record<number, { count: number; spellNames: string[] }> = {};
+  for (const s of illusionSpells) {
+    if (s.illusionId > 0) {
+      if (!formCounts[s.illusionId]) formCounts[s.illusionId] = { count: 0, spellNames: [] };
+      formCounts[s.illusionId].count++;
+      if (formCounts[s.illusionId].spellNames.length < 3) formCounts[s.illusionId].spellNames.push(s.name);
+    }
+  }
+  const uniqueForms = Object.keys(formCounts).length;
+  lines.push('', `## Unique Illusion Forms: ${uniqueForms}`, '');
+  lines.push('| Form ID | Times Used | Example Spells |');
+  lines.push('|--------:|-----------:|:---------------|');
+  const sortedForms = Object.entries(formCounts).sort((a, b) => b[1].count - a[1].count);
+  for (const [formId, info] of sortedForms.slice(0, 20)) {
+    lines.push(`| ${formId} | ${info.count} | ${info.spellNames.join(', ')} |`);
+  }
+
+  // All illusion spells sorted by level
+  lines.push('', '## All Illusion Spells (by Level)', '');
+  lines.push('| Spell | Level | Form ID | Duration | Target | Mana |');
+  lines.push('|:------|------:|--------:|---------:|:-------|-----:|');
+  for (const s of illusionSpells.sort((a, b) => b.level - a.level).slice(0, 30)) {
+    lines.push(`| ${s.name} | ${s.level} | ${s.illusionId || '—'} | ${s.duration} | ${s.targetType} | ${s.mana || '—'} |`);
+  }
+  if (illusionSpells.length > 30) lines.push(`| ... +${illusionSpells.length - 30} more | | | | | |`);
+
+  // Category distribution
+  const catCounts: Record<string, number> = {};
+  for (const s of illusionSpells) catCounts[s.category] = (catCounts[s.category] || 0) + 1;
+  lines.push('', '## Illusion Category Distribution', '');
+  for (const [cat, count] of Object.entries(catCounts).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- **${cat}:** ${count} spells`);
+  }
+
+  // Duration distribution
+  const durationBuckets: Record<string, number> = {};
+  for (const s of illusionSpells) {
+    const label = s.duration === 0 ? 'Instant/Permanent' : s.duration <= 10 ? '1-10 ticks' : s.duration <= 50 ? '11-50 ticks' : '51+ ticks';
+    durationBuckets[label] = (durationBuckets[label] || 0) + 1;
+  }
+  lines.push('', '## Illusion Duration Distribution', '');
+  for (const [label, count] of Object.entries(durationBuckets)) {
+    lines.push(`- **${label}:** ${count} spells`);
+  }
+
+  lines.push('', `*${illusionSpells.length} illusion spells analyzed for ${classFullName}.*`);
+  return lines.join('\n');
+}
+
+// ============ SPELL CAST TIME DISTRIBUTION ============
+
+export async function getSpellCastTimeDistribution(className: string): Promise<string> {
+  await loadSpells();
+  if (!spells || spells.size === 0) return 'Spell data not available.';
+
+  const classId = CLASS_NAME_TO_ID[className.toLowerCase()];
+  if (!classId) {
+    return `Unknown class: "${className}". Valid classes: ${Object.values(CLASS_IDS).join(', ')}`;
+  }
+
+  const classIndex = classId - 1;
+  const classFullName = CLASS_IDS[classId];
+
+  const castTimes: { name: string; level: number; castTime: number; recovery: number; recast: number; beneficial: boolean; mana: number }[] = [];
+
+  for (const spell of spells.values()) {
+    const level = parseInt(spell.fields[SF.CLASS_LEVEL_START + classIndex]) || 255;
+    if (level <= 0 || level >= 255) continue;
+
+    const castTime = parseInt(spell.fields[SF.CAST_TIME]) || 0;
+    const recovery = parseInt(spell.fields[SF.RECOVERY_TIME]) || 0;
+    const recast = parseInt(spell.fields[SF.RECAST_TIME]) || 0;
+    const beneficial = spell.fields[SF.BENEFICIAL] === '1';
+    const mana = parseInt(spell.fields[SF.MANA]) || 0;
+
+    castTimes.push({
+      name: spell.fields[SF.NAME],
+      level,
+      castTime,
+      recovery,
+      recast,
+      beneficial,
+      mana,
+    });
+  }
+
+  const lines = [`# ${classFullName} Spell Cast Time Distribution`, ''];
+  lines.push(`*Analyzes cast time, recovery time, and recast time distributions across all spells.*`, '');
+
+  if (castTimes.length === 0) {
+    lines.push('No spells found for this class.');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total spells:** ${castTimes.length}`, '');
+
+  // Cast time distribution
+  const castBuckets: Record<string, number> = {
+    'Instant (0s)': 0, '0.1-0.5s': 0, '0.6-1.0s': 0, '1.1-2.0s': 0,
+    '2.1-3.0s': 0, '3.1-5.0s': 0, '5.1-10s': 0, '10s+': 0,
+  };
+  for (const s of castTimes) {
+    const sec = s.castTime / 1000;
+    if (sec === 0) castBuckets['Instant (0s)']++;
+    else if (sec <= 0.5) castBuckets['0.1-0.5s']++;
+    else if (sec <= 1.0) castBuckets['0.6-1.0s']++;
+    else if (sec <= 2.0) castBuckets['1.1-2.0s']++;
+    else if (sec <= 3.0) castBuckets['2.1-3.0s']++;
+    else if (sec <= 5.0) castBuckets['3.1-5.0s']++;
+    else if (sec <= 10.0) castBuckets['5.1-10s']++;
+    else castBuckets['10s+']++;
+  }
+  lines.push('## Cast Time Distribution', '');
+  for (const [label, count] of Object.entries(castBuckets)) {
+    if (count > 0) {
+      const pct = ((count / castTimes.length) * 100).toFixed(1);
+      lines.push(`- **${label}:** ${count} spells (${pct}%)`);
+    }
+  }
+
+  // Average cast times by spell type
+  const beneficialSpells = castTimes.filter(s => s.beneficial);
+  const detrimentalSpells = castTimes.filter(s => !s.beneficial);
+  const avgBeneficial = beneficialSpells.length > 0 ? (beneficialSpells.reduce((s, sp) => s + sp.castTime, 0) / beneficialSpells.length / 1000).toFixed(2) : '—';
+  const avgDetrimental = detrimentalSpells.length > 0 ? (detrimentalSpells.reduce((s, sp) => s + sp.castTime, 0) / detrimentalSpells.length / 1000).toFixed(2) : '—';
+  lines.push('', '## Average Cast Time by Spell Type', '');
+  lines.push(`- **Beneficial spells:** ${avgBeneficial}s avg (${beneficialSpells.length} spells)`);
+  lines.push(`- **Detrimental spells:** ${avgDetrimental}s avg (${detrimentalSpells.length} spells)`);
+
+  // Slowest cast times
+  const bySlowest = [...castTimes].sort((a, b) => b.castTime - a.castTime);
+  lines.push('', '## Slowest Cast Time Spells (Top 15)', '');
+  lines.push('| Spell | Level | Cast (s) | Recovery (s) | Recast (s) | Type |');
+  lines.push('|:------|------:|---------:|------------:|-----------:|:-----|');
+  for (const s of bySlowest.slice(0, 15)) {
+    const castSec = (s.castTime / 1000).toFixed(1);
+    const recSec = (s.recovery / 1000).toFixed(1);
+    const recastSec = (s.recast / 1000).toFixed(0);
+    const type = s.beneficial ? 'Buff' : 'Debuff';
+    lines.push(`| ${s.name} | ${s.level} | ${castSec} | ${recSec} | ${recastSec} | ${type} |`);
+  }
+
+  // Longest recast times
+  const byRecast = [...castTimes].filter(s => s.recast > 0).sort((a, b) => b.recast - a.recast);
+  lines.push('', '## Longest Recast Times (Top 15)', '');
+  lines.push('| Spell | Level | Recast (s) | Cast (s) | Type |');
+  lines.push('|:------|------:|-----------:|---------:|:-----|');
+  for (const s of byRecast.slice(0, 15)) {
+    const castSec = (s.castTime / 1000).toFixed(1);
+    const recastSec = (s.recast / 1000).toFixed(0);
+    const type = s.beneficial ? 'Buff' : 'Debuff';
+    lines.push(`| ${s.name} | ${s.level} | ${recastSec} | ${castSec} | ${type} |`);
+  }
+
+  // Cast time trends by level
+  lines.push('', '## Average Cast Time by Level Range', '');
+  const lvlRanges = [
+    { label: '1-30', min: 1, max: 30 },
+    { label: '31-60', min: 31, max: 60 },
+    { label: '61-80', min: 61, max: 80 },
+    { label: '81-100', min: 81, max: 100 },
+    { label: '101-115', min: 101, max: 115 },
+    { label: '116+', min: 116, max: 999 },
+  ];
+  lines.push('| Level Range | Count | Avg Cast (s) | Avg Recast (s) | % Instant |');
+  lines.push('|:------------|------:|-------------:|---------------:|----------:|');
+  for (const r of lvlRanges) {
+    const inRange = castTimes.filter(s => s.level >= r.min && s.level <= r.max);
+    if (inRange.length === 0) continue;
+    const avgCast = (inRange.reduce((s, sp) => s + sp.castTime, 0) / inRange.length / 1000).toFixed(2);
+    const avgRecast = (inRange.reduce((s, sp) => s + sp.recast, 0) / inRange.length / 1000).toFixed(0);
+    const pctInstant = ((inRange.filter(s => s.castTime === 0).length / inRange.length) * 100).toFixed(1);
+    lines.push(`| ${r.label} | ${inRange.length} | ${avgCast} | ${avgRecast} | ${pctInstant}% |`);
+  }
+
+  lines.push('', `*${castTimes.length} spells analyzed for cast time distribution for ${classFullName}.*`);
+  return lines.join('\n');
+}

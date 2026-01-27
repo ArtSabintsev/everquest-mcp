@@ -292,6 +292,9 @@ import {
   getClassDebuffProfile,
   getClassSelfBuffProfile,
   getSpellSlowHasteComparison,
+  getClassTauntAggroProfile,
+  getSpellIllusionAnalysis,
+  getSpellCastTimeDistribution,
 } from './sources/index.js';
 
 export const tools = [
@@ -3618,6 +3621,39 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'get_class_taunt_aggro_profile',
+    description: 'Taunt and aggro management profile for a class — hate generation, aggro reduction, AE taunts, instant-cast aggro abilities, hate values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Warrior", "Paladin")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_spell_illusion_analysis',
+    description: 'Illusion spell analysis for a class — unique forms, self vs other targeting, form IDs, duration distribution, category breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Enchanter", "Bard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
+    name: 'get_spell_cast_time_distribution',
+    description: 'Cast time distribution analysis for a class — instant vs slow casts, averages by spell type and level range, slowest spells, longest recasts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class_name: { type: 'string', description: 'Class name (e.g. "Cleric", "Wizard")' }
+      },
+      required: ['class_name']
+    }
+  },
+  {
     name: 'search_help_topics',
     description: 'Search 70+ official EverQuest in-game help topics covering game mechanics: augments, combat, experience, fellowships, guilds, housing, mercenaries, overseer, skills, spells, tradeskills, and more. Call without query to list all topics.',
     inputSchema: {
@@ -5765,6 +5801,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       case 'get_spell_slow_haste_comparison': {
         return getSpellSlowHasteComparison();
+      }
+
+      case 'get_class_taunt_aggro_profile': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getClassTauntAggroProfile(className);
+      }
+
+      case 'get_spell_illusion_analysis': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellIllusionAnalysis(className);
+      }
+
+      case 'get_spell_cast_time_distribution': {
+        const className = typeof args.class_name === 'string' ? args.class_name.trim() : '';
+        if (!className) return 'Error: "class_name" parameter is required.';
+        return getSpellCastTimeDistribution(className);
       }
 
       case 'search_help_topics': {
