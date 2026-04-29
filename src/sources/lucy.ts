@@ -23,20 +23,20 @@ export class LucySource extends EQDataSource {
   }
 
   async searchSpells(query: string): Promise<SearchResult[]> {
-    const url = `${BASE_URL}/spells.html?Name=${encodeURIComponent(query)}&MaxRows=20`;
+    const url = `${BASE_URL}/spelllist.html?searchtext=${encodeURIComponent(query)}`;
     try {
       const html = await fetchPage(url);
       const results: SearchResult[] = [];
       const seenIds = new Set<string>();
 
-      const pattern = /href="spell\.html\?id=(\d+)&[^"]*"[^>]*>([^<]+)/gi;
+      const pattern = /href="spell\.html\?id=(\d+)(?:&[^"]*)?"[^>]*>\s*([^<]+)/gi;
       let match;
       while ((match = pattern.exec(html)) !== null) {
         const id = match[1];
-        if (seenIds.has(id)) continue;
+        const name = stripHtml(match[2]);
+        if (!name || name.length <= 1 || seenIds.has(id)) continue;
         seenIds.add(id);
 
-        const name = stripHtml(match[2]);
         if (name && name.length > 1) {
           results.push({
             name,
@@ -57,20 +57,20 @@ export class LucySource extends EQDataSource {
   }
 
   async searchItems(query: string): Promise<SearchResult[]> {
-    const url = `${BASE_URL}/items.html?Name=${encodeURIComponent(query)}&MaxRows=20`;
+    const url = `${BASE_URL}/itemlist.html?searchtext=${encodeURIComponent(query)}`;
     try {
       const html = await fetchPage(url);
       const results: SearchResult[] = [];
       const seenIds = new Set<string>();
 
-      const pattern = /href="item\.html\?id=(\d+)"[^>]*>([^<]+)/gi;
+      const pattern = /href="item\.html\?id=(\d+)(?:&[^"]*)?"[^>]*>\s*([^<]+)/gi;
       let match;
       while ((match = pattern.exec(html)) !== null) {
         const id = match[1];
-        if (seenIds.has(id)) continue;
+        const name = stripHtml(match[2]);
+        if (!name || name.length <= 1 || seenIds.has(id)) continue;
         seenIds.add(id);
 
-        const name = stripHtml(match[2]);
         if (name && name.length > 1) {
           results.push({
             name,

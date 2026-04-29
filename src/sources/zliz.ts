@@ -56,10 +56,16 @@ export class ZlizSource extends EQDataSource {
   }
 
   private async searchSite(query: string): Promise<SearchResult[]> {
+    const url = `${BASE_URL}/spells?search=${encodeURIComponent(query)}`;
+
     try {
       // Try the spells search
-      const url = `${BASE_URL}/spells?search=${encodeURIComponent(query)}`;
       const html = await fetchPage(url);
+      if (this.isUnavailablePage(html)) {
+        console.error("[Zliz] Site search unavailable: parking/redirect page returned");
+        return this.spellSearchFallback(query, url);
+      }
+
       const results: SearchResult[] = [];
       const seenIds = new Set<string>();
 
@@ -83,15 +89,36 @@ export class ZlizSource extends EQDataSource {
         }
       }
 
-      return results.slice(0, 10);
+      return results.length > 0 ? results.slice(0, 10) : this.spellSearchFallback(query, url);
     } catch (error) {
       console.error("[Zliz] Site search failed:", error instanceof Error ? error.message : error);
-      return [];
+      return this.spellSearchFallback(query, url);
     }
   }
 
   async searchSpells(query: string): Promise<SearchResult[]> {
     return this.searchSite(query);
+  }
+
+  private isUnavailablePage(html: string): boolean {
+    return /router\.parklogic\.com/i.test(html) ||
+      /<title>\s*Redirecting\.\.\.\s*<\/title>/i.test(html);
+  }
+
+  private spellSearchFallback(query: string, url: string): SearchResult[] {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    return [
+      {
+        name: `Zliz Spell Search: ${trimmed}`,
+        type: 'spell',
+        id: `spell-search-${encodeURIComponent(trimmed)}`,
+        url,
+        source: this.name,
+        description: 'Direct Zliz spell search link. Returned when live result parsing is unavailable.',
+      },
+    ];
   }
 }
 

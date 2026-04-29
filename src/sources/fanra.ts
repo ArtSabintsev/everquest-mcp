@@ -68,6 +68,7 @@ export class FanraSource extends EQDataSource {
   private searchFallback(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
+    const queryWords = new Set(lowerQuery.split(/[^a-z0-9]+/).filter(Boolean));
 
     const knownPages = [
       { keywords: ['agent', 'change', 'instance'], name: 'Agent of Change', url: '/wiki/Agent_of_Change' },
@@ -86,12 +87,31 @@ export class FanraSource extends EQDataSource {
       { keywords: ['hot', 'thule', 'house of thule'], name: 'House of Thule', url: '/wiki/House_of_Thule' },
       { keywords: ['cotf', 'forsaken', 'call of the forsaken'], name: 'Call of the Forsaken', url: '/wiki/Call_of_the_Forsaken' },
       { keywords: ['tds', 'darkened', 'darkened sea'], name: 'The Darkened Sea', url: '/wiki/The_Darkened_Sea' },
+      { keywords: ['tbm', 'broken mirror', 'the broken mirror'], name: 'The Broken Mirror', url: '/wiki/The_Broken_Mirror' },
+      { keywords: ['eok', 'kunark', 'empires of kunark'], name: 'Empires of Kunark', url: '/wiki/Empires_of_Kunark' },
+      { keywords: ['ros', 'ring of scale'], name: 'Ring of Scale', url: '/wiki/Ring_of_Scale' },
+      { keywords: ['tbl', 'burning lands', 'the burning lands'], name: 'The Burning Lands', url: '/wiki/The_Burning_Lands' },
+      { keywords: ['tov', 'torment of velious'], name: 'Torment of Velious', url: '/wiki/Torment_of_Velious' },
+      { keywords: ['cov', 'claws of veeshan'], name: 'Claws of Veeshan', url: '/wiki/Claws_of_Veeshan' },
+      { keywords: ['tol', 'terror of luclin'], name: 'Terror of Luclin', url: '/wiki/Terror_of_Luclin' },
+      { keywords: ['nos', 'night of shadows'], name: 'Night of Shadows', url: '/wiki/Night_of_Shadows' },
+      { keywords: ['ls', 'laurion', 'laurion song'], name: "Laurion's Song", url: '/wiki/Laurion%27s_Song' },
+      { keywords: ['tob', 'outer brood', 'the outer brood'], name: 'The Outer Brood', url: '/wiki/The_Outer_Brood' },
+      { keywords: ['sor', 'shattering of ro'], name: 'Shattering of Ro', url: '/wiki/Shattering_of_Ro' },
       { keywords: ['conflagrant'], name: 'Conflagrant Gear', url: '/wiki/Conflagrant' },
       { keywords: ['tradeskill', 'craft'], name: 'Tradeskills', url: '/wiki/Tradeskills' },
     ];
 
+    const matchesKeyword = (keyword: string): boolean => {
+      const lowerKeyword = keyword.toLowerCase();
+      if (lowerKeyword.length <= 3 && !lowerKeyword.includes(' ')) {
+        return queryWords.has(lowerKeyword);
+      }
+      return lowerQuery.includes(lowerKeyword);
+    };
+
     for (const page of knownPages) {
-      if (page.keywords.some(kw => lowerQuery.includes(kw))) {
+      if (page.keywords.some(matchesKeyword)) {
         results.push({
           name: page.name,
           type: 'guide',

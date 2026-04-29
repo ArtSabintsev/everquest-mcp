@@ -80,9 +80,15 @@ export class EQTradersSource extends EQDataSource {
   }
 
   async searchRecipes(query: string): Promise<SearchResult[]> {
+    const url = `${BASE_URL}/recipes/recipe_search.php?name=${encodeURIComponent(query)}`;
+
     try {
-      const url = `${BASE_URL}/recipes/recipe_search.php?name=${encodeURIComponent(query)}`;
       const html = await fetchPage(url);
+      if (this.isBandwidthLimitPage(html)) {
+        console.error('[EQ Traders] Recipe search unavailable: bandwidth limit page returned');
+        return this.recipeSearchFallback(query, url);
+      }
+
       const results: SearchResult[] = [];
 
       // Parse recipe results
@@ -102,15 +108,35 @@ export class EQTradersSource extends EQDataSource {
         }
       }
 
-      return results.slice(0, 20);
+      return results.length > 0 ? results.slice(0, 20) : this.recipeSearchFallback(query, url);
     } catch (error) {
       console.error('[EQ Traders] Recipe search failed:', error instanceof Error ? error.message : error);
-      return [];
+      return this.recipeSearchFallback(query, url);
     }
   }
 
   async searchTradeskills(query: string): Promise<SearchResult[]> {
     return this.search(query);
+  }
+
+  private isBandwidthLimitPage(html: string): boolean {
+    return /bandwidth\s+limit\s+exceeded/i.test(html);
+  }
+
+  private recipeSearchFallback(query: string, url: string): SearchResult[] {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    return [
+      {
+        name: `EQ Traders Recipe Search: ${trimmed}`,
+        type: 'tradeskill',
+        id: `recipe-search-${encodeURIComponent(trimmed)}`,
+        url,
+        source: this.name,
+        description: 'Direct EQ Traders recipe search link. Returned when live result parsing is unavailable.',
+      },
+    ];
   }
 }
 

@@ -375,6 +375,71 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function getSetCookieHeaders(headers: Headers): string[] {
+  const headerWithGetSetCookie = headers as unknown as { getSetCookie?: () => string[] };
+  if (typeof headerWithGetSetCookie.getSetCookie === 'function') {
+    return headerWithGetSetCookie.getSetCookie();
+  }
+
+  const setCookie = headers.get('set-cookie');
+  return setCookie ? [setCookie] : [];
+}
+
+function buildCookieHeader(headers: Headers): string | undefined {
+  const cookies = getSetCookieHeaders(headers)
+    .map(cookie => cookie.split(';', 1)[0].trim())
+    .filter(Boolean);
+  return cookies.length > 0 ? cookies.join('; ') : undefined;
+}
+
+function extractMetaRefreshUrl(html: string, baseUrl: string): string | null {
+  const metaTags = html.match(/<meta\b[^>]*>/gi) || [];
+  for (const tag of metaTags) {
+    if (!/http-equiv\s*=\s*["']?refresh["']?/i.test(tag)) continue;
+
+    const contentMatch = tag.match(/\bcontent\s*=\s*(["'])(.*?)\1/i) ||
+      tag.match(/\bcontent\s*=\s*([^>\s]+)/i);
+    const content = contentMatch?.[2] || contentMatch?.[1] || '';
+    const urlMatch = content.match(/url\s*=\s*([^;]+)/i);
+    if (!urlMatch) continue;
+
+    const refreshUrl = urlMatch[1].trim().replace(/^["']|["']$/g, '');
+    if (!refreshUrl) continue;
+    return new URL(refreshUrl, baseUrl).toString();
+  }
+
+  return null;
+}
+
+async function followMetaRefresh(url: string, html: string, response: Response): Promise<string> {
+  const refreshUrl = extractMetaRefreshUrl(html, url);
+  if (!refreshUrl) return html;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const cookieHeader = buildCookieHeader(response.headers);
+
+  try {
+    const refreshResponse = await fetch(refreshUrl, {
+      headers: {
+        ...HEADERS,
+        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!refreshResponse.ok) {
+      throw new Error(`HTTP ${refreshResponse.status}: ${refreshResponse.statusText}`);
+    }
+
+    return refreshResponse.text();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
 export async function fetchPage(url: string, skipCache = false): Promise<string> {
   // Check cache first
   if (!skipCache) {
@@ -410,7 +475,7 @@ export async function fetchPage(url: string, skipCache = false): Promise<string>
         throw error;
       }
 
-      const text = await response.text();
+      const text = await followMetaRefresh(url, await response.text(), response);
       setCache(url, text);
       return text;
     } catch (error) {
@@ -439,6 +504,7 @@ export function stripHtml(html: string): string {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)))
     .replace(/\s+/g, ' ')
     .trim();

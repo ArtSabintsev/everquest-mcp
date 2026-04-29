@@ -31,6 +31,8 @@ export class EQResourceSource extends EQDataSource {
       { abbr: 'tol', name: 'Terror of Luclin', url: 'https://tol.eqresource.com' },
       { abbr: 'nos', name: 'Night of Shadows', url: 'https://nos.eqresource.com' },
       { abbr: 'ls', name: 'Laurion\'s Song', url: 'https://ls.eqresource.com' },
+      { abbr: 'tob', name: 'The Outer Brood', url: 'https://tob.eqresource.com' },
+      { abbr: 'sor', name: 'Shattering of Ro', url: 'https://sor.eqresource.com' },
       { abbr: 'hot', name: 'House of Thule', url: 'https://hot.eqresource.com' },
     ];
 
