@@ -80,6 +80,11 @@ function testToolDefinitions() {
     'search_lucy',
     'search_raidloot',
     'search_ui',
+    'get_official_history_of_norrath',
+    'search_fvproject_lore',
+    'get_fvproject_lore',
+    'search_eqarchives',
+    'get_eqarchive_document',
     'list_sources',
   ];
 
@@ -108,6 +113,9 @@ async function testListSources() {
   assert(result.includes('Lucy'), 'Should list Lucy');
   assert(result.includes('RaidLoot'), 'Should list RaidLoot');
   assert(result.includes('EQInterface'), 'Should list EQInterface');
+  assert(result.includes('Official Sony EQ History'), 'Should list official archived EQ history');
+  assert(result.includes('The Firiona Vie Project Lore'), 'Should list FVProject lore');
+  assert(result.includes('EQArchives'), 'Should list EQArchives');
   assert(result.includes('Cache'), 'Should show cache stats');
 
   console.log('list_sources tests passed!');

@@ -1,11 +1,11 @@
 # EverQuest MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 9 online databases and a local game data installation with **407 tools** covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that provides AI assistants with comprehensive access to EverQuest game data. Search across 12 online databases, lore/archive sources, and a local game data installation with **412 tools** covering spells, items, NPCs, zones, quests, factions, achievements, overseer, mercenaries, lore, archives, and more.
 
 ## Features
 
-- **407 tools** for querying EverQuest data
-- **Multi-source search** — Query 9 online EQ databases in parallel
+- **412 tools** for querying EverQuest data
+- **Multi-source search** — Query 12 online EQ databases, lore sources, and archive sources in parallel
 - **Local game data** — Parse 70K+ spells, 1600+ factions, 2700+ AAs, 800+ overseer quests, and more directly from game files
 - **Deep spell analysis** — Effects, categories, stacking, class comparisons, efficiency rankings, burst/sustained DPS, flexible multi-parameter queries
 - **Character data** — Race/class info, skill caps, base stats, AC mitigation, deities, Drakkin heritages
@@ -19,7 +19,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that pr
 
 ### Local Game Data
 
-The primary data source, powering 386 of the 407 tools. The server parses EverQuest game files directly to provide authoritative, offline access to the full game database:
+The primary data source, powering 386 of the 412 tools. The server parses EverQuest game files directly to provide authoritative, offline access to the full game database:
 
 - **70K+ spells** with effects, classes, categories, stacking rules, and cast messages
 - **1600+ factions** with starting values by race, class, and deity
@@ -32,9 +32,9 @@ The primary data source, powering 386 of the 407 tools. The server parses EverQu
 
 Data is parsed on demand and cached in memory. No external network calls required.
 
-### Online Databases
+### Online Databases, Lore, and Archives
 
-Nine external EQ community databases searched via web scraping. These provide quest guides, item databases, raid loot tables, and other community-maintained content not available in local game files.
+External EQ community databases and historical lore/archive sources searched via web scraping, MediaWiki APIs, and bounded archive-search API calls. These provide quest guides, item databases, raid loot tables, original lore, and community-maintained or preserved content not available in local game files.
 
 | Source | Specialty |
 |--------|-----------|
@@ -47,6 +47,9 @@ Nine external EQ community databases searched via web scraping. These provide qu
 | [Lucy](https://lucy.allakhazam.com) | Classic EQ spell and item data (historical) |
 | [RaidLoot](https://raidloot.com/EQ) | Raid loot tables by expansion |
 | [Zliz's Compendium](https://www.zlizeq.com) | Comprehensive EQ encyclopedia |
+| [Official Sony EQ History (Wayback)](https://web.archive.org/web/19990910004532/http://everquest.station.sony.com/e_history.html) | Original official 1999 History of Norrath lore page |
+| [The Firiona Vie Project Lore](https://fvproject.com/index.php/Category:Lore) | Classic EverQuest lore category via MediaWiki API |
+| [EQArchives](https://search.eqarchives.org/) | Preserved EQ websites, mailing lists, patch records, logs, screenshots, and historical corpus search |
 
 ## Installation
 
@@ -94,7 +97,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Then restart Claude Desktop.
 
-## Available Tools (407)
+## Available Tools (412)
 
 | Category | Tools | Description |
 |----------|------:|-------------|
@@ -107,7 +110,7 @@ Then restart Claude Desktop.
 | [Overseer](docs/tools-overseer.md) | 10 | 300+ agents, 800+ quests, trait/job optimization |
 | [Mercenaries](docs/tools-mercenaries.md) | 7 | 4200+ templates, stances, tier analysis, class synergy |
 | [Items & Effects](docs/tools-items-effects.md) | 8 | 1100+ item click/proc effects, augmentation system |
-| [Lore, Reference & Patch Detection](docs/tools-lore-reference.md) | 30 | Lore stories, expansions, events, help topics, patch diff detection |
+| [Lore, Reference & Patch Detection](docs/tools-lore-reference.md) | 35 | Lore stories, expansions, events, help topics, patch diff detection, FVProject lore, EQArchives search |
 
 ## Example Queries
 
@@ -121,6 +124,9 @@ Once configured, you can ask your AI assistant things like:
 - "What are the best leveling spots for level 70-80?"
 - "Tell me about the faction Wolves of the North"
 - "What overseer quests are available for plunder?"
+- "Search EQArchives for Miragul"
+- "Read the FVProject lore page Innoruuk (Lore)"
+- "Show the official History of Norrath"
 - "Show me map locations in Plane of Knowledge near the bank"
 - "What AA abilities are available for Shaman?"
 - "What are the most mana-efficient Wizard nukes?"
@@ -141,7 +147,7 @@ npm start      # Run built version
 ```
 src/
 ├── index.ts          # MCP server entry point
-├── tools.ts          # Tool definitions and handlers (407 tools)
+├── tools.ts          # Tool definitions and handlers (412 tools)
 ├── sources/          # Data source implementations
 │   ├── base.ts       # Shared interfaces and fetch utilities
 │   ├── index.ts      # Source aggregation
@@ -154,7 +160,8 @@ src/
 │   ├── zliz.ts       # Zliz's Compendium
 │   ├── lucy.ts       # Lucy spell/item database
 │   ├── raidloot.ts   # RaidLoot raid drops
-│   └── eqinterface.ts # EQInterface UI mods
+│   ├── eqinterface.ts # EQInterface UI mods
+│   └── historiclore.ts # Official EQ history, FVProject lore, EQArchives
 └── tests/            # Test suite
     └── tools.test.ts
 ```

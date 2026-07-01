@@ -19,6 +19,12 @@ import {
   lucy,
   raidloot,
   eqinterface,
+  getOfficialEverQuestHistory,
+  getFvProjectLore,
+  searchFvProjectLore,
+  searchEqArchivesDetailed,
+  getEqArchiveDocument,
+  formatEqArchiveSearch,
   getCacheStats,
   clearCache,
   // Local game data functions
@@ -1282,6 +1288,92 @@ export const tools = [
         }
       },
       required: ['query']
+    }
+  },
+  {
+    name: 'get_official_history_of_norrath',
+    description: 'Fetch the original official 1999 Sony EverQuest History of Norrath lore page from the Wayback Machine, including Norrath ages and Miragul/Erudite necromancy lore.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        max_characters: {
+          type: 'number',
+          description: 'Maximum text length to return. Defaults to 12000.'
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'search_fvproject_lore',
+    description: 'Search The Firiona Vie Project Category:Lore page titles for classic EverQuest lore articles.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Lore title terms (e.g., "Grozmok", "Innoruuk", "Combine")'
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum results to return, 1-50. Defaults to 10.'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_fvproject_lore',
+    description: 'Read a lore page from The Firiona Vie Project MediaWiki by title.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'FVProject page title (e.g., "1- Prophecy of Grozmok" or "Innoruuk (Lore)")'
+        },
+        max_characters: {
+          type: 'number',
+          description: 'Maximum text length to return. Defaults to 12000.'
+        }
+      },
+      required: ['title']
+    }
+  },
+  {
+    name: 'search_eqarchives',
+    description: 'Search EQArchives historical corpus: preserved EverQuest websites, mailing lists, patch records, logs, screenshots, and related archival material.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Archive search terms (e.g., "Miragul", "Innoruuk", "Plane of Hate")'
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum results to return, 1-25. Defaults to 10.'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_eqarchive_document',
+    description: 'Fetch bounded text for one EQArchives document by id returned from search_eqarchives.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'EQArchives document ID returned by search_eqarchives.'
+        },
+        max_characters: {
+          type: 'number',
+          description: 'Maximum text length to return. Defaults to 12000.'
+        }
+      },
+      required: ['id']
     }
   },
   {
@@ -5160,6 +5252,9 @@ function formatSearchResults(results: SearchResult[], query: string): string {
     quest: 'Quests',
     guide: 'Guides',
     tradeskill: 'Tradeskills',
+    event: 'Events',
+    lore: 'Lore',
+    archive: 'Archive',
     unknown: 'Other',
   };
 
@@ -5515,6 +5610,9 @@ function formatSources(): string {
     { name: 'Lucy', specialty: 'Classic EQ spell and item data (historical)', url: 'https://lucy.allakhazam.com' },
     { name: 'RaidLoot', specialty: 'Raid loot tables by expansion', url: 'https://raidloot.com/EQ' },
     { name: 'EQInterface', specialty: 'UI mods, maps, parsers, and tools', url: 'https://www.eqinterface.com' },
+    { name: 'Official Sony EQ History (Wayback)', specialty: 'Original official 1999 History of Norrath lore page, including Norrath ages and Miragul/Erudite necromancy lore', url: 'https://web.archive.org/web/19990910004532/http://everquest.station.sony.com/e_history.html' },
+    { name: 'The Firiona Vie Project Lore', specialty: 'Community MediaWiki Category:Lore pages preserving classic EverQuest lore articles', url: 'https://fvproject.com/index.php/Category:Lore' },
+    { name: 'EQArchives', specialty: 'Searchable historical archive of preserved EverQuest websites, mailing lists, patch records, logs, screenshots, and related corpus material', url: 'https://search.eqarchives.org/' },
   ];
 
   for (const src of sourceInfo) {
@@ -6075,6 +6173,44 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         const query = (args.query as string).trim();
         const results = await searchLore(query);
         return formatSearchResults(results, query);
+      }
+
+      case 'get_official_history_of_norrath': {
+        const maxCharacters = typeof args.max_characters === 'number' ? args.max_characters : 12000;
+        return getOfficialEverQuestHistory(maxCharacters);
+      }
+
+      case 'search_fvproject_lore': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const limit = typeof args.limit === 'number' ? args.limit : 10;
+        const results = await searchFvProjectLore(query, limit);
+        return formatSearchResults(results, query);
+      }
+
+      case 'get_fvproject_lore': {
+        const title = typeof args.title === 'string' ? args.title.trim() : '';
+        if (!title) return 'Error: title parameter must be a non-empty string';
+        const maxCharacters = typeof args.max_characters === 'number' ? args.max_characters : 12000;
+        return getFvProjectLore(title, maxCharacters);
+      }
+
+      case 'search_eqarchives': {
+        const error = validateQuery(args);
+        if (error) return error;
+        const query = (args.query as string).trim();
+        const limit = typeof args.limit === 'number' ? args.limit : 10;
+        const search = await searchEqArchivesDetailed(query, limit);
+        return formatEqArchiveSearch(query, search.total, search.relation, search.results);
+      }
+
+      case 'get_eqarchive_document': {
+        const error = validateId(args);
+        if (error) return error;
+        const id = (args.id as string).trim();
+        const maxCharacters = typeof args.max_characters === 'number' ? args.max_characters : 12000;
+        return getEqArchiveDocument(id, maxCharacters);
       }
 
       case 'get_lore': {

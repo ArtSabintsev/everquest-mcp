@@ -1,4 +1,4 @@
-# Lore, Reference & Patch Detection Tools (30)
+# Lore, Reference & Patch Detection Tools (35)
 
 | Tool | Description |
 |------|-------------|
@@ -24,3 +24,6 @@
 | `save_data_snapshot` | Save game data snapshot for patch comparison |
 | `get_data_update_summary` | Compare current data against snapshot |
 | `get_data_update_detail` | Detailed diff per data system |
+| `get_official_history_of_norrath` | Original official 1999 Sony History of Norrath lore page (Wayback) |
+| `search_fvproject_lore` / `get_fvproject_lore` | Search and read The Firiona Vie Project Category:Lore pages |
+| `search_eqarchives` / `get_eqarchive_document` | Search and read the EQArchives historical corpus |

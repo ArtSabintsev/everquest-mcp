@@ -9,6 +9,17 @@ export { zliz } from './zliz.js';
 export { lucy } from './lucy.js';
 export { raidloot } from './raidloot.js';
 export { eqinterface } from './eqinterface.js';
+export {
+  officialEverQuestHistory,
+  fvprojectLore,
+  eqarchives,
+  getOfficialEverQuestHistory,
+  getFvProjectLore,
+  searchFvProjectLore,
+  searchEqArchivesDetailed,
+  getEqArchiveDocument,
+  formatEqArchiveSearch
+} from './historiclore.js';
 export * from './localdata.js';
 
 import { EQDataSource, SearchResult, normalizeQuery, fuzzyMatch } from './base.js';
@@ -21,6 +32,7 @@ import { zliz } from './zliz.js';
 import { lucy } from './lucy.js';
 import { raidloot } from './raidloot.js';
 import { eqinterface } from './eqinterface.js';
+import { officialEverQuestHistory, fvprojectLore, eqarchives } from './historiclore.js';
 
 // All registered sources
 export const sources: EQDataSource[] = [
@@ -33,6 +45,9 @@ export const sources: EQDataSource[] = [
   lucy,
   raidloot,
   eqinterface,
+  officialEverQuestHistory,
+  fvprojectLore,
+  eqarchives,
 ];
 
 // Get a source by name
