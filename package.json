@@ -1,10 +1,11 @@
 {
-  "name": "everquest-mcp",
+  "name": "everquest1-mcp",
   "version": "1.0.0",
   "description": "MCP server for EverQuest game data - search spells, items, NPCs, zones, quests across multiple databases",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
+    "everquest1-mcp": "./dist/index.js",
     "everquest-mcp": "./dist/index.js"
   },
   "files": [
@@ -28,18 +29,19 @@
     "ai",
     "gaming",
     "mmo",
-    "allakhazam"
+    "allakhazam",
+    "eq1"
   ],
   "author": "Arthur Sabintsev",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ArtSabintsev/everquest-mcp.git"
+    "url": "git+https://github.com/ArtSabintsev/everquest1-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/ArtSabintsev/everquest-mcp/issues"
+    "url": "https://github.com/ArtSabintsev/everquest1-mcp/issues"
   },
-  "homepage": "https://github.com/ArtSabintsev/everquest-mcp#readme",
+  "homepage": "https://github.com/ArtSabintsev/everquest1-mcp#readme",
   "engines": {
     "node": ">=18.0.0"
   },

@@ -54,8 +54,8 @@ External EQ community databases and historical lore/archive sources searched via
 ## Installation
 
 ```bash
-git clone https://github.com/ArtSabintsev/everquest-mcp.git
-cd everquest-mcp
+git clone https://github.com/ArtSabintsev/everquest1-mcp.git
+cd everquest1-mcp
 npm install
 npm run build
 ```
@@ -69,7 +69,7 @@ For offline access to comprehensive game data, set the `EQ_GAME_PATH` environmen
   "mcpServers": {
     "everquest": {
       "command": "node",
-      "args": ["/absolute/path/to/everquest-mcp/dist/index.js"],
+      "args": ["/absolute/path/to/everquest1-mcp/dist/index.js"],
       "env": {
         "EQ_GAME_PATH": "/path/to/EverQuest"
       }
@@ -89,7 +89,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
   "mcpServers": {
     "everquest": {
       "command": "node",
-      "args": ["/absolute/path/to/everquest-mcp/dist/index.js"]
+      "args": ["/absolute/path/to/everquest1-mcp/dist/index.js"]
     }
   }
 }

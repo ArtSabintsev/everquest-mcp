@@ -6,8 +6,8 @@ Thanks for your interest in contributing!
 
 ```bash
 # Clone the repo
-git clone https://github.com/ArtSabintsev/everquest-mcp.git
-cd everquest-mcp
+git clone https://github.com/ArtSabintsev/everquest1-mcp.git
+cd everquest1-mcp
 
 # Use correct Node version
 nvm use
